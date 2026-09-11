@@ -202,3 +202,8 @@ saved alongside it.
   `ProgressCard` for the wizard flow. `Composer` and `ApprovalCard` are
   wired but idle — reserved for Phase 2, where you'll likely want
   free-form chat with Codex and approval gates before it writes code.
+
+
+Docker building comments: docker build -t design-engineer-backend . 
+
+docker run -p 4000:4000 design-engineer-backend 
