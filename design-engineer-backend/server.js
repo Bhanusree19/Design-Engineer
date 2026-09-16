@@ -1420,6 +1420,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { spawn } = require('child_process');
 
 const app = express();
@@ -1987,6 +1988,90 @@ app.get(
         codexUser:
           null,
       });
+    }
+  }
+);
+
+// -----------------------------------------------------------------------------
+// CODEX ACCOUNT SWITCH
+// -----------------------------------------------------------------------------
+
+app.post(
+  '/auth/codex/logout',
+  async (req, res) => {
+    const sessionId =
+      req.body.session;
+
+    const session =
+      sessions.get(
+        sessionId
+      );
+
+    if (!session) {
+      return res
+        .status(404)
+        .json({
+          error:
+            'Unknown session',
+        });
+    }
+
+    try {
+      if (
+        fs.existsSync(
+          CODEX_CLI_BIN
+        )
+      ) {
+        await runProcess(
+          process.execPath,
+          [
+            CODEX_CLI_BIN,
+            'logout',
+          ],
+          {
+            cwd:
+              __dirname,
+            env: {
+              ...process.env,
+              CODEX_HOME,
+              HOME:
+                CODEX_HOME,
+            },
+          }
+        );
+      }
+
+      session.codexToken =
+        null;
+
+      session.codexUser =
+        null;
+
+      session.codexAuth =
+        null;
+
+      session.lastUsedAt =
+        new Date().toISOString();
+
+      persistSessions();
+
+      res.json({
+        success:
+          true,
+      });
+    } catch (error) {
+      console.error(
+        '[Design Engineer] Codex logout failed:',
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          error:
+            error.message ||
+            'Codex logout failed.',
+        });
     }
   }
 );
@@ -2670,6 +2755,34 @@ function requireGithubSession(
   return session;
 }
 
+function clearGithubSession(
+  session
+) {
+  session.githubToken =
+    null;
+
+  session.githubUser =
+    null;
+
+  session.lastUsedAt =
+    new Date().toISOString();
+
+  persistSessions();
+}
+
+function respondGithubReauth(
+  res
+) {
+  return res
+    .status(401)
+    .json({
+      error:
+        'GitHub authorization expired or was revoked. Reconnect GitHub in the plugin.',
+      code:
+        'GITHUB_REAUTH_REQUIRED',
+    });
+}
+
 // -----------------------------------------------------------------------------
 // REPOSITORIES
 // -----------------------------------------------------------------------------
@@ -2701,6 +2814,18 @@ app.get(
 
       const data =
         await r.json();
+
+      if (
+        r.status === 401
+      ) {
+        clearGithubSession(
+          session
+        );
+
+        return respondGithubReauth(
+          res
+        );
+      }
 
       if (
         !Array.isArray(data)
@@ -2786,6 +2911,18 @@ app.get(
         await r.json();
 
       if (
+        r.status === 401
+      ) {
+        clearGithubSession(
+          session
+        );
+
+        return respondGithubReauth(
+          res
+        );
+      }
+
+      if (
         !Array.isArray(data)
       ) {
         return res
@@ -2855,6 +2992,534 @@ function sanitizeFileName(
       0,
       150
     ) || 'screen';
+}
+
+function runProcess(
+  command,
+  args,
+  options = {}
+) {
+  const logPrefix =
+    options.logPrefix;
+
+  return new Promise(
+    (resolve, reject) => {
+      const child =
+        spawn(
+          command,
+          args,
+          {
+            ...options,
+            stdio: [
+              'ignore',
+              'pipe',
+              'pipe',
+            ],
+          }
+        );
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on(
+        'data',
+        (chunk) => {
+          const text =
+            chunk.toString();
+
+          stdout += text;
+
+          if (
+            logPrefix
+          ) {
+            text
+              .split(/\r?\n/)
+              .filter(Boolean)
+              .forEach(
+                (line) =>
+                  console.log(
+                    `${logPrefix} ${line}`
+                  )
+              );
+          }
+        }
+      );
+
+      child.stderr.on(
+        'data',
+        (chunk) => {
+          const text =
+            chunk.toString();
+
+          stderr += text;
+
+          if (
+            logPrefix
+          ) {
+            text
+              .split(/\r?\n/)
+              .filter(Boolean)
+              .forEach(
+                (line) =>
+                  console.log(
+                    `${logPrefix} ${line}`
+                  )
+              );
+          }
+        }
+      );
+
+      child.on(
+        'error',
+        reject
+      );
+
+      child.on(
+        'close',
+        (code) => {
+          if (code !== 0) {
+            reject(
+              new Error(
+                `${command} ${args[0] || ''} failed (${code}): ${stderr || stdout}`
+              )
+            );
+
+            return;
+          }
+
+          resolve({
+            stdout,
+            stderr,
+          });
+        }
+      );
+    }
+  );
+}
+
+async function githubRequest(
+  session,
+  endpoint,
+  options = {}
+) {
+  const response =
+    await fetch(
+      `https://api.github.com${endpoint}`,
+      {
+        ...options,
+        headers: {
+          Accept:
+            'application/vnd.github+json',
+          Authorization:
+            `Bearer ${session.githubToken}`,
+          'User-Agent':
+            'design-engineer-plugin',
+          ...(options.headers || {}),
+        },
+      }
+    );
+
+  const body =
+    await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      body.message ||
+        `GitHub request failed (${response.status})`
+    );
+  }
+
+  return body;
+}
+
+function getRepositoryParts(
+  repository
+) {
+  const parts =
+    String(repository)
+      .split('/')
+      .filter(Boolean);
+
+  if (parts.length !== 2) {
+    throw new Error(
+      'repo must use the owner/name format.'
+    );
+  }
+
+  return parts;
+}
+
+function buildImplementationPrompt(
+  screens,
+  contextDir,
+  baseBranch,
+  branchName
+) {
+  const screenList =
+    screens
+      .map(
+        (screen) =>
+          `- ${screen.name}: ${path.join(contextDir, screen.fileName)}`
+      )
+      .join('\n');
+
+  return `You are implementing multiple Figma screens in an existing React Native repository.
+
+Screens and design context files:
+${screenList}
+
+Base branch: ${baseBranch}
+Working branch: ${branchName}
+
+Instructions:
+1. Read README.md first, then inspect the complete repository tree, package.json files, and existing source before changing anything.
+2. The base branch may contain only README.md. If the app structure is missing, create a standard React Native project structure in this repository using the stack and package manager described by README.md. Keep the structure clear and production-ready, with an app entry point, src/screens, src/components, src/navigation, and src/theme or src/styles where appropriate.
+3. Preserve any existing React Native stack, package manager, naming conventions, and folder structure when those files already exist. Do not create a second app beside an existing app.
+4. Implement every supplied screen in the same branch and make the screens reachable through the app's navigation. Use the design context JSON files as the source of truth for layout, typography, spacing, colors, assets, and interactions.
+5. Inspect each extracted JSON for navigation relationships, destination names, tap targets, links, or screen transition metadata. Recreate those routes and transitions in the navigation setup, including the initial route and back behavior where the data indicates them.
+6. Share components, styles, theme tokens, and navigation configuration when screens have common structure. Do not duplicate whole screen implementations unnecessarily.
+7. Do not modify lockfiles or dependencies unless the implementation genuinely requires it. If navigation requires a dependency and the repository has no package setup, add the minimum documented dependency and its configuration.
+8. Do not commit the temporary .design-engineer/context files; they will be removed by the orchestrator.
+9. Add or update focused tests when the repository has a test setup.
+10. Run the repository's relevant validation commands from README and package scripts before finishing.
+
+Leave the working tree containing all screen implementations and working navigation, not just placeholder files.`;
+}
+
+async function appendTestInstructions(
+  worktree,
+  screenNames,
+  branchName
+) {
+  const readmePath =
+    path.join(
+      worktree,
+      'README.md'
+    );
+
+  if (
+    !fs.existsSync(
+      readmePath
+    )
+  ) {
+    return;
+  }
+
+  const marker =
+    `<!-- design-engineer:${branchName} -->`;
+
+  const current =
+    await fs.promises.readFile(
+      readmePath,
+      'utf8'
+    );
+
+  if (
+    current.includes(
+      marker
+    )
+  ) {
+    return;
+  }
+
+  const screenList =
+    screenNames
+      .map(
+        (screenName) =>
+          `- ${screenName}`
+      )
+      .join('\n');
+
+  const section = `\n\n${marker}\n## Test implemented screens\n\nThis implementation was generated from the Figma design context for these screens on branch \`${branchName}\`:\n\n${screenList}\n\n1. Clone this branch and install dependencies using the repository's documented package manager.\n2. Start the React Native app using the existing README command.\n3. Open every implemented screen through the navigation flow and verify the initial route, links, transitions, and back behavior.\n4. Verify each screen's layout, typography, spacing, interactions, and responsive behavior against Figma.\n5. Run the repository's documented test and lint commands before accepting the pull request.\n`;
+
+  await fs.promises.writeFile(
+    readmePath,
+    `${current.trimEnd()}${section}`,
+    'utf8'
+  );
+}
+
+async function implementScreensInBranch(
+  session,
+  repository,
+  baseBranch,
+  screens
+) {
+  const screenNames =
+    screens.map(
+      (screen) =>
+        screen.name
+    );
+
+  const firstScreenName =
+    screenNames[0] ||
+    'screens';
+
+  const safeScreenName =
+    sanitizeFileName(
+      firstScreenName
+    ).toLowerCase();
+
+  const branchName =
+    `implement/${safeScreenName}-screens-${Date.now()}`;
+
+  const tempRoot =
+    await fs.promises.mkdtemp(
+      path.join(
+        os.tmpdir(),
+        'design-engineer-'
+      )
+    );
+
+  const worktree =
+    path.join(
+      tempRoot,
+      'repository'
+    );
+
+  const contextDir =
+    path.join(
+      worktree,
+      '.design-engineer',
+      'context'
+    );
+
+  const encodedToken =
+    encodeURIComponent(
+      session.githubToken
+    );
+
+  const cloneUrl =
+    `https://x-access-token:${encodedToken}@github.com/${repository}.git`;
+
+  try {
+    await runProcess(
+      'git',
+      [
+        'clone',
+        '--depth=1',
+        '--branch',
+        baseBranch,
+        cloneUrl,
+        worktree,
+      ]
+    );
+
+    await runProcess(
+      'git',
+      [
+        'checkout',
+        '-b',
+        branchName,
+      ],
+      {
+        cwd: worktree,
+      }
+    );
+
+    console.log(
+      `[Design Engineer] Created implementation branch ${branchName}`
+    );
+
+    await fs.promises.mkdir(
+      contextDir,
+      {
+        recursive: true,
+      }
+    );
+
+    const contextScreens =
+      [];
+
+    for (
+      let index = 0;
+      index < screens.length;
+      index++
+    ) {
+      const screen =
+        screens[index];
+
+      const screenFileName =
+        `${sanitizeFileName(screen.name).toLowerCase()}-${index + 1}.json`;
+
+      await fs.promises.writeFile(
+        path.join(
+          contextDir,
+          screenFileName
+        ),
+        JSON.stringify(
+          screen.context,
+          null,
+          2
+        ),
+        'utf8'
+      );
+
+      contextScreens.push({
+        name:
+          screen.name,
+        fileName:
+          screenFileName,
+      });
+    }
+
+    await runProcess(
+      process.execPath,
+      [
+        CODEX_CLI_BIN,
+        'exec',
+        '--dangerously-bypass-approvals-and-sandbox',
+        '--cd',
+        worktree,
+        buildImplementationPrompt(
+          contextScreens,
+          contextDir,
+          baseBranch,
+          branchName
+        ),
+      ],
+      {
+        cwd: worktree,
+        logPrefix:
+          '[Codex]',
+        env: {
+          ...process.env,
+          CODEX_HOME,
+          HOME:
+            CODEX_HOME,
+        },
+      }
+    );
+
+    console.log(
+      `[Design Engineer] Codex finished for ${screenNames.join(', ')}`
+    );
+
+    await fs.promises.rm(
+      path.join(
+        worktree,
+        '.design-engineer'
+      ),
+      {
+        recursive: true,
+        force: true,
+      }
+    );
+
+    await appendTestInstructions(
+      worktree,
+      screenNames,
+      branchName
+    );
+
+    await runProcess(
+      'git',
+      [
+        'config',
+        'user.name',
+        'Design Engineer',
+      ],
+      {
+        cwd: worktree,
+      }
+    );
+
+    console.log(
+      `[Design Engineer] Pushed branch ${branchName}`
+    );
+
+    await runProcess(
+      'git',
+      [
+        'config',
+        'user.email',
+        'design-engineer[bot]@users.noreply.github.com',
+      ],
+      {
+        cwd: worktree,
+      }
+    );
+
+    await runProcess(
+      'git',
+      [
+        'add',
+        '-A',
+      ],
+      {
+        cwd: worktree,
+      }
+    );
+
+    await runProcess(
+      'git',
+      [
+        'commit',
+        '-m',
+        `Implement ${screenNames.join(', ')}`,
+      ],
+      {
+        cwd: worktree,
+      }
+    );
+
+    await runProcess(
+      'git',
+      [
+        'push',
+        'origin',
+        branchName,
+      ],
+      {
+        cwd: worktree,
+      }
+    );
+
+    const [owner, repo] =
+      getRepositoryParts(
+        repository
+      );
+
+    const pullRequest =
+      await githubRequest(
+        session,
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+          body: JSON.stringify({
+            title:
+              `Implement ${screenNames.join(', ')}`,
+            head: branchName,
+            base: baseBranch,
+            body:
+              `## Design Engineer implementation\n\nScreens:\n${screenNames.map((screenName) => `- ${screenName}`).join('\n')}\n\nCodex implemented all selected screens together from the saved Figma design contexts, including navigation. See the README test steps in this branch before merging.`,
+          }),
+        }
+      );
+
+    console.log(
+      `[Design Engineer] Pull request created: ${pullRequest.html_url}`
+    );
+
+    return {
+      screens: screenNames,
+      branch: branchName,
+      pullRequestUrl:
+        pullRequest.html_url,
+    };
+  } finally {
+    await fs.promises.rm(
+      tempRoot,
+      {
+        recursive: true,
+        force: true,
+      }
+    );
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -3067,6 +3732,176 @@ app.post(
           error:
             error.message ||
             'Failed to save Design Context',
+        });
+    }
+  }
+);
+
+// -----------------------------------------------------------------------------
+// IMPLEMENT SCREENS WITH CODEX AND OPEN PULL REQUESTS
+// -----------------------------------------------------------------------------
+
+app.post(
+  '/api/screens/implement',
+  async (req, res) => {
+    const session =
+      requireGithubSession(
+        req,
+        res
+      );
+
+    if (!session) {
+      return;
+    }
+
+    const {
+      repo,
+      baseBranch,
+      screens,
+    } = req.body;
+
+    if (
+      !repo ||
+      !baseBranch ||
+      !Array.isArray(
+        screens
+      ) ||
+      screens.length === 0
+    ) {
+      return res
+        .status(400)
+        .json({
+          error:
+            'repo, baseBranch and screens[] are required',
+        });
+    }
+
+    if (
+      !session.codexToken &&
+      (await getCodexLoginStatus()) !==
+        'connected'
+    ) {
+      return res
+        .status(401)
+        .json({
+          error:
+            'Codex is not authenticated in the backend container.',
+        });
+    }
+
+    try {
+      const safeUser =
+        sanitizeFileName(
+          session.githubUser
+        );
+
+      const safeRepo =
+        sanitizeFileName(
+          repo
+        );
+
+      const safeBaseBranch =
+        sanitizeFileName(
+          baseBranch
+        );
+
+      const savedContextDir =
+        path.join(
+          __dirname,
+          'data',
+          safeUser,
+          safeRepo,
+          safeBaseBranch
+        );
+
+      const selectedScreens =
+        await Promise.all(
+          screens
+            .filter(
+              (screen) =>
+                screen &&
+                typeof screen ===
+                  'object'
+            )
+            .map(
+              async (screen, index) => {
+                const name =
+                  screen.screen ||
+                  screen.name ||
+                  `screen-${index + 1}`;
+
+                const filePath =
+                  path.join(
+                    savedContextDir,
+                    `design-context_${sanitizeFileName(name)}.json`
+                  );
+
+                let context;
+
+                try {
+                  context =
+                    JSON.parse(
+                      await fs.promises.readFile(
+                        filePath,
+                        'utf8'
+                      )
+                    );
+                } catch (error) {
+                  throw new Error(
+                    `Saved Design Context not found for "${name}" at ${filePath}. Fetch the screens again before starting implementation.`
+                  );
+                }
+
+                return {
+                  name,
+                  context,
+                };
+              }
+            )
+        );
+
+      if (
+        selectedScreens.length === 0
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              'No valid screens were supplied.',
+          });
+      }
+
+      console.log(
+        `[Design Engineer] Starting one implementation branch for ${selectedScreens.length} screen(s).`
+      );
+
+      const implementation =
+        await implementScreensInBranch(
+          session,
+          repo,
+          baseBranch,
+          selectedScreens
+        );
+
+      res.json({
+        success:
+          true,
+        implementations: [
+          implementation,
+        ],
+      });
+    } catch (error) {
+      console.error(
+        '[Design Engineer] Failed to implement screens:',
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          error:
+            error.message ||
+            'Failed to implement screens.',
         });
     }
   }

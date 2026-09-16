@@ -1788,6 +1788,9 @@ export default function App() {
       new Set()
     );
 
+  const [fetchedScreens, setFetchedScreens] =
+    useState<any[]>([]);
+
   const [busy, setBusy] =
     useState(false);
 
@@ -2643,6 +2646,63 @@ export default function App() {
       );
   }
 
+  async function handleSwitchCodexAccount() {
+    const currentSessionId =
+      sessionIdRef.current;
+
+    if (
+      !currentSessionId
+    ) {
+      return;
+    }
+
+    setBusy(true);
+
+    setBusyLabel(
+      'Signing out of Codex...'
+    );
+
+    setError(null);
+
+    try {
+      await api.logoutCodex(
+        currentSessionId
+      );
+
+      sendToPlugin({
+        type:
+          'clear-codex-auth',
+      });
+
+      setBusy(false);
+
+      setBusyLabel('');
+
+      setStep(
+        'signin'
+      );
+
+      log(
+        'assistant',
+        'Codex signed out. Click Sign in to authenticate a different account.'
+      );
+    } catch (error: any) {
+      console.error(
+        '[Design Engineer] Codex account switch failed:',
+        error
+      );
+
+      setBusy(false);
+
+      setBusyLabel('');
+
+      setError(
+        error?.message ||
+          'Could not sign out of Codex.'
+      );
+    }
+  }
+
   // ===========================================================================
   // LOAD REPOSITORIES
   // ===========================================================================
@@ -2699,6 +2759,36 @@ export default function App() {
       setBusy(false);
 
       setBusyLabel('');
+
+      if (
+        String(
+          error?.message ||
+            ''
+        ).includes(
+          'GITHUB_REAUTH_REQUIRED'
+        ) ||
+        String(
+          error?.message ||
+            ''
+        ).includes(
+          '401'
+        )
+      ) {
+        setStep(
+          'github'
+        );
+
+        setError(
+          'Your GitHub authorization expired. Reconnect GitHub to continue.'
+        );
+
+        log(
+          'assistant',
+          'GitHub authorization expired. Click Continue with GitHub to reconnect.'
+        );
+
+        return;
+      }
 
       setError(
         error?.message ||
@@ -3070,6 +3160,10 @@ export default function App() {
         message
       );
 
+      setFetchedScreens(
+        results
+      );
+
       setCheckedIds(
         new Set()
       );
@@ -3107,6 +3201,79 @@ export default function App() {
     }
   }
 
+  async function handleImplement() {
+    const currentSessionId =
+      sessionIdRef.current;
+
+    const currentRepo =
+      selectedRepoRef.current;
+
+    const currentBranch =
+      selectedBranchRef.current;
+
+    if (
+      !currentSessionId ||
+      !currentRepo ||
+      !currentBranch ||
+      fetchedScreens.length === 0
+    ) {
+      setError(
+        'Fetch at least one screen before starting implementation.'
+      );
+
+      return;
+    }
+
+    setError(null);
+
+    setBusy(true);
+
+    setBusyLabel(
+      `Codex is implementing ${fetchedScreens.length} screen${fetchedScreens.length > 1 ? 's' : ''}...`
+    );
+
+    try {
+      const result =
+        await api.implementScreens(
+          currentSessionId,
+          currentRepo,
+          currentBranch,
+          fetchedScreens
+        );
+
+      log(
+        'assistant',
+        [
+          ...result.implementations
+          .map(
+            (implementation) =>
+              `Implemented ${implementation.screens.join(', ')}\nBranch: ${implementation.branch}\nPull request: ${implementation.pullRequestUrl}`
+          ),
+        ].join('\n\n')
+      );
+
+      setBusy(false);
+
+      setBusyLabel(
+        'Implementation complete. Pull request(s) ready for testing.'
+      );
+    } catch (error: any) {
+      console.error(
+        '[Design Engineer] Implementation failed:',
+        error
+      );
+
+      setBusy(false);
+
+      setBusyLabel('');
+
+      setError(
+        error?.message ||
+          'Failed to implement screens.'
+      );
+    }
+  }
+
   // ===========================================================================
   // RENDER
   // ===========================================================================
@@ -3131,6 +3298,23 @@ export default function App() {
               : ''}
           </div>
         )}
+
+          {step !== 'restoring' &&
+            step !== 'signin' &&
+            sessionId && (
+            <button
+              type="button"
+              className="account-switch"
+              disabled={
+                busy
+              }
+              onClick={
+                handleSwitchCodexAccount
+              }
+            >
+              Switch Codex account
+            </button>
+          )}
       </header>
 
       {/* =================================================================== */}
@@ -3454,20 +3638,36 @@ export default function App() {
 
         {step ===
           'done' && (
-          <button
-            className="primary"
-            onClick={() => {
-              setStep(
-                'screens'
-              );
+          <>
+            <button
+              className="primary"
+              disabled={
+                busy
+              }
+              onClick={
+                handleImplement
+              }
+            >
+              Start implement
+            </button>
 
-              setBusyLabel('');
+            <button
+              disabled={
+                busy
+              }
+              onClick={() => {
+                setStep(
+                  'screens'
+                );
 
-              setError(null);
-            }}
-          >
-            Select more screens
-          </button>
+                setBusyLabel('');
+
+                setError(null);
+              }}
+            >
+              Select more screens
+            </button>
+          </>
         )}
       </footer>
 

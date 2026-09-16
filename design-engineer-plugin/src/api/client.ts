@@ -356,6 +356,23 @@ export function getCodexStatus(
   );
 }
 
+export function logoutCodex(
+  sessionId: string
+): Promise<{
+  success: boolean;
+}> {
+  return request(
+    '/auth/codex/logout',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        session:
+          sessionId,
+      }),
+    }
+  );
+}
+
 export function startCodexDeviceAuth(
   sessionId: string
 ) {
@@ -490,6 +507,35 @@ export function submitScreens(
 
         branch,
 
+        screens,
+      }),
+    }
+  );
+}
+
+export interface ImplementationResult {
+  screens: string[];
+  branch: string;
+  pullRequestUrl: string;
+}
+
+export function implementScreens(
+  sessionId: string,
+  repo: string,
+  baseBranch: string,
+  screens: unknown[]
+): Promise<{
+  implementations: ImplementationResult[];
+}> {
+  return request(
+    '/api/screens/implement',
+    {
+      method: 'POST',
+
+      body: JSON.stringify({
+        session: sessionId,
+        repo,
+        baseBranch,
         screens,
       }),
     }

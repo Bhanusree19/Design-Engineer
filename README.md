@@ -204,6 +204,58 @@ saved alongside it.
   free-form chat with Codex and approval gates before it writes code.
 
 
-Docker building comments: docker build -t design-engineer-backend . 
+Docker building comments: docker build -t design-engineer-backend .
 
-docker run -p 4000:4000 design-engineer-backend 
+docker run -p 4000:4000 design-engineer-backend
+
+## Phase 2: Implement screens and open PRs
+
+After `Fetch` saves the screen JSON, the plugin shows `Start implement`.
+The backend then performs these steps for every selected screen:
+
+1. Clones the selected repository and base branch into a temporary worktree.
+2. Writes that screen's JSON into a temporary `.design-engineer/context` file.
+3. Runs the authenticated Codex CLI in the worktree. Codex reads the repository README and existing source tree, then follows the repository's current React Native folder structure.
+4. Removes the temporary context file, appends test steps to `README.md`, and commits the implementation.
+5. Creates a branch named `implement/<frame-name>-<timestamp>`, pushes it, and opens a GitHub pull request against the selected base branch.
+
+All selected screens are implemented together in one branch and one pull request. The plugin displays the shared branch and pull request URL after the job finishes.
+
+### Phase 2 local test
+
+The backend must run in the environment where Codex is authenticated and where `git` is installed. Rebuild the Docker image after changing the Dockerfile. The supplied Dockerfile installs `git`, which the implementation job needs for cloning, branching, committing, and pushing:
+
+```bash
+cd design-engineer-backend
+docker build -t design-engineer-backend .
+docker volume create design-engineer-codex
+docker volume create design-engineer-data
+docker run --rm --name design-engineer-backend \
+  --env-file .env \
+  -p 4000:4000 \
+  -v design-engineer-codex:/app/.codex \
+  -v design-engineer-data:/app/data \
+  design-engineer-backend
+```
+
+The saved Design Context files are written under `/app/data/<github-user>/<repo>/<base-branch>/design-context_<screen>.json`. `Start implement` reads those exact files; it does not use a different repository directory. The named data volume keeps them after the container stops, and the named Codex volume keeps authentication after rebuilds.
+
+Authenticate Codex once in the running container:
+
+```bash
+docker exec -it design-engineer-backend sh
+codex login
+exit
+```
+
+If you run the backend directly with Node instead, no Docker rebuild is needed, but `git` must be installed on the host and the backend's `CODEX_HOME` must contain the Codex login.
+
+Then build the plugin in a second terminal:
+
+```bash
+cd design-engineer-plugin
+npm install
+npm run watch
+```
+
+In Figma Desktop, import `design-engineer-plugin/manifest.json`, choose a repository and base branch, select one or more frames, and click `Fetch`. After the JSON save confirmation, click `Start implement`. Open each displayed PR, clone its branch, follow the generated README test steps, and only merge after the React Native tests and visual checks pass.

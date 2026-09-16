@@ -582,6 +582,25 @@ figma.ui.onmessage =
       }
 
       // =======================================================================
+      // CLEAR CODEX AUTH MARKER
+      // =======================================================================
+
+      if (
+        msg.type ===
+        'clear-codex-auth'
+      ) {
+        await figma.clientStorage.deleteAsync(
+          CODEX_AUTH_STORAGE_KEY
+        );
+
+        console.log(
+          '[Design Engineer] Codex auth marker cleared.'
+        );
+
+        return;
+      }
+
+      // =======================================================================
       // CLEAR SESSION
       // =======================================================================
 
