@@ -179,16 +179,7 @@ screen, e.g. name a frame `Product Details`.
    tab to `http://localhost:4000/auth/github`). Authorize the app; the tab
    shows "GitHub connected ✅". **Close the tab** — the plugin polls and picks
    the connection up automatically. The dashboard now shows *Connected as
-   @yourhandle*, plus a **Log out GitHub** button (disconnect + connect
-   another account).
-   - **Your GitHub account is whatever account you authorize with.** The OAuth
-     app used in the flow only powers the login — it never binds one account.
-   - Optional: in the dashboard's **GitHub OAuth App** card you can save your
-     *own* OAuth App (client ID + client secret), stored encrypted in your
-     Supabase database and used instead of the backend `.env` for your
-     connections. Create the app at GitHub → Settings → Developer settings →
-     OAuth Apps, with callback URL `http://localhost:4000/auth/github/callback`.
-     Click **Use built-in app** to go back to the `.env` app.
+   @yourhandle*, plus a **Switch accounts** button (disconnect + reconnect).
 5. Next the project asks you to **connect Codex**. Click **Connect Codex** →
    a **device code** is shown. Open <https://chatgpt.com/auth/login> (or the
    shown URL), sign in, enter the code, and approve. The plugin polls until
@@ -299,14 +290,6 @@ The backend must run where `git` is installed (it is, in the Docker image).
   scoped via the owning project.
 - **GitHub OAuth state** uses a short-lived (10-minute) in-memory map —
   standard cross-request OAuth bookkeeping, not user data.
-- **GitHub OAuth App credentials**: the backend uses your per-user saved app
-  (`github_oauth_apps`, client secret encrypted) when you've saved one,
-  otherwise the built-in `.env` app. Either way, **any GitHub account** can
-  authorize and connect — the client ID/secret identify the app, not a user.
-- **Logging out / switching accounts**: the dashboard has **Log out** (app
-  account), **Log out GitHub** (connect a different GitHub account), and
-  **Switch Codex account** (connect a different Codex account). All
-  connections stay safely stored in Supabase until you switch.
 - **Encryption**: GitHub tokens and Codex credentials are AES-256-GCM
   encrypted at rest with a key from `ENCRYPTION_KEY` (64 hex chars) or a
   stable fallback derived from `.env` values.

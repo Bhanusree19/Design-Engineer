@@ -80,23 +80,6 @@ BEGIN
 END $$;
 
 -- -----------------------------------------------------------------------------
--- 3.5 public.github_oauth_apps
---    Optional per-user GitHub OAuth App credentials (client_id + encrypted
---    client_secret). When a user saves their own app here, the backend uses it
---    for their GitHub connect flow instead of the built-in .env app. This is
---    stored encrypted — the plugin/client never receives the client_secret.
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.github_oauth_apps (
-  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id                uuid NOT NULL UNIQUE REFERENCES public.profiles(id) ON DELETE CASCADE,
-  app_name               text,
-  client_id              text,
-  client_secret_encrypted text,
-  created_at             timestamptz NOT NULL DEFAULT now(),
-  updated_at             timestamptz NOT NULL DEFAULT now()
-);
-
--- -----------------------------------------------------------------------------
 -- 4. public.codex_accounts
 --    One active Codex connection per user (UNIQUE on user_id).
 --    credential_reference holds backend-encrypted CLI credentials so a login
@@ -136,7 +119,6 @@ CREATE TABLE IF NOT EXISTS public.design_contexts (
 ALTER TABLE public.profiles           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.projects           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.github_connections ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.github_oauth_apps  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.codex_accounts     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.design_contexts    ENABLE ROW LEVEL SECURITY;
 
@@ -189,23 +171,6 @@ CREATE POLICY "github_update_own" ON public.github_connections
 
 DROP POLICY IF EXISTS "github_delete_own" ON public.github_connections;
 CREATE POLICY "github_delete_own" ON public.github_connections
-  FOR DELETE USING (user_id = auth.uid());
-
--- github_oauth_apps --------------------------------------------------------
-DROP POLICY IF EXISTS "oauth_app_select_own" ON public.github_oauth_apps;
-CREATE POLICY "oauth_app_select_own" ON public.github_oauth_apps
-  FOR SELECT USING (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "oauth_app_insert_own" ON public.github_oauth_apps;
-CREATE POLICY "oauth_app_insert_own" ON public.github_oauth_apps
-  FOR INSERT WITH CHECK (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "oauth_app_update_own" ON public.github_oauth_apps;
-CREATE POLICY "oauth_app_update_own" ON public.github_oauth_apps
-  FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-
-DROP POLICY IF EXISTS "oauth_app_delete_own" ON public.github_oauth_apps;
-CREATE POLICY "oauth_app_delete_own" ON public.github_oauth_apps
   FOR DELETE USING (user_id = auth.uid());
 
 -- codex_accounts ----------------------------------------------------------
@@ -308,7 +273,7 @@ $$;
 DO $$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['profiles','projects','github_connections','github_oauth_apps','codex_accounts','design_contexts']
+  FOREACH t IN ARRAY ARRAY['profiles','projects','github_connections','codex_accounts','design_contexts']
   LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS %I_set_updated_at ON public.%I', t, t);
     EXECUTE format(
