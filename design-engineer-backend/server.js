@@ -141,6 +141,18 @@ function decryptText(payload) {
 // SUPABASE CLIENT (used for auth endpoints)
 // -----------------------------------------------------------------------------
 
+// @supabase/supabase-js v2.116+ requires a native WebSocket (Node >= 22).
+// Fail fast with a clear message instead of the cryptic WebSocketFactory crash.
+if (typeof globalThis.WebSocket === 'undefined') {
+  console.error(
+    '[Design Engineer] Node.js 22 or newer is required (native WebSocket missing).\n' +
+      '  - Running locally: upgrade your Node installation to 22+.\n' +
+      '  - Running in Docker: rebuild the image (Dockerfile now uses node:22-alpine).\n' +
+      '    docker build -t design-engineer-backend .'
+  );
+  process.exit(1);
+}
+
 const supabase = createClient(SUPABASE_URL || 'http://localhost', SUPABASE_ANON_KEY || 'x');
 
 // -----------------------------------------------------------------------------
