@@ -1,440 +1,257 @@
-
-// const DEFAULT_BASE_URL =
-//   'http://localhost:4000';
-
-// function getBaseUrl(): string {
-//   return (
-//     (window as any)
-//       .__DESIGN_ENGINEER_API__ ||
-//     DEFAULT_BASE_URL
-//   );
-// }
-
-// async function request<T = any>(
-//   path: string,
-//   options: RequestInit = {}
-// ): Promise<T> {
-//   const res =
-//     await fetch(
-//       `${getBaseUrl()}${path}`,
-//       {
-//         ...options,
-
-//         headers: {
-//           'Content-Type':
-//             'application/json',
-
-//           ...(options.headers ||
-//             {}),
-//         },
-//       }
-//     );
-
-//   if (!res.ok) {
-//     const text =
-//       await res
-//         .text()
-//         .catch(() => '');
-
-//     throw new Error(
-//       `Request to ${path} failed (${res.status}): ${
-//         text ||
-//         res.statusText
-//       }`
-//     );
-//   }
-
-//   return res.json();
-// }
-
-// /**
-//  * Session.
-//  */
-// export interface Session {
-//   sessionId: string;
-// }
-
-// /**
-//  * Session status.
-//  */
-// export interface SessionStatus {
-//   codexConnected?: boolean;
-
-//   codexUser?: string | null;
-
-//   githubConnected: boolean;
-
-//   githubUser: string | null;
-// }
-
-// /**
-//  * GitHub repository.
-//  */
-// export interface Repo {
-//   fullName: string;
-
-//   private: boolean;
-// }
-
-// /**
-//  * GitHub branch.
-//  */
-// export interface Branch {
-//   name: string;
-// }
-
-// /**
-//  * Design Context upload response.
-//  */
-// export interface SubmitScreensResponse {
-//   success: boolean;
-
-//   saved: string[];
-
-//   screenCount: number;
-
-//   file?: string;
-// }
-
-// /**
-//  * Create backend session.
-//  */
-// export function createSession(): Promise<Session> {
-//   return request(
-//     '/auth/session',
-//     {
-//       method: 'POST',
-//     }
-//   );
-// }
-
-// /**
-//  * Get session status.
-//  */
-// export function getSessionStatus(
-//   sessionId: string
-// ): Promise<SessionStatus> {
-//   return request(
-//     `/auth/session/${sessionId}`
-//   );
-// }
-
-// /**
-//  * GitHub OAuth URL.
-//  */
-// export function githubAuthUrl(
-//   sessionId: string
-// ): string {
-//   return `${getBaseUrl()}/auth/github?session=${sessionId}`;
-// }
-
-// /**
-//  * Get repositories.
-//  */
-// export function listRepos(
-//   sessionId: string
-// ): Promise<{
-//   repos: Repo[];
-// }> {
-//   return request(
-//     `/api/repos?session=${sessionId}`
-//   );
-// }
-
-// /**
-//  * Get branches.
-//  */
-// export function listBranches(
-//   sessionId: string,
-
-//   owner: string,
-
-//   repo: string
-// ): Promise<{
-//   branches: Branch[];
-// }> {
-//   return request(
-//     `/api/repos/${owner}/${repo}/branches?session=${sessionId}`
-//   );
-// }
-
-// /**
-//  * Send extracted Design Context to backend.
-//  */
-// export function submitScreens(
-//   sessionId: string,
-
-//   repo: string,
-
-//   branch: string,
-
-//   screens: unknown[]
-// ): Promise<SubmitScreensResponse> {
-//   return request(
-//     '/api/screens/fetch',
-//     {
-//       method: 'POST',
-
-//       body: JSON.stringify({
-//         session:
-//           sessionId,
-
-//         repo,
-
-//         branch,
-
-//         screens,
-//       }),
-//     }
-//   );
-// }
-
-// /**
-//  * Start Codex device authentication.
-//  */
-// export function startCodexDeviceAuth(
-//   sessionId: string
-// ) {
-//   return request<{
-//     device_code: string;
-
-//     user_code: string;
-
-//     verification_uri: string;
-
-//     verification_uri_complete: string;
-
-//     interval: number;
-//   }>(
-//     '/auth/codex/device',
-//     {
-//       method: 'POST',
-
-//       body: JSON.stringify({
-//         session:
-//           sessionId,
-//       }),
-//     }
-//   );
-// }
-
-// /**
-//  * Check Codex authentication status.
-//  */
-// export function getCodexDeviceStatus(
-//   deviceCode: string
-// ) {
-//   return request<{
-//     status:
-//       | 'pending'
-//       | 'approved'
-//       | 'expired';
-
-//     codexUser:
-//       | string
-//       | null;
-//   }>(
-//     `/auth/codex/device/${deviceCode}/status`
-//   );
-// }
-
-
 // src/api/client.ts
+//
+// Design Engineer backend client — Supabase-auth aware.
+//
+// The plugin authenticates every request with the Supabase access token that
+// was returned by signup / signin / refresh. All account, project, GitHub and
+// Codex state lives in Supabase via the backend; nothing here touches Docker.
 
-// -----------------------------------------------------------------------------
-// Design Engineer Backend Client
-// -----------------------------------------------------------------------------
-
-const DEFAULT_BASE_URL =
-  'http://localhost:4000';
+const DEFAULT_BASE_URL = 'http://localhost:4000';
 
 function getBaseUrl(): string {
   return (
-    (window as any)
-      .__DESIGN_ENGINEER_API__ ||
+    (window as any).__DESIGN_ENGINEER_API__ ||
     DEFAULT_BASE_URL
   );
 }
 
+// -----------------------------------------------------------------------------
+// ACCESS TOKEN
+// -----------------------------------------------------------------------------
+
+let authToken: string | null = null;
+
+export function setAccessToken(token: string | null) {
+  authToken = token;
+}
+
+export function getAccessToken(): string | null {
+  return authToken;
+}
+
+// -----------------------------------------------------------------------------
+// REQUEST HELPER
+// -----------------------------------------------------------------------------
+
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 async function request<T = any>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  token: string | null = authToken
 ): Promise<T> {
-  const res = await fetch(
-    `${getBaseUrl()}${path}`,
-    {
-      ...options,
+  const res = await fetch(`${getBaseUrl()}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
 
-      headers: {
-        'Content-Type':
-          'application/json',
+  const text = await res.text().catch(() => '');
+  let detail: any = text || res.statusText;
+  let code: string | undefined;
 
-        ...(options.headers || {}),
-      },
+  try {
+    const json = JSON.parse(text);
+    if (json && typeof json.error === 'string') {
+      detail = json.error;
+      code = json.code;
+    } else if (json) {
+      detail = json;
     }
-  );
+  } catch {
+    // non-JSON body
+  }
 
   if (!res.ok) {
-    const text =
-      await res
-        .text()
-        .catch(() => '');
-
-    throw new Error(
-      `Request to ${path} failed (${res.status}): ${
-        text || res.statusText
-      }`
+    throw new ApiError(
+      typeof detail === 'string'
+        ? detail
+        : `Request to ${path} failed (${res.status})`,
+      res.status,
+      code
     );
   }
 
-  return res.json();
+  return detail as T;
 }
 
 // -----------------------------------------------------------------------------
-// SESSION
+// AUTH
 // -----------------------------------------------------------------------------
 
-export interface Session {
-  sessionId: string;
+export interface AuthUser {
+  id: string;
+  email: string;
+  created_at?: string;
 }
 
-export interface SessionStatus {
-  githubConnected: boolean;
-  githubUser: string | null;
-
-  codexConnected?: boolean;
-  codexUser?: string | null;
+export interface AuthSession {
+  accessToken: string;
+  refreshToken: string;
+  user: AuthUser;
 }
 
-export function createSession(): Promise<Session> {
+export interface SignupResponse extends Partial<AuthSession> {
+  confirmationRequired?: boolean;
+  email?: string;
+}
+
+export function signup(email: string, password: string): Promise<SignupResponse> {
+  return request('/auth/signup', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function signin(email: string, password: string): Promise<AuthSession> {
+  return request('/auth/signin', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function refreshSession(refreshToken: string): Promise<AuthSession> {
   return request(
-    '/auth/session',
+    '/auth/refresh',
     {
       method: 'POST',
-    }
+      body: JSON.stringify({ refreshToken }),
+    },
+    null
   );
 }
 
-export function getSessionStatus(
-  sessionId: string
-): Promise<SessionStatus> {
-  return request(
-    `/auth/session/${encodeURIComponent(
-      sessionId
-    )}`
-  );
+export interface GithubStatus {
+  connected: boolean;
+  githubUser: string | null;
 }
 
-// -----------------------------------------------------------------------------
-// CODEX AUTH
-// -----------------------------------------------------------------------------
-
-export interface CodexStatus {
+export interface CodexStatusInfo {
   connected: boolean;
   codexUser: string | null;
+  credentialsSaved?: boolean;
 }
 
-/**
- * Checks whether Codex CLI is already authenticated.
- *
- * IMPORTANT:
- * This does NOT start a new login.
- *
- * Backend internally runs:
- *
- *   codex login status
- *
- * using the persistent CODEX_HOME.
- */
-export function getCodexStatus(
-  sessionId: string
-): Promise<CodexStatus> {
-  return request(
-    `/auth/codex/status?session=${encodeURIComponent(
-      sessionId
-    )}`
-  );
+export interface Project {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  repository: string | null;
+  base_branch: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
-export function logoutCodex(
-  sessionId: string
-): Promise<{
-  success: boolean;
-}> {
-  return request(
-    '/auth/codex/logout',
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        session:
-          sessionId,
-      }),
-    }
-  );
+export interface MeResponse {
+  user: AuthUser;
+  profile: { email?: string } | null;
+  github: GithubStatus;
+  projects: Project[];
+  codex: CodexStatusInfo;
 }
 
-export function startCodexDeviceAuth(
-  sessionId: string
-) {
+export function getMe(): Promise<MeResponse> {
+  return request('/auth/me');
+}
+
+// -----------------------------------------------------------------------------
+// GITHUB
+// -----------------------------------------------------------------------------
+
+export function githubConnect(): Promise<{ url: string }> {
+  return request('/api/github/connect', { method: 'POST' });
+}
+
+export function githubStatus(): Promise<GithubStatus> {
+  return request('/api/github/status');
+}
+
+export function githubDisconnect(): Promise<{ success: boolean }> {
+  return request('/api/github/disconnect', { method: 'POST' });
+}
+
+// -----------------------------------------------------------------------------
+// PROJECTS
+// -----------------------------------------------------------------------------
+
+export function listProjects(): Promise<{ projects: Project[] }> {
+  return request('/api/projects');
+}
+
+export function createProject(name: string, description?: string): Promise<{ project: Project }> {
+  return request('/api/projects', {
+    method: 'POST',
+    body: JSON.stringify({ name, description }),
+  });
+}
+
+export function getProject(id: string): Promise<{ project: Project; fetchedScreens: unknown[] }> {
+  return request(`/api/projects/${encodeURIComponent(id)}`);
+}
+
+export function updateProject(
+  id: string,
+  patch: Partial<Pick<Project, 'name' | 'description' | 'status' | 'repository' | 'base_branch'>>
+): Promise<{ project: Project }> {
+  return request(`/api/projects/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteProject(id: string): Promise<{ success: boolean }> {
+  return request(`/api/projects/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+// -----------------------------------------------------------------------------
+// CODEX
+// -----------------------------------------------------------------------------
+
+export function codexStatus(): Promise<CodexStatusInfo> {
+  return request('/auth/codex/status');
+}
+
+export function logoutCodex(): Promise<{ success: boolean }> {
+  return request('/auth/codex/logout', { method: 'POST' });
+}
+
+export function startCodexDeviceAuth() {
   return request<{
     device_code: string;
-
     user_code: string;
-
     verification_uri: string;
-
     verification_uri_complete: string;
-
     interval: number;
-  }>(
-    '/auth/codex/device',
-    {
-      method: 'POST',
-
-      body: JSON.stringify({
-        session:
-          sessionId,
-      }),
-    }
-  );
+    alreadyAuthenticated?: boolean;
+    codexUser?: string;
+  }>('/auth/codex/device', { method: 'POST' });
 }
 
-export function getCodexDeviceStatus(
-  deviceCode: string
-) {
+export function getCodexDeviceStatus(deviceCode: string) {
   return request<{
-    status:
-      | 'pending'
-      | 'approved'
-      | 'expired';
-
-    codexUser:
-      | string
-      | null;
-  }>(
-    `/auth/codex/device/${encodeURIComponent(
-      deviceCode
-    )}/status`
-  );
+    status: 'pending' | 'approved' | 'expired';
+    codexUser: string | null;
+  }>(`/auth/codex/device/${encodeURIComponent(deviceCode)}/status`);
 }
 
 // -----------------------------------------------------------------------------
-// GITHUB AUTH
-// -----------------------------------------------------------------------------
-
-export function githubAuthUrl(
-  sessionId: string
-): string {
-  return (
-    `${getBaseUrl()}/auth/github` +
-    `?session=${encodeURIComponent(
-      sessionId
-    )}`
-  );
-}
-
-// -----------------------------------------------------------------------------
-// REPOSITORIES
+// REPOSITORIES & BRANCHES
 // -----------------------------------------------------------------------------
 
 export interface Repo {
@@ -442,41 +259,17 @@ export interface Repo {
   private: boolean;
 }
 
-export function listRepos(
-  sessionId: string
-): Promise<{
-  repos: Repo[];
-}> {
-  return request(
-    `/api/repos?session=${encodeURIComponent(
-      sessionId
-    )}`
-  );
+export function listRepos(): Promise<{ repos: Repo[] }> {
+  return request('/api/repos');
 }
-
-// -----------------------------------------------------------------------------
-// BRANCHES
-// -----------------------------------------------------------------------------
 
 export interface Branch {
   name: string;
 }
 
-export function listBranches(
-  sessionId: string,
-  owner: string,
-  repo: string
-): Promise<{
-  branches: Branch[];
-}> {
+export function listBranches(owner: string, repo: string): Promise<{ branches: Branch[] }> {
   return request(
-    `/api/repos/${encodeURIComponent(
-      owner
-    )}/${encodeURIComponent(
-      repo
-    )}/branches?session=${encodeURIComponent(
-      sessionId
-    )}`
+    `/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`
   );
 }
 
@@ -485,32 +278,15 @@ export function listBranches(
 // -----------------------------------------------------------------------------
 
 export function submitScreens(
-  sessionId: string,
+  projectId: string,
   repo: string,
   branch: string,
   screens: unknown[]
-): Promise<{
-  saved: string[];
-
-  screenCount?: number;
-}> {
-  return request(
-    '/api/screens/fetch',
-    {
-      method: 'POST',
-
-      body: JSON.stringify({
-        session:
-          sessionId,
-
-        repo,
-
-        branch,
-
-        screens,
-      }),
-    }
-  );
+): Promise<{ saved: string[]; screenCount?: number }> {
+  return request('/api/screens/fetch', {
+    method: 'POST',
+    body: JSON.stringify({ projectId, repo, branch, screens }),
+  });
 }
 
 export interface ImplementationResult {
@@ -520,24 +296,11 @@ export interface ImplementationResult {
 }
 
 export function implementScreens(
-  sessionId: string,
-  repo: string,
-  baseBranch: string,
+  projectId: string,
   screens: unknown[]
-): Promise<{
-  implementations: ImplementationResult[];
-}> {
-  return request(
-    '/api/screens/implement',
-    {
-      method: 'POST',
-
-      body: JSON.stringify({
-        session: sessionId,
-        repo,
-        baseBranch,
-        screens,
-      }),
-    }
-  );
+): Promise<{ implementations: ImplementationResult[] }> {
+  return request('/api/screens/implement', {
+    method: 'POST',
+    body: JSON.stringify({ projectId, screens }),
+  });
 }

@@ -1,15 +1,22 @@
-# Design Engineer — Phase 1
+# Design Engineer — Phase 1 (Supabase edition)
 
-Phase 1 scope, exactly as specced:
+Design Engineer is a Figma plugin plus a Node backend that turns Figma
+screens into **Design Context** JSON and (Phase 2) implements those screens
+as React Native code in a GitHub repo, opened as a pull request.
+
+Phase 1 scope:
 
 1. Import the plugin into Figma.
-2. Plugin asks for **Codex sign-in**.
-3. Plugin asks for **GitHub authentication**.
-4. Plugin asks you to **choose a repo**, then a **branch**.
-5. Plugin lets you **select screens** (frames) on the canvas.
-6. Hit **Fetch** → the plugin extracts each screen's metadata + a screenshot,
+2. **Create an account / sign in** (Supabase Auth).
+3. Dashboard shows your **projects** and **connections** (GitHub, Codex).
+4. Create a project → connect **GitHub** (OAuth, token stored encrypted in
+   Supabase) → connect **Codex** (CLI device login, credentials stored
+   encrypted in Supabase).
+5. Choose a **repo** and a **branch**.
+6. **Select screens** (frames) on the canvas.
+7. Hit **Fetch** → the plugin extracts each screen's metadata + a screenshot,
    normalizes it into the **Design Context** format, and sends it to the
-   backend, which writes it to disk.
+   backend, which stores it in Supabase.
 
 There are two folders:
 
@@ -18,11 +25,27 @@ design-engineer-plugin/    ← the Figma plugin (TypeScript + React)
 design-engineer-backend/   ← the Node/Express backend it talks to
 ```
 
-The plugin never talks to GitHub directly — it only ever talks to the
-backend, and the backend holds the real GitHub OAuth token. The `screen ->
-JSON` normalization happens in the plugin (`src/figma/parser.ts`) before
-anything leaves Figma, exactly as you specced ("don't send raw Figma data
-directly to Codex").
+The plugin never talks to GitHub or Supabase directly — it only talks to the
+backend on `http://localhost:4000`. The backend holds the GitHub OAuth
+**client secret** (`.env`, never exposed to the plugin) and talks to Supabase
+with the user's own JWT, so row-level security keeps every user on their own
+rows.
+
+### Where everything lives now
+
+| Piece | Location |
+|---|---|
+| User accounts / sessions | Supabase **Auth** (`auth.users`), built-in |
+| User profile | `public.profiles` |
+| Projects (repo, base branch) | `public.projects` |
+| GitHub OAuth tokens (encrypted) | `public.github_connections` |
+| Codex CLI credentials (encrypted) | `public.codex_accounts` |
+| Fetched design contexts (JSON) | `public.design_contexts` |
+| Plugin session (access/refresh token) | Figma `clientStorage` (GitHub/Codex credentials never touch Figma storage) |
+
+Nothing that used to live in Docker volumes / in-memory sessions is there
+anymore. **Everything is in Supabase**, so a backend restart or a rebuilt
+container no longer logs you out or loses connections.
 
 ---
 
@@ -31,44 +54,87 @@ directly to Codex").
 - **Node.js 18+** (needed for global `fetch` in the backend) and npm.
 - **Figma desktop app** (plugin development requires the desktop app, not
   the browser).
-- A **GitHub OAuth App** (free, takes 2 minutes — see below).
+- A **Supabase project** (free) — see §2.
+- A **GitHub OAuth App** (free, 2 minutes) — see §3.
 
 ---
 
-## 2. Create a GitHub OAuth App
+## 2. Set up Supabase
+
+1. Create a project at <https://supabase.com> (free tier is fine).
+2. Open **SQL Editor** → **New query**, paste the contents of
+   `design-engineer-backend/supabase/schema.sql`, and **Run**.
+
+   This creates `profiles`, `projects`, `github_connections`,
+   `codex_accounts`, and `design_contexts` (idempotent — safe to re-run), the
+   row-level-security policies, a trigger that auto-creates a profile row on
+   signup, and `updated_at` triggers.
+
+   > If you already ran an earlier version of the schema, re-run the current
+   > `schema.sql` — it adds missing tables/columns (e.g. `design_contexts`,
+   > `projects.repository`, `projects.base_branch`) without touching data.
+
+3. Optional but recommended: in **Authentication → Providers → Email**,
+   turn **off "Confirm email"** so signups can sign in immediately. If you
+   leave it on, the plugin still works — it just shows "Check your email to
+   confirm" and waits for you to confirm before signing in.
+4. Copy the project **URL** (e.g. `https://xxxx.supabase.co`) and the
+   **anon / publishable key** from **Settings → API** — these go in the
+   backend's `.env` (§4). The Supabase keys live only in the backend;
+   the plugin never sees them.
+
+---
+
+## 3. Create a GitHub OAuth App
 
 1. Go to <https://github.com/settings/developers> → **New OAuth App**.
 2. Fill in:
    - **Application name**: `Design Engineer (local)`
-   - **Homepage URL**: `http://localhost:4001`
-   - **Authorization callback URL**: `http://localhost:4001/auth/github/callback`
+   - **Homepage URL**: `http://localhost:4000`
+   - **Authorization callback URL**: `http://localhost:4000/auth/github/callback`
 3. Click **Register application**, then **Generate a new client secret**.
-4. Copy the **Client ID** and **Client Secret** — you'll paste these into
-   the backend's `.env` in the next step.
+4. Copy the **Client ID** and **Client Secret** — these go in the backend's
+   `.env` (§4). The secret stays in `.env`; it is never sent to the plugin.
 
 ---
 
-## 3. Run the backend
+## 4. Run the backend
 
 ```bash
 cd design-engineer-backend
 npm install
 cp .env.example .env
-# edit .env and paste in GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET
+# edit .env:
+#   - SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY  (from §2)
+#   - GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET  (from §3)
+#   - ENCRYPTION_KEY (optional; 64 hex chars, e.g. `openssl rand -hex 32`.
+#     If empty, a stable key is derived from SUPABASE_URL|GITHUB_CLIENT_SECRET|PORT)
 npm start
 ```
 
 You should see:
 
 ```
-Design Engineer backend listening on http://localhost:4001
+Design Engineer backend listening on http://localhost:4000
 ```
 
 Leave this running in a terminal tab.
 
+### Docker (optional)
+
+The Dockerfile still works; `git` and the Codex CLI are installed in the
+image. Because all state is in Supabase, you no longer need persistent
+volumes — the container itself can be thrown away:
+
+```bash
+cd design-engineer-backend
+docker build -t design-engineer-backend .
+docker run --rm -p 4000:4000 --env-file .env design-engineer-backend
+```
+
 ---
 
-## 4. Build the plugin
+## 5. Build the plugin
 
 ```bash
 cd design-engineer-plugin
@@ -80,7 +146,7 @@ This produces `dist/code.js` and `dist/ui.html`.
 
 ---
 
-## 5. Load the plugin in Figma
+## 6. Load the plugin in Figma
 
 1. Open the **Figma desktop app**.
 2. Open or create any file.
@@ -94,45 +160,59 @@ Open Console**.
 
 ---
 
-## 6. End-to-end test walkthrough
+## 7. End-to-end test walkthrough
 
 Use (or create) a Figma file with at least one frame you can pretend is a
 screen, e.g. name a frame `Product Details`.
 
-1. **Run the plugin.** You'll see: *"Sign in to start..."* and a
-   **Sign in to Design Engineer** button.
-2. Click it → this calls `POST /auth/session` on the backend and gets a
-   session id. Chat log shows *"Signed in. Now connect your GitHub
-   account..."*.
-3. Click **Continue with GitHub** → a browser tab opens to
-   `http://localhost:4000/auth/github?session=...`, which redirects to
-   GitHub's OAuth screen. Authorize the app.
-4. GitHub redirects back to `/auth/github/callback`, which shows
-   *"GitHub connected ✅"*. **Close that tab** and go back to Figma —
-   the plugin is polling every 2s and will pick up the connection
-   automatically.
-5. Chat log shows *"Connected as @yourhandle. Loading your
-   repositories..."*, then a **Choose a repository...** dropdown appears.
-   Pick one.
-6. A **Choose a branch...** dropdown appears. Pick one.
-7. Chat log shows *"Now select one or more screens..."*. **Click a frame
-   on the canvas** (e.g. your `Product Details` frame). A chip for it
-   appears at the top of the plugin — click the chip to check it (shown
-   with a border + `×`).
-8. Click **Fetch (1)**. You'll see progress messages ("Reading layers
-   for...", "Capturing screenshot of..."), then *"Uploading design
-   context to backend..."*, then a confirmation listing the saved file
-   paths.
+1. **Run the plugin.** You'll see the account screen: *"Already have an
+   account or create an account."*
+2. **Create an account** (email + password, password ≥ 8 chars, confirm
+   match) or **sign in** if you already have one.
+   - If Supabase email confirmation is enabled, you'll be told to check your
+     email, then sign in.
+3. You land on the **dashboard**: your projects (empty the first time) and
+   your connections.
+   - Click **Create project**, give it a name → the project opens and asks
+     you to **connect GitHub**.
+4. **Connect GitHub** — the backend starts the OAuth flow (opens a browser
+   tab to `http://localhost:4000/auth/github`). Authorize the app; the tab
+   shows "GitHub connected ✅". **Close the tab** — the plugin polls and picks
+   the connection up automatically. The dashboard now shows *Connected as
+   @yourhandle*, plus a **Switch accounts** button (disconnect + reconnect).
+5. Next the project asks you to **connect Codex**. Click **Connect Codex** →
+   a **device code** is shown. Open <https://chatgpt.com/auth/login> (or the
+   shown URL), sign in, enter the code, and approve. The plugin polls until
+   approval comes through.
+   - Codex is **universal per account** — once connected it applies to all
+     of your projects from then on. Use **Switch accounts** in the dashboard
+     to log out and connect a different Codex account.
+6. Back in the project: a **Choose a repository...** dropdown appears
+   (populated from your GitHub). Pick one, then **Choose a branch...**.
+7. Chat log shows *"Now select one or more screens..."*. **Click a frame on
+   the canvas** (e.g. your `Product Details` frame). A chip for it appears at
+   the top of the plugin — click the chip to check it (shown with a border +
+   `×`).
+8. Click **Fetch (N)**. You'll see progress messages ("Reading layers for...",
+   "Capturing screenshot of..."), then *"Uploading design context to
+   backend..."*, then a confirmation.
+9. Click **Start implement** → the backend clones the repo/branch into a
+   temporary worktree, runs the authenticated Codex CLI, appends test steps to
+   `README.md`, commits, pushes an `implement/<frame>-<timestamp>` branch, and
+   opens a **pull request**. All selected screens are implemented together in
+   one branch/PR, which the plugin displays when the job finishes.
 
 ### Verify the output
 
-```bash
-cd design-engineer-backend
-find data -type f
-cat data/<your-github-user>/<repo>__/<branch>/Product_Details.json
+Fetched contexts are in `public.design_contexts` in Supabase (one row per
+project + screen name). You can inspect them in the Supabase dashboard's
+**Table Editor**, or query:
+
+```sql
+select screen_name, jsonb_pretty(content) from public.design_contexts;
 ```
 
-You should see something matching the format from the brief:
+The JSON looks like:
 
 ```json
 {
@@ -166,25 +246,32 @@ You should see something matching the format from the brief:
 (Field set is a superset of the brief's example — `x`/`y`/colors/strokes
 etc. are included since Codex will need positioning and styling info too.)
 
-A matching `Product_Details.png` (2x scale screenshot of the frame) is
-saved alongside it.
+---
+
+## 8. How the backend implements a screen (Phase 2)
+
+`POST /api/screens/implement` runs for your selected screens:
+
+1. Reads each screen's Design Context from `design_contexts` (not from disk).
+2. Clones the project's repository + base branch into a temporary worktree.
+3. Writes each screen's JSON into a temporary `.design-engineer/context` file.
+4. Restores the account's Codex credentials into `CODEX_HOME` from
+   `codex_accounts` (the first `codex login` still happens via the CLI's
+   device flow; on approval the resulting `auth.json`/`config.toml` are
+   encrypted and stored in Supabase, then restored per user when needed).
+5. Runs the authenticated Codex CLI in the worktree. Codex reads the repo
+   README and existing source tree, then follows the repository's current
+   React Native folder structure.
+6. Removes the temporary context file, appends test steps to `README.md`,
+   and commits the implementation.
+7. Creates a branch `implement/<frame-name>-<timestamp>`, pushes it, and
+   opens a GitHub pull request against the selected base branch.
+
+The backend must run where `git` is installed (it is, in the Docker image).
 
 ---
 
-## 7. What's real vs. placeholder in this phase
-
-| Piece | Status |
-|---|---|
-| GitHub OAuth (login, repo list, branch list) | **Real** — actual GitHub API calls. |
-| "Codex sign-in" | **Placeholder.** It just mints a session id on the backend (`POST /auth/session`). Swap the body of that route (and `handleSignIn` in `App.tsx`) for your real product auth once it's defined — nothing downstream needs to change, everything else just keys off `sessionId`. |
-| Figma extraction (metadata + screenshot) | **Real** — walks the actual node tree via the Figma Plugin API. |
-| Design Context normalization | **Real**, but the `classify()` heuristic in `src/figma/parser.ts` (deciding text vs. button vs. component vs. generic frame) is intentionally simple — tune it as you see real screens come through. |
-| Storage | **Real but local** — writes JSON + PNG to `design-engineer-backend/data/`. Swap for a DB/S3 when you're ready. |
-| Session store | **In-memory** (a `Map`). Fine for local dev; restarting the backend clears all sessions — you'll need to sign in again. |
-
----
-
-## 8. Notes / gotchas
+## 9. Notes / gotchas
 
 - **`networkAccess.allowedDomains`** in `manifest.json` is currently
   `http://localhost:4000`. If you deploy the backend anywhere else, add
@@ -192,70 +279,22 @@ saved alongside it.
   by Figma.
 - **Why polling instead of a direct callback into the plugin?** The Figma
   plugin UI is a sandboxed iframe; a separate browser tab can't
-  `postMessage` into it directly. Polling `GET /auth/session/:id` is the
+  `postMessage` into it directly. Polling the backend endpoints is the
   standard workaround other Figma plugins use for OAuth.
-- **Component detection**: for a Figma `INSTANCE`, we resolve
-  `getMainComponentAsync()` to record which component it's an instance
-  of — useful later for mapping to your design system's real components.
-- The `Chat`, `Composer`, `ApprovalCard`, and `ProgressCard` UI pieces are
-  scaffolded per your file tree, but Phase 1 only actively uses `Chat` and
-  `ProgressCard` for the wizard flow. `Composer` and `ApprovalCard` are
-  wired but idle — reserved for Phase 2, where you'll likely want
-  free-form chat with Codex and approval gates before it writes code.
-
-
-Docker building comments: docker build -t design-engineer-backend .
-
-docker run -p 4000:4000 design-engineer-backend
-
-## Phase 2: Implement screens and open PRs
-
-After `Fetch` saves the screen JSON, the plugin shows `Start implement`.
-The backend then performs these steps for every selected screen:
-
-1. Clones the selected repository and base branch into a temporary worktree.
-2. Writes that screen's JSON into a temporary `.design-engineer/context` file.
-3. Runs the authenticated Codex CLI in the worktree. Codex reads the repository README and existing source tree, then follows the repository's current React Native folder structure.
-4. Removes the temporary context file, appends test steps to `README.md`, and commits the implementation.
-5. Creates a branch named `implement/<frame-name>-<timestamp>`, pushes it, and opens a GitHub pull request against the selected base branch.
-
-All selected screens are implemented together in one branch and one pull request. The plugin displays the shared branch and pull request URL after the job finishes.
-
-### Phase 2 local test
-
-The backend must run in the environment where Codex is authenticated and where `git` is installed. Rebuild the Docker image after changing the Dockerfile. The supplied Dockerfile installs `git`, which the implementation job needs for cloning, branching, committing, and pushing:
-
-```bash
-cd design-engineer-backend
-docker build -t design-engineer-backend .
-docker volume create design-engineer-codex
-docker volume create design-engineer-data
-docker run --rm --name design-engineer-backend \
-  --env-file .env \
-  -p 4000:4000 \
-  -v design-engineer-codex:/app/.codex \
-  -v design-engineer-data:/app/data \
-  design-engineer-backend
-```
-
-The saved Design Context files are written under `/app/data/<github-user>/<repo>/<base-branch>/design-context_<screen>.json`. `Start implement` reads those exact files; it does not use a different repository directory. The named data volume keeps them after the container stops, and the named Codex volume keeps authentication after rebuilds.
-
-Authenticate Codex once in the running container:
-
-```bash
-docker exec -it design-engineer-backend sh
-codex login
-exit
-```
-
-If you run the backend directly with Node instead, no Docker rebuild is needed, but `git` must be installed on the host and the backend's `CODEX_HOME` must contain the Codex login.
-
-Then build the plugin in a second terminal:
-
-```bash
-cd design-engineer-plugin
-npm install
-npm run watch
-```
-
-In Figma Desktop, import `design-engineer-plugin/manifest.json`, choose a repository and base branch, select one or more frames, and click `Fetch`. After the JSON save confirmation, click `Start implement`. Open each displayed PR, clone its branch, follow the generated README test steps, and only merge after the React Native tests and visual checks pass.
+- **Email confirmation**: if signup returns `confirmationRequired`, the
+  plugin shows the sign-in screen with a note. Disable "Confirm email" in
+  Supabase (Authentication → Providers → Email) for instant signups.
+- **RLS**: all backend DB access uses your access token as the PostgREST
+  JWT, so users can only read/write their own rows (`profiles` is keyed to
+  `auth.uid()`, other tables to `user_id`). The `design_contexts` table is
+  scoped via the owning project.
+- **GitHub OAuth state** uses a short-lived (10-minute) in-memory map —
+  standard cross-request OAuth bookkeeping, not user data.
+- **Encryption**: GitHub tokens and Codex credentials are AES-256-GCM
+  encrypted at rest with a key from `ENCRYPTION_KEY` (64 hex chars) or a
+  stable fallback derived from `.env` values.
+- **Component detection**: for a Figma `INSTANCE`, the plugin resolves
+  `getMainComponentAsync()` to record which component it's an instance of —
+  useful later for mapping to your design system's real components.
+- **Codex account switching** is account-wide: `codex_accounts` is `UNIQUE`
+  on `user_id`, so an account has exactly one Codex connection at a time.

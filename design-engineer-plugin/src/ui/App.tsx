@@ -1,1693 +1,16 @@
-// // src/ui/App.tsx
-
-// import React, {
-//   useEffect,
-//   useRef,
-//   useState,
-// } from 'react';
-
-// import Chat, {
-//   ChatMessage,
-// } from './Chat';
-
-// import ContextChip from './ContextChip';
-
-// import ProgressCard from './ProgressCard';
-
-// import Composer from './Composer';
-
-// import {
-//   onPluginMessage,
-//   sendToPlugin,
-// } from './figmaBridge';
-
-// import * as api from '../api/client';
-
-// type Step =
-//   | 'restoring'
-//   | 'signin'
-//   | 'github'
-//   | 'repo'
-//   | 'branch'
-//   | 'screens'
-//   | 'done';
-
-// interface SelectionItem {
-//   id: string;
-//   name: string;
-//   type: string;
-//   width: number;
-//   height: number;
-// }
-
-// export default function App() {
-//   // -------------------------------------------------------------------------
-//   // STATE
-//   // -------------------------------------------------------------------------
-
-//   const [step, setStep] =
-//     useState<Step>('restoring');
-
-//   const [sessionId, setSessionId] =
-//     useState<string | null>(null);
-
-//   const [selectedRepo, setSelectedRepo] =
-//     useState<string | null>(null);
-
-//   const [selectedBranch, setSelectedBranch] =
-//     useState<string | null>(null);
-
-//   const [repos, setRepos] =
-//     useState<api.Repo[]>([]);
-
-//   const [branches, setBranches] =
-//     useState<api.Branch[]>([]);
-
-//   const [selection, setSelection] =
-//     useState<SelectionItem[]>([]);
-
-//   const [checkedIds, setCheckedIds] =
-//     useState<Set<string>>(
-//       new Set()
-//     );
-
-//   const [busy, setBusy] =
-//     useState(false);
-
-//   const [busyLabel, setBusyLabel] =
-//     useState('');
-
-//   const [error, setError] =
-//     useState<string | null>(null);
-
-//   const [messages, setMessages] =
-//     useState<ChatMessage[]>([
-//       {
-//         role: 'system',
-
-//         text:
-//           'Welcome to Design Engineer.',
-//       },
-//     ]);
-
-//   // -------------------------------------------------------------------------
-//   // IMPORTANT REFS
-//   // -------------------------------------------------------------------------
-//   //
-//   // The Figma message listener is registered once.
-//   //
-//   // React state can become stale inside that listener.
-//   //
-//   // These refs always contain the latest values.
-//   // -------------------------------------------------------------------------
-
-//   const sessionIdRef =
-//     useRef<string | null>(null);
-
-//   const selectedRepoRef =
-//     useRef<string | null>(null);
-
-//   const selectedBranchRef =
-//     useRef<string | null>(null);
-
-//   const pollRef =
-//     useRef<number | null>(null);
-
-//   // -------------------------------------------------------------------------
-//   // KEEP REFS SYNCHRONIZED
-//   // -------------------------------------------------------------------------
-
-//   useEffect(() => {
-//     sessionIdRef.current =
-//       sessionId;
-//   }, [sessionId]);
-
-//   useEffect(() => {
-//     selectedRepoRef.current =
-//       selectedRepo;
-//   }, [selectedRepo]);
-
-//   useEffect(() => {
-//     selectedBranchRef.current =
-//       selectedBranch;
-//   }, [selectedBranch]);
-
-//   // -------------------------------------------------------------------------
-//   // CHAT LOG
-//   // -------------------------------------------------------------------------
-
-//   function log(
-//     role: ChatMessage['role'],
-//     text: string
-//   ) {
-//     setMessages(
-//       (current) => [
-//         ...current,
-//         {
-//           role,
-//           text,
-//         },
-//       ]
-//     );
-//   }
-
-//   // -------------------------------------------------------------------------
-//   // RESTORE SESSION WHEN PLUGIN OPENS
-//   // -------------------------------------------------------------------------
-
-//   useEffect(() => {
-//     // Ask Figma main thread for saved session.
-//     sendToPlugin({
-//       type: 'get-saved-session',
-//     });
-
-//     // Also get current Figma selection.
-//     sendToPlugin({
-//       type: 'get-selection',
-//     });
-
-//     const cleanup =
-//       onPluginMessage(
-//         (msg) => {
-//           // ---------------------------------------------------------------
-//           // SAVED SESSION
-//           // ---------------------------------------------------------------
-
-//           if (
-//             msg.type ===
-//             'saved-session'
-//           ) {
-//             restoreSavedSession(
-//               msg.sessionId
-//             );
-//           }
-
-//           // ---------------------------------------------------------------
-//           // SESSION SAVED
-//           // ---------------------------------------------------------------
-
-//           if (
-//             msg.type ===
-//             'session-saved'
-//           ) {
-//             console.log(
-//               '[Design Engineer] Session saved successfully.'
-//             );
-//           }
-
-//           // ---------------------------------------------------------------
-//           // SESSION CLEARED
-//           // ---------------------------------------------------------------
-
-//           if (
-//             msg.type ===
-//             'session-cleared'
-//           ) {
-//             console.log(
-//               '[Design Engineer] Session cleared.'
-//             );
-//           }
-
-//           // ---------------------------------------------------------------
-//           // FIGMA SELECTION
-//           // ---------------------------------------------------------------
-
-//           if (
-//             msg.type ===
-//             'selection-changed'
-//           ) {
-//             setSelection(
-//               msg.selection || []
-//             );
-//           }
-
-//           // ---------------------------------------------------------------
-//           // EXTRACTION START
-//           // ---------------------------------------------------------------
-
-//           if (
-//             msg.type ===
-//             'extract-started'
-//           ) {
-//             setBusy(true);
-
-//             setBusyLabel(
-//               `Starting extraction of ${
-//                 msg.total || 0
-//               } screen${
-//                 msg.total === 1
-//                   ? ''
-//                   : 's'
-//               }...`
-//             );
-//           }
-
-//           // ---------------------------------------------------------------
-//           // EXTRACTION PROGRESS
-//           // ---------------------------------------------------------------
-
-//           if (
-//             msg.type ===
-//             'extract-progress'
-//           ) {
-//             if (
-//               msg.step ===
-//               'metadata'
-//             ) {
-//               setBusy(true);
-
-//               setBusyLabel(
-//                 `Extracting "${msg.screen}" (${msg.current}/${msg.total})...`
-//               );
-//             }
-
-//             if (
-//               msg.step ===
-//               'complete'
-//             ) {
-//               const nodeCount =
-//                 msg.summary
-//                   ?.nodeCount ??
-//                 0;
-
-//               const extractionTime =
-//                 msg.extractionTimeMs ??
-//                 0;
-
-//               setBusyLabel(
-//                 `✓ Extracted "${msg.screen}" — ${nodeCount} nodes in ${extractionTime}ms`
-//               );
-//             }
-//           }
-
-//           // ---------------------------------------------------------------
-//           // EXTRACTION ERROR
-//           // ---------------------------------------------------------------
-
-//           if (
-//             msg.type ===
-//             'extraction-error'
-//           ) {
-//             setBusy(false);
-
-//             setBusyLabel('');
-
-//             const message =
-//               msg.error ||
-//               'Figma extraction failed.';
-
-//             setError(message);
-
-//             log(
-//               'assistant',
-//               `❌ Extraction failed:\n${message}`
-//             );
-//           }
-
-//           // ---------------------------------------------------------------
-//           // EXTRACTION COMPLETE
-//           // ---------------------------------------------------------------
-
-//           if (
-//             msg.type ===
-//             'screens-extracted'
-//           ) {
-//             console.log(
-//               '[Design Engineer] Received screens-extracted.'
-//             );
-
-//             console.log(
-//               '[Design Engineer] Screen count:',
-//               msg.results?.length ||
-//                 0
-//             );
-
-//             handleExtracted(
-//               msg.results || []
-//             );
-//           }
-//         }
-//       );
-
-//     return cleanup;
-
-//     // The message listener intentionally runs once.
-//     // eslint-disable-next-line react-hooks/exhaustive-deps
-//   }, []);
-
-//   // -------------------------------------------------------------------------
-//   // RESTORE SAVED SESSION
-//   // -------------------------------------------------------------------------
-
-//   async function restoreSavedSession(
-//     savedSessionId:
-//       | string
-//       | null
-//   ) {
-//     // No previous session.
-//     if (
-//       !savedSessionId
-//     ) {
-//       console.log(
-//         '[Design Engineer] No saved session found.'
-//       );
-
-//       setStep('signin');
-
-//       setMessages([
-//         {
-//           role: 'system',
-
-//           text:
-//             'Sign in to start. Your session will be remembered the next time you open the plugin.',
-//         },
-//       ]);
-
-//       return;
-//     }
-
-//     console.log(
-//       '[Design Engineer] Found saved session:',
-//       savedSessionId
-//     );
-
-//     // Put it into state and ref immediately.
-//     setSessionId(
-//       savedSessionId
-//     );
-
-//     sessionIdRef.current =
-//       savedSessionId;
-
-//     setBusy(true);
-
-//     setBusyLabel(
-//       'Restoring your previous session...'
-//     );
-
-//     try {
-//       const status =
-//         await api.getSessionStatus(
-//           savedSessionId
-//         );
-
-//       console.log(
-//         '[Design Engineer] Restored session status:',
-//         status
-//       );
-
-//       // ---------------------------------------------------------------
-//       // BOTH CODEX AND GITHUB ARE CONNECTED
-//       // ---------------------------------------------------------------
-
-//       if (
-//         status.githubConnected
-//       ) {
-//         log(
-//           'assistant',
-//           `Welcome back${
-//             status.githubUser
-//               ? `, @${status.githubUser}`
-//               : ''
-//           }! Your previous session has been restored.`
-//         );
-
-//         await loadRepos(
-//           savedSessionId
-//         );
-
-//         return;
-//       }
-
-//       // ---------------------------------------------------------------
-//       // CODEX CONNECTED, GITHUB NOT CONNECTED
-//       // ---------------------------------------------------------------
-
-//       if (
-//         status.codexConnected
-//       ) {
-//         log(
-//           'assistant',
-//           `Welcome back${
-//             status.codexUser
-//               ? `, ${status.codexUser}`
-//               : ''
-//           }! Your Codex session has been restored.\n\nNow connect GitHub.`
-//         );
-
-//         setBusy(false);
-
-//         setBusyLabel('');
-
-//         setStep(
-//           'github'
-//         );
-
-//         return;
-//       }
-
-//       // ---------------------------------------------------------------
-//       // SESSION EXISTS BUT CODEX IS NOT CONNECTED
-//       // ---------------------------------------------------------------
-
-//       setBusy(false);
-
-//       setBusyLabel('');
-
-//       setStep(
-//         'signin'
-//       );
-//     } catch (e: any) {
-//       console.warn(
-//         '[Design Engineer] Saved session could not be restored:',
-//         e
-//       );
-
-//       // Session no longer exists on backend.
-//       // Remove it from Figma storage.
-//       sendToPlugin({
-//         type: 'clear-session',
-//       });
-
-//       setSessionId(null);
-
-//       sessionIdRef.current =
-//         null;
-
-//       setSelectedRepo(null);
-
-//       selectedRepoRef.current =
-//         null;
-
-//       setSelectedBranch(null);
-
-//       selectedBranchRef.current =
-//         null;
-
-//       setBusy(false);
-
-//       setBusyLabel('');
-
-//       setStep(
-//         'signin'
-//       );
-
-//       setMessages([
-//         {
-//           role: 'system',
-
-//           text:
-//             'Your previous session has expired. Please sign in again.',
-//         },
-//       ]);
-//     }
-//   }
-
-//   // -------------------------------------------------------------------------
-//   // CLEANUP POLLING
-//   // -------------------------------------------------------------------------
-
-//   useEffect(() => {
-//     return () => {
-//       if (
-//         pollRef.current !==
-//         null
-//       ) {
-//         window.clearInterval(
-//           pollRef.current
-//         );
-
-//         pollRef.current =
-//           null;
-//       }
-//     };
-//   }, []);
-
-//   // -------------------------------------------------------------------------
-//   // CODEX SIGN IN
-//   // -------------------------------------------------------------------------
-
-//   async function handleSignIn() {
-//     setBusy(true);
-
-//     setBusyLabel(
-//       'Starting Codex sign in...'
-//     );
-
-//     setError(null);
-
-//     try {
-//       const {
-//         sessionId:
-//           newSessionId,
-//       } =
-//         await api.createSession();
-
-//       // Save to React.
-//       setSessionId(
-//         newSessionId
-//       );
-
-//       // Save immediately to ref.
-//       sessionIdRef.current =
-//         newSessionId;
-
-//       // IMPORTANT:
-//       // Persist session ID in Figma.
-//       sendToPlugin({
-//         type: 'save-session',
-
-//         sessionId:
-//           newSessionId,
-//       });
-
-//       log(
-//         'user',
-//         'Sign in'
-//       );
-
-//       const device =
-//         await api.startCodexDeviceAuth(
-//           newSessionId
-//         );
-
-//       log(
-//         'assistant',
-//         `Go to ${device.verification_uri} and enter this code: ${device.user_code}\n\nOpening the login page now...`
-//       );
-
-//       setBusyLabel(
-//         `Waiting for Codex login: ${device.user_code}...`
-//       );
-
-//       window.open(
-//         device.verification_uri_complete,
-//         '_blank'
-//       );
-
-//       if (
-//         pollRef.current !==
-//         null
-//       ) {
-//         window.clearInterval(
-//           pollRef.current
-//         );
-//       }
-
-//       pollRef.current =
-//         window.setInterval(
-//           async () => {
-//             try {
-//               const status =
-//                 await api.getCodexDeviceStatus(
-//                   device.device_code
-//                 );
-
-//               if (
-//                 status.status ===
-//                 'approved'
-//               ) {
-//                 if (
-//                   pollRef.current !==
-//                   null
-//                 ) {
-//                   window.clearInterval(
-//                     pollRef.current
-//                   );
-
-//                   pollRef.current =
-//                     null;
-//                 }
-
-//                 log(
-//                   'assistant',
-//                   `Signed in as ${
-//                     status.codexUser ||
-//                     'Codex user'
-//                   }.\n\nYour login will now be remembered for this plugin.`
-//                 );
-
-//                 setBusy(false);
-
-//                 setBusyLabel('');
-
-//                 setStep(
-//                   'github'
-//                 );
-//               }
-
-//               if (
-//                 status.status ===
-//                 'expired'
-//               ) {
-//                 if (
-//                   pollRef.current !==
-//                   null
-//                 ) {
-//                   window.clearInterval(
-//                     pollRef.current
-//                   );
-
-//                   pollRef.current =
-//                     null;
-//                 }
-
-//                 setBusy(false);
-
-//                 setBusyLabel('');
-
-//                 setError(
-//                   'Codex login expired. Please try again.'
-//                 );
-//               }
-//             } catch (
-//               pollError
-//             ) {
-//               console.error(
-//                 '[Design Engineer] Codex polling error:',
-//                 pollError
-//               );
-//             }
-//           },
-//           (device.interval ||
-//             3) *
-//             1000
-//         );
-//     } catch (e: any) {
-//       console.error(
-//         '[Design Engineer] Codex sign-in failed:',
-//         e
-//       );
-
-//       setError(
-//         e?.message ||
-//           'Codex sign in failed.'
-//       );
-
-//       setBusy(false);
-
-//       setBusyLabel('');
-//     }
-//   }
-
-//   // -------------------------------------------------------------------------
-//   // GITHUB AUTH
-//   // -------------------------------------------------------------------------
-
-//   function handleConnectGithub() {
-//     const currentSessionId =
-//       sessionIdRef.current;
-
-//     if (
-//       !currentSessionId
-//     ) {
-//       setError(
-//         'No active session. Please sign in again.'
-//       );
-
-//       return;
-//     }
-
-//     window.open(
-//       api.githubAuthUrl(
-//         currentSessionId
-//       ),
-//       '_blank'
-//     );
-
-//     log(
-//       'user',
-//       'Connect GitHub'
-//     );
-
-//     log(
-//       'assistant',
-//       'Opened GitHub authorization in your browser. Waiting for authorization to finish...'
-//     );
-
-//     setBusy(true);
-
-//     setBusyLabel(
-//       'Waiting for GitHub authorization...'
-//     );
-
-//     if (
-//       pollRef.current !==
-//       null
-//     ) {
-//       window.clearInterval(
-//         pollRef.current
-//       );
-//     }
-
-//     pollRef.current =
-//       window.setInterval(
-//         async () => {
-//           try {
-//             const status =
-//               await api.getSessionStatus(
-//                 currentSessionId
-//               );
-
-//             if (
-//               status.githubConnected
-//             ) {
-//               if (
-//                 pollRef.current !==
-//                 null
-//               ) {
-//                 window.clearInterval(
-//                   pollRef.current
-//                 );
-
-//                 pollRef.current =
-//                   null;
-//               }
-
-//               log(
-//                 'assistant',
-//                 `Connected as @${status.githubUser}. Loading your repositories...`
-//               );
-
-//               await loadRepos(
-//                 currentSessionId
-//               );
-//             }
-//           } catch (
-//             pollError
-//           ) {
-//             console.error(
-//               '[Design Engineer] GitHub polling error:',
-//               pollError
-//             );
-//           }
-//         },
-//         2000
-//       );
-//   }
-
-//   // -------------------------------------------------------------------------
-//   // LOAD REPOSITORIES
-//   // -------------------------------------------------------------------------
-
-//   async function loadRepos(
-//     overrideSessionId?: string
-//   ) {
-//     const currentSessionId =
-//       overrideSessionId ||
-//       sessionIdRef.current;
-
-//     if (
-//       !currentSessionId
-//     ) {
-//       setError(
-//         'No active session. Please sign in again.'
-//       );
-
-//       setBusy(false);
-
-//       return;
-//     }
-
-//     setBusy(true);
-
-//     setBusyLabel(
-//       'Loading repositories...'
-//     );
-
-//     try {
-//       const data =
-//         await api.listRepos(
-//           currentSessionId
-//         );
-
-//       setRepos(
-//         data.repos || []
-//       );
-
-//       setStep('repo');
-//     } catch (e: any) {
-//       console.error(
-//         '[Design Engineer] Failed to load repositories:',
-//         e
-//       );
-
-//       setError(
-//         e?.message ||
-//           'Failed to load repositories.'
-//       );
-//     } finally {
-//       setBusy(false);
-
-//       setBusyLabel('');
-//     }
-//   }
-
-//   // -------------------------------------------------------------------------
-//   // SELECT REPOSITORY
-//   // -------------------------------------------------------------------------
-
-//   async function handleSelectRepo(
-//     fullName: string
-//   ) {
-//     const currentSessionId =
-//       sessionIdRef.current;
-
-//     if (
-//       !currentSessionId
-//     ) {
-//       setError(
-//         'No active session. Please sign in again.'
-//       );
-
-//       return;
-//     }
-
-//     setSelectedRepo(
-//       fullName
-//     );
-
-//     // IMPORTANT: update ref immediately.
-//     selectedRepoRef.current =
-//       fullName;
-
-//     log(
-//       'user',
-//       `Repo: ${fullName}`
-//     );
-
-//     setBusy(true);
-
-//     setBusyLabel(
-//       'Loading branches...'
-//     );
-
-//     try {
-//       const [
-//         owner,
-//         repo,
-//       ] =
-//         fullName.split('/');
-
-//       if (
-//         !owner ||
-//         !repo
-//       ) {
-//         throw new Error(
-//           `Invalid repository name: ${fullName}`
-//         );
-//       }
-
-//       const data =
-//         await api.listBranches(
-//           currentSessionId,
-//           owner,
-//           repo
-//         );
-
-//       setBranches(
-//         data.branches || []
-//       );
-
-//       log(
-//         'assistant',
-//         'Pick a branch to work from.'
-//       );
-
-//       setStep(
-//         'branch'
-//       );
-//     } catch (e: any) {
-//       console.error(
-//         '[Design Engineer] Failed to load branches:',
-//         e
-//       );
-
-//       setError(
-//         e?.message ||
-//           'Failed to load branches.'
-//       );
-//     } finally {
-//       setBusy(false);
-
-//       setBusyLabel('');
-//     }
-//   }
-
-//   // -------------------------------------------------------------------------
-//   // SELECT BRANCH
-//   // -------------------------------------------------------------------------
-
-//   function handleSelectBranch(
-//     name: string
-//   ) {
-//     setSelectedBranch(
-//       name
-//     );
-
-//     // IMPORTANT: update ref immediately.
-//     selectedBranchRef.current =
-//       name;
-
-//     log(
-//       'user',
-//       `Branch: ${name}`
-//     );
-
-//     log(
-//       'assistant',
-//       'Now select one or more screens on the Figma canvas. You can select multiple frames at the same time and then click Fetch.'
-//     );
-
-//     setStep(
-//       'screens'
-//     );
-//   }
-
-//   // -------------------------------------------------------------------------
-//   // SELECT / UNSELECT SCREEN
-//   // -------------------------------------------------------------------------
-
-//   function toggleChecked(
-//     id: string
-//   ) {
-//     setCheckedIds(
-//       (previous) => {
-//         const next =
-//           new Set(
-//             previous
-//           );
-
-//         if (
-//           next.has(id)
-//         ) {
-//           next.delete(id);
-//         } else {
-//           next.add(id);
-//         }
-
-//         return next;
-//       }
-//     );
-//   }
-
-//   // -------------------------------------------------------------------------
-//   // SELECT ALL CURRENT FIGMA SCREENS
-//   // -------------------------------------------------------------------------
-
-//   function selectAllScreens() {
-//     setCheckedIds(
-//       new Set(
-//         selection.map(
-//           (screen) =>
-//             screen.id
-//         )
-//       )
-//     );
-//   }
-
-//   // -------------------------------------------------------------------------
-//   // CLEAR SCREEN SELECTION
-//   // -------------------------------------------------------------------------
-
-//   function clearScreenSelection() {
-//     setCheckedIds(
-//       new Set()
-//     );
-//   }
-
-//   // -------------------------------------------------------------------------
-//   // FETCH
-//   // -------------------------------------------------------------------------
-
-//   function handleFetch() {
-//     const currentSessionId =
-//       sessionIdRef.current;
-
-//     const currentRepo =
-//       selectedRepoRef.current;
-
-//     const currentBranch =
-//       selectedBranchRef.current;
-
-//     console.log(
-//       '[Design Engineer] Fetch validation:',
-//       {
-//         sessionId:
-//           currentSessionId,
-
-//         repo:
-//           currentRepo,
-
-//         branch:
-//           currentBranch,
-
-//         screenCount:
-//           checkedIds.size,
-//       }
-//     );
-
-//     if (
-//       !currentSessionId ||
-//       !currentRepo ||
-//       !currentBranch
-//     ) {
-//       setError(
-//         'Session, repository, or branch is missing.'
-//       );
-
-//       console.error(
-//         '[Design Engineer] Missing fetch information:',
-//         {
-//           sessionId:
-//             currentSessionId,
-
-//           repo:
-//             currentRepo,
-
-//           branch:
-//             currentBranch,
-//         }
-//       );
-
-//       return;
-//     }
-
-//     if (
-//       checkedIds.size === 0
-//     ) {
-//       setError(
-//         'Please select at least one screen.'
-//       );
-
-//       return;
-//     }
-
-//     setError(null);
-
-//     log(
-//       'user',
-//       `Fetch ${
-//         checkedIds.size
-//       } screen${
-//         checkedIds.size > 1
-//           ? 's'
-//           : ''
-//       }`
-//     );
-
-//     log(
-//       'assistant',
-//       `I'll analyze ${
-//         checkedIds.size
-//       } selected Figma screen${
-//         checkedIds.size > 1
-//           ? 's'
-//           : ''
-//       } and create a separate Design Context JSON file for each screen.`
-//     );
-
-//     setBusy(true);
-
-//     setBusyLabel(
-//       `Starting extraction of ${checkedIds.size} screen${
-//         checkedIds.size > 1
-//           ? 's'
-//           : ''
-//       }...`
-//     );
-
-//     // Send ALL checked node IDs.
-//     sendToPlugin({
-//       type: 'extract-screens',
-
-//       nodeIds:
-//         Array.from(
-//           checkedIds
-//         ),
-//     });
-//   }
-
-//   // -------------------------------------------------------------------------
-//   // HANDLE EXTRACTED SCREENS
-//   // -------------------------------------------------------------------------
-
-//   async function handleExtracted(
-//     results: any[]
-//   ) {
-//     console.log(
-//       '[Design Engineer] handleExtracted called'
-//     );
-
-//     // IMPORTANT:
-//     // Always read current values from refs.
-//     const currentSessionId =
-//       sessionIdRef.current;
-
-//     const currentRepo =
-//       selectedRepoRef.current;
-
-//     const currentBranch =
-//       selectedBranchRef.current;
-
-//     console.log(
-//       '[Design Engineer] Current session:',
-//       currentSessionId
-//     );
-
-//     console.log(
-//       '[Design Engineer] Current repo:',
-//       currentRepo
-//     );
-
-//     console.log(
-//       '[Design Engineer] Current branch:',
-//       currentBranch
-//     );
-
-//     console.log(
-//       '[Design Engineer] Extracted screen count:',
-//       results?.length || 0
-//     );
-
-//     if (
-//       !currentSessionId ||
-//       !currentRepo ||
-//       !currentBranch
-//     ) {
-//       setBusy(false);
-
-//       setBusyLabel('');
-
-//       setError(
-//         'Session, repository, or branch is missing.'
-//       );
-
-//       return;
-//     }
-
-//     if (
-//       !Array.isArray(
-//         results
-//       ) ||
-//       results.length === 0
-//     ) {
-//       setBusy(false);
-
-//       setBusyLabel('');
-
-//       setError(
-//         'Figma returned no Design Context.'
-//       );
-
-//       return;
-//     }
-
-//     setBusy(true);
-
-//     setBusyLabel(
-//       `Saving ${
-//         results.length
-//       } Design Context file${
-//         results.length > 1
-//           ? 's'
-//           : ''
-//       }...`
-//     );
-
-//     setError(null);
-
-//     try {
-//       console.log(
-//         '[Design Engineer] Sending Design Context to backend...'
-//       );
-
-//       const result =
-//         await api.submitScreens(
-//           currentSessionId,
-//           currentRepo,
-//           currentBranch,
-//           results
-//         );
-
-//       console.log(
-//         '[Design Engineer] Backend response:',
-//         result
-//       );
-
-//       const savedFiles =
-//         result.saved || [];
-
-//       // ---------------------------------------------------------------
-//       // SUCCESS MESSAGE
-//       // ---------------------------------------------------------------
-
-//       let successMessage =
-//         `✓ Successfully extracted ${
-//           results.length
-//         } screen${
-//           results.length > 1
-//             ? 's'
-//             : ''
-//         }.\n\n`;
-
-//       successMessage +=
-//         '✓ Design Context JSON files saved successfully.\n\n';
-
-//       if (
-//         savedFiles.length >
-//         0
-//       ) {
-//         successMessage +=
-//           savedFiles
-//             .map(
-//               (file) =>
-//                 `✓ ${file}`
-//             )
-//             .join('\n');
-//       }
-
-//       log(
-//         'assistant',
-//         successMessage
-//       );
-
-//       // Clear current checked state.
-//       setCheckedIds(
-//         new Set()
-//       );
-
-//       setBusyLabel(
-//         `✓ ${
-//           results.length
-//         } Design Context file${
-//           results.length > 1
-//             ? 's'
-//             : ''
-//         } saved successfully`
-//       );
-
-//       setStep('done');
-
-//       console.log(
-//         '[Design Engineer] All Design Context files saved successfully.'
-//       );
-//     } catch (e: any) {
-//       console.error(
-//         '[Design Engineer] Upload failed:',
-//         e
-//       );
-
-//       const message =
-//         e?.message ||
-//         'Failed to save Design Context.';
-
-//       setError(message);
-
-//       log(
-//         'assistant',
-//         `❌ Failed to save Design Context.\n\n${message}`
-//       );
-//     } finally {
-//       setBusy(false);
-//     }
-//   }
-
-//   // -------------------------------------------------------------------------
-//   // RENDER
-//   // -------------------------------------------------------------------------
-
-//   return (
-//     <div className="app">
-//       <header>
-//         <h1>
-//           Design Engineer
-//         </h1>
-
-//         {selectedRepo && (
-//           <div className="subhead">
-//             {selectedRepo}
-
-//             {selectedBranch
-//               ? ` @ ${selectedBranch}`
-//               : ''}
-//           </div>
-//         )}
-//       </header>
-
-//       {/* ----------------------------------------------------------------- */}
-//       {/* RESTORING SESSION                                                 */}
-//       {/* ----------------------------------------------------------------- */}
-
-//       {step ===
-//         'restoring' && (
-//         <div
-//           style={{
-//             padding:
-//               '16px',
-//           }}
-//         >
-//           <ProgressCard
-//             label="Restoring your previous session..."
-//           />
-//         </div>
-//       )}
-
-//       {/* ----------------------------------------------------------------- */}
-//       {/* SELECTED FIGMA SCREENS                                            */}
-//       {/* ----------------------------------------------------------------- */}
-
-//       {step ===
-//         'screens' &&
-//         selection.length >
-//           0 && (
-//           <div className="chips">
-//             {selection.map(
-//               (screen) => (
-//                 <ContextChip
-//                   key={
-//                     screen.id
-//                   }
-//                   label={
-//                     screen.name
-//                   }
-//                   checked={checkedIds.has(
-//                     screen.id
-//                   )}
-//                   onToggle={() =>
-//                     toggleChecked(
-//                       screen.id
-//                     )
-//                   }
-//                 />
-//               )
-//             )}
-//           </div>
-//         )}
-
-//       {/* ----------------------------------------------------------------- */}
-//       {/* MULTI SELECT CONTROLS                                             */}
-//       {/* ----------------------------------------------------------------- */}
-
-//       {step ===
-//         'screens' &&
-//         selection.length >
-//           1 && (
-//           <div
-//             style={{
-//               display:
-//                 'flex',
-
-//               gap:
-//                 '8px',
-
-//               padding:
-//                 '8px 16px',
-//             }}
-//           >
-//             <button
-//               type="button"
-//               onClick={
-//                 selectAllScreens
-//               }
-//               disabled={
-//                 busy
-//               }
-//             >
-//               Select all
-//             </button>
-
-//             <button
-//               type="button"
-//               onClick={
-//                 clearScreenSelection
-//               }
-//               disabled={
-//                 busy
-//               }
-//             >
-//               Clear
-//             </button>
-//           </div>
-//         )}
-
-//       {/* ----------------------------------------------------------------- */}
-//       {/* CHAT                                                              */}
-//       {/* ----------------------------------------------------------------- */}
-
-//       <Chat
-//         messages={
-//           messages
-//         }
-//       />
-
-//       {/* ----------------------------------------------------------------- */}
-//       {/* PROGRESS                                                          */}
-//       {/* ----------------------------------------------------------------- */}
-
-//       {busy &&
-//         busyLabel &&
-//         step !==
-//           'restoring' && (
-//           <div
-//             style={{
-//               padding:
-//                 '0 16px',
-//             }}
-//           >
-//             <ProgressCard
-//               label={
-//                 busyLabel
-//               }
-//             />
-//           </div>
-//         )}
-
-//       {/* ----------------------------------------------------------------- */}
-//       {/* ERROR                                                             */}
-//       {/* ----------------------------------------------------------------- */}
-
-//       {error && (
-//         <div className="error">
-//           {error}
-//         </div>
-//       )}
-
-//       {/* ----------------------------------------------------------------- */}
-//       {/* FOOTER                                                            */}
-//       {/* ----------------------------------------------------------------- */}
-
-//       <footer>
-//         {/* ------------------------------------------------------------- */}
-//         {/* SIGN IN                                                       */}
-//         {/* ------------------------------------------------------------- */}
-
-//         {step ===
-//           'signin' && (
-//           <button
-//             className="primary"
-//             disabled={
-//               busy
-//             }
-//             onClick={
-//               handleSignIn
-//             }
-//           >
-//             Sign in to Design
-//             Engineer
-//           </button>
-//         )}
-
-//         {/* ------------------------------------------------------------- */}
-//         {/* GITHUB                                                        */}
-//         {/* ------------------------------------------------------------- */}
-
-//         {step ===
-//           'github' && (
-//           <button
-//             className="primary"
-//             disabled={
-//               busy
-//             }
-//             onClick={
-//               handleConnectGithub
-//             }
-//           >
-//             Continue with GitHub
-//           </button>
-//         )}
-
-//         {/* ------------------------------------------------------------- */}
-//         {/* REPOSITORY                                                    */}
-//         {/* ------------------------------------------------------------- */}
-
-//         {step ===
-//           'repo' && (
-//           <select
-//             disabled={
-//               busy
-//             }
-//             defaultValue=""
-//             onChange={(
-//               event
-//             ) => {
-//               const value =
-//                 event.target
-//                   .value;
-
-//               if (value) {
-//                 handleSelectRepo(
-//                   value
-//                 );
-//               }
-//             }}
-//           >
-//             <option
-//               value=""
-//               disabled
-//             >
-//               Choose a repository...
-//             </option>
-
-//             {repos.map(
-//               (repo) => (
-//                 <option
-//                   key={
-//                     repo.fullName
-//                   }
-//                   value={
-//                     repo.fullName
-//                   }
-//                 >
-//                   {
-//                     repo.fullName
-//                   }
-
-//                   {repo.private
-//                     ? ' (private)'
-//                     : ''}
-//                 </option>
-//               )
-//             )}
-//           </select>
-//         )}
-
-//         {/* ------------------------------------------------------------- */}
-//         {/* BRANCH                                                        */}
-//         {/* ------------------------------------------------------------- */}
-
-//         {step ===
-//           'branch' && (
-//           <select
-//             disabled={
-//               busy
-//             }
-//             defaultValue=""
-//             onChange={(
-//               event
-//             ) => {
-//               const value =
-//                 event.target
-//                   .value;
-
-//               if (value) {
-//                 handleSelectBranch(
-//                   value
-//                 );
-//               }
-//             }}
-//           >
-//             <option
-//               value=""
-//               disabled
-//             >
-//               Choose a branch...
-//             </option>
-
-//             {branches.map(
-//               (branch) => (
-//                 <option
-//                   key={
-//                     branch.name
-//                   }
-//                   value={
-//                     branch.name
-//                   }
-//                 >
-//                   {
-//                     branch.name
-//                   }
-//                 </option>
-//               )
-//             )}
-//           </select>
-//         )}
-
-//         {/* ------------------------------------------------------------- */}
-//         {/* FETCH                                                         */}
-//         {/* ------------------------------------------------------------- */}
-
-//         {step ===
-//           'screens' && (
-//           <button
-//             className="primary"
-//             disabled={
-//               busy ||
-//               checkedIds.size ===
-//                 0
-//             }
-//             onClick={
-//               handleFetch
-//             }
-//           >
-//             {checkedIds.size >
-//             0
-//               ? `Fetch (${checkedIds.size})`
-//               : 'Select screens'}
-//           </button>
-//         )}
-
-//         {/* ------------------------------------------------------------- */}
-//         {/* DONE                                                          */}
-//         {/* ------------------------------------------------------------- */}
-
-//         {step ===
-//           'done' && (
-//           <button
-//             className="primary"
-//             onClick={() => {
-//               setStep(
-//                 'screens'
-//               );
-
-//               setBusyLabel(
-//                 ''
-//               );
-
-//               setError(
-//                 null
-//               );
-//             }}
-//           >
-//             Select more screens
-//           </button>
-//         )}
-//       </footer>
-
-//       {step ===
-//         'done' && (
-//         <Composer
-//           onSend={() => {}}
-//           disabled
-//         />
-//       )}
-//     </div>
-//   );
-// }
-
-
-
 // src/ui/App.tsx
+//
+// Design Engineer plugin UI — new account flow.
+//
+//  boot   -> restore Supabase session from Figma client storage
+//  auth   -> "Already have an account?" / "Create an account"
+//  signup -> email + password (validated) -> stored in Supabase auth
+//  signin -> email + password
+//  dashboard -> projects, GitHub connection, Codex connection, switch account
+//  create-project -> name + description (GitHub connect first if needed)
+//  github -> GitHub OAuth (backend automates it, tokens stored in DB)
+//  codex  -> device-code login (credentials stored in DB per user)
+//  repo/branch/screens/done -> existing fetch + implement flow per project
 
 import React, {
   useEffect,
@@ -1703,8 +26,6 @@ import ContextChip from './ContextChip';
 
 import ProgressCard from './ProgressCard';
 
-import Composer from './Composer';
-
 import {
   onPluginMessage,
   sendToPlugin,
@@ -1717,8 +38,12 @@ import * as api from '../api/client';
 // -----------------------------------------------------------------------------
 
 type Step =
-  | 'restoring'
+  | 'boot'
+  | 'auth'
+  | 'signup'
   | 'signin'
+  | 'dashboard'
+  | 'create-project'
   | 'github'
   | 'repo'
   | 'branch'
@@ -1727,15 +52,15 @@ type Step =
 
 interface SelectionItem {
   id: string;
-
   name: string;
-
   type: string;
-
   width: number;
-
   height: number;
 }
+
+type PendingGoal = 'dashboard' | 'create-project' | 'repo';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // -----------------------------------------------------------------------------
 // APP
@@ -1746,543 +71,319 @@ export default function App() {
   // STATE
   // ===========================================================================
 
-  const [step, setStep] =
-    useState<Step>(
-      'restoring'
-    );
+  const [step, setStep] = useState<Step>('boot');
 
-  const [sessionId, setSessionId] =
-    useState<
-      string | null
-    >(null);
+  const [session, setSession] = useState<api.AuthSession | null>(null);
+  const [userEmail, setUserEmail] = useState('');
 
-  const [selectedRepo, setSelectedRepo] =
-    useState<
-      string | null
-    >(null);
+  const [projects, setProjects] = useState<api.Project[]>([]);
+  const [currentProject, setCurrentProject] = useState<api.Project | null>(null);
 
-  const [selectedBranch, setSelectedBranch] =
-    useState<
-      string | null
-    >(null);
+  const [github, setGithub] = useState<api.GithubStatus>({
+    connected: false,
+    githubUser: null,
+  });
 
-  const [repos, setRepos] =
-    useState<api.Repo[]>(
-      []
-    );
+  const [codex, setCodex] = useState<api.CodexStatusInfo>({
+    connected: false,
+    codexUser: null,
+  });
 
-  const [branches, setBranches] =
-    useState<api.Branch[]>(
-      []
-    );
+  const [codexDevice, setCodexDevice] = useState<{
+    device_code: string;
+    user_code: string;
+    verification_uri_complete: string;
+    verification_uri: string;
+    interval: number;
+  } | null>(null);
 
-  const [selection, setSelection] =
-    useState<
-      SelectionItem[]
-    >([]);
+  // forms
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupConfirm, setSignupConfirm] = useState('');
+  const [signinEmail, setSigninEmail] = useState('');
+  const [signinPassword, setSigninPassword] = useState('');
+  const [projectName, setProjectName] = useState('');
+  const [projectDescription, setProjectDescription] = useState('');
 
-  const [checkedIds, setCheckedIds] =
-    useState<
-      Set<string>
-    >(
-      new Set()
-    );
+  // repo flow
+  const [repos, setRepos] = useState<api.Repo[]>([]);
+  const [branches, setBranches] = useState<api.Branch[]>([]);
+  const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
+  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
 
-  const [fetchedScreens, setFetchedScreens] =
-    useState<any[]>([]);
+  // screens
+  const [selection, setSelection] = useState<SelectionItem[]>([]);
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [fetchedScreens, setFetchedScreens] = useState<any[]>([]);
 
-  const [busy, setBusy] =
-    useState(false);
-
-  const [busyLabel, setBusyLabel] =
-    useState('');
-
-  const [error, setError] =
-    useState<
-      string | null
-    >(null);
-
-  const [messages, setMessages] =
-    useState<
-      ChatMessage[]
-    >([
-      {
-        role:
-          'system',
-
-        text:
-          'Welcome to Design Engineer.',
-      },
-    ]);
+  // busy / error / chat
+  const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { role: 'system', text: 'Welcome to Design Engineer.' },
+  ]);
 
   // ===========================================================================
   // REFS
   // ===========================================================================
 
-  const sessionIdRef =
-    useRef<
-      string | null
-    >(null);
+  const sessionRef = useRef<api.AuthSession | null>(null);
+  const stepRef = useRef<Step>('boot');
+  const pendingGoalRef = useRef<PendingGoal>('dashboard');
+  const currentProjectRef = useRef<api.Project | null>(null);
+  const selectedRepoRef = useRef<string | null>(null);
+  const selectedBranchRef = useRef<string | null>(null);
+  const pollRef = useRef<number | null>(null);
 
-  const selectedRepoRef =
-    useRef<
-      string | null
-    >(null);
-
-  const selectedBranchRef =
-    useRef<
-      string | null
-    >(null);
-
-  const pollRef =
-    useRef<
-      number | null
-    >(null);
-
-  // ===========================================================================
-  // SYNC REFS
-  // ===========================================================================
-
-  useEffect(() => {
-    sessionIdRef.current =
-      sessionId;
-  }, [sessionId]);
-
-  useEffect(() => {
-    selectedRepoRef.current =
-      selectedRepo;
-  }, [selectedRepo]);
-
-  useEffect(() => {
-    selectedBranchRef.current =
-      selectedBranch;
-  }, [selectedBranch]);
+  useEffect(() => { sessionRef.current = session; }, [session]);
+  useEffect(() => { stepRef.current = step; }, [step]);
+  useEffect(() => { currentProjectRef.current = currentProject; }, [currentProject]);
+  useEffect(() => { selectedRepoRef.current = selectedRepo; }, [selectedRepo]);
+  useEffect(() => { selectedBranchRef.current = selectedBranch; }, [selectedBranch]);
 
   // ===========================================================================
   // CHAT
   // ===========================================================================
 
-  function log(
-    role: ChatMessage['role'],
-    text: string
-  ) {
-    setMessages(
-      (current) => [
-        ...current,
+  function log(role: ChatMessage['role'], text: string) {
+    setMessages((current) => [...current, { role, text }]);
+  }
 
-        {
-          role,
-
-          text,
-        },
-      ]
-    );
+  function clearPoll() {
+    if (pollRef.current !== null) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
   }
 
   // ===========================================================================
-  // INITIALIZE
+  // SESSION HELPERS
+  // ===========================================================================
+
+  function applySession(s: api.AuthSession, saveToFigma = true) {
+    setSession(s);
+    sessionRef.current = s;
+    api.setAccessToken(s.accessToken);
+    if (saveToFigma) {
+      sendToPlugin({
+        type: 'save-session',
+        session: {
+          accessToken: s.accessToken,
+          refreshToken: s.refreshToken,
+          userEmail: s.user.email,
+        },
+      });
+    }
+  }
+
+  function clearSessionLocally() {
+    api.setAccessToken(null);
+    setSession(null);
+    sessionRef.current = null;
+    setUserEmail('');
+    setProjects([]);
+    setCurrentProject(null);
+    currentProjectRef.current = null;
+    setGithub({ connected: false, githubUser: null });
+    setCodex({ connected: false, codexUser: null });
+    setCodexDevice(null);
+    sendToPlugin({ type: 'clear-session' });
+  }
+
+  async function tryRefresh(): Promise<boolean> {
+    const refreshToken = sessionRef.current?.refreshToken;
+    if (!refreshToken) return false;
+    try {
+      const refreshed = await api.refreshSession(refreshToken);
+      applySession(refreshed);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Runs a backend call; on an expired access token it refreshes once and
+  // retries.
+  async function authAware<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e: any) {
+      const expired =
+        e instanceof api.ApiError &&
+        (e.code === 'AUTH_EXPIRED' || e.status === 401);
+      if (expired && (await tryRefresh())) {
+        return await fn();
+      }
+      throw e;
+    }
+  }
+
+  async function loadDashboard(): Promise<api.MeResponse> {
+    const me = await api.getMe();
+    setUserEmail(me.user.email);
+    setProjects(me.projects || []);
+    setGithub(me.github || { connected: false, githubUser: null });
+    setCodex(me.codex || { connected: false, codexUser: null });
+    return me;
+  }
+
+  // ===========================================================================
+  // BOOT
   // ===========================================================================
 
   useEffect(() => {
-    // Ask Figma main thread for
-    // previously saved session.
-    sendToPlugin({
-      type:
-        'get-saved-session',
+    sendToPlugin({ type: 'get-saved-session' });
+    sendToPlugin({ type: 'get-selection' });
+
+    const cleanup = onPluginMessage((msg) => {
+      if (msg.type === 'saved-session') {
+        restoreSavedSession(msg.session);
+      }
+
+      if (msg.type === 'session-saved') {
+        console.log('[Design Engineer] Session saved.');
+      }
+
+      if (msg.type === 'selection-changed') {
+        setSelection(msg.selection || []);
+      }
+
+      if (msg.type === 'extract-started') {
+        setBusy(true);
+        setBusyLabel(
+          `Starting extraction of ${msg.total} screen${msg.total === 1 ? '' : 's'}...`
+        );
+      }
+
+      if (msg.type === 'extraction-error') {
+        setBusy(false);
+        setBusyLabel('');
+        const message = msg.error || 'Extraction failed.';
+        setError(message);
+        log('assistant', `❌ ${message}`);
+      }
+
+      if (msg.type === 'screens-extracted') {
+        handleExtracted(msg.results || []);
+      }
     });
 
-    // Ask for current selection.
-    sendToPlugin({
-      type:
-        'get-selection',
-    });
-
-    const cleanup =
-      onPluginMessage(
-        (msg) => {
-          // -----------------------------------------------------------------
-          // SAVED SESSION
-          // -----------------------------------------------------------------
-
-          if (
-            msg.type ===
-            'saved-session'
-          ) {
-            restoreSavedSession(
-              msg.sessionId,
-              !!msg.codexAuthenticated
-            );
-          }
-
-          // -----------------------------------------------------------------
-          // SELECTION
-          // -----------------------------------------------------------------
-
-          if (
-            msg.type ===
-            'selection-changed'
-          ) {
-            setSelection(
-              msg.selection ||
-                []
-            );
-          }
-
-          // -----------------------------------------------------------------
-          // EXTRACTION START
-          // -----------------------------------------------------------------
-
-          if (
-            msg.type ===
-            'extract-started'
-          ) {
-            setBusy(true);
-
-            setBusyLabel(
-              `Starting extraction of ${
-                msg.total
-              } screen${
-                msg.total ===
-                1
-                  ? ''
-                  : 's'
-              }...`
-            );
-          }
-
-          // -----------------------------------------------------------------
-          // EXTRACTION ERROR
-          // -----------------------------------------------------------------
-
-          if (
-            msg.type ===
-            'extraction-error'
-          ) {
-            setBusy(false);
-
-            setBusyLabel('');
-
-            setError(
-              msg.error ||
-                'Extraction failed.'
-            );
-
-            log(
-              'assistant',
-              `❌ ${
-                msg.error ||
-                'Extraction failed.'
-              }`
-            );
-          }
-
-          // -----------------------------------------------------------------
-          // EXTRACTION COMPLETE
-          // -----------------------------------------------------------------
-
-          if (
-            msg.type ===
-            'screens-extracted'
-          ) {
-            handleExtracted(
-              msg.results ||
-                []
-            );
-          }
-        }
-      );
-
-    return cleanup;
-
-    // Listener intentionally registered once.
+    return () => {
+      cleanup();
+      clearPoll();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===========================================================================
-  // RESTORE SESSION
-  // ===========================================================================
-
-  async function restoreSavedSession(
-    savedSessionId:
-      | string
-      | null,
-    codexAuthenticated =
-      false
-  ) {
-    // -------------------------------------------------------------------------
-    // FIRST TIME
-    // -------------------------------------------------------------------------
-
-    if (
-      !savedSessionId
-    ) {
-      if (
-        codexAuthenticated
-      ) {
-        console.log(
-          '[Design Engineer] Codex auth marker found. Recreating a session without forcing a new Codex device login.'
-        );
-
-        try {
-          const session =
-            await api.createSession();
-
-          const restoredSessionId =
-            session.sessionId;
-
-          setSessionId(
-            restoredSessionId
-          );
-
-          sessionIdRef.current =
-            restoredSessionId;
-
-          sendToPlugin({
-            type:
-              'save-session',
-
-            sessionId:
-              restoredSessionId,
-          });
-
-          const codexStatus =
-            await api.getCodexStatus(
-              restoredSessionId
-            );
-
-          console.log(
-            '[Design Engineer] Restored Codex session status after rehydrating session:',
-            codexStatus
-          );
-
-          if (
-            codexStatus.connected
-          ) {
-            sendToPlugin({
-              type:
-                'save-codex-auth',
-            });
-
-            setBusy(false);
-
-            setBusyLabel('');
-
-            setStep(
-              'github'
-            );
-
-            return;
-          }
-        } catch (
-          restoreError
-        ) {
-          console.error(
-            '[Design Engineer] Failed to restore session from Codex marker:',
-            restoreError
-          );
-        }
-      }
-
-      console.log(
-        '[Design Engineer] No saved session. First launch.'
-      );
-
-      setBusy(false);
-
-      setBusyLabel('');
-
-      setStep(
-        'signin'
-      );
-
+  async function restoreSavedSession(saved: api.AuthSession | null) {
+    if (!saved || !saved.accessToken) {
+      setStep('auth');
       setMessages([
         {
-          role:
-            'system',
-
-          text:
-            'This is your first login. Sign in to Codex once; the login will be remembered.',
+          role: 'system',
+          text: 'Welcome to Design Engineer.\n\nCreate an account or sign in to get started. Your account, projects, GitHub and Codex connections are stored in your Supabase database.',
         },
       ]);
-
       return;
     }
 
-    // -------------------------------------------------------------------------
-    // WE HAVE PREVIOUS SESSION
-    // -------------------------------------------------------------------------
-
-    console.log(
-      '[Design Engineer] Restoring saved session:',
-      savedSessionId
-    );
-
-    setSessionId(
-      savedSessionId
-    );
-
-    sessionIdRef.current =
-      savedSessionId;
+    api.setAccessToken(saved.accessToken);
+    setSession(saved);
+    sessionRef.current = saved;
 
     setBusy(true);
-
-    setBusyLabel(
-      'Checking your previous Codex login...'
-    );
+    setBusyLabel('Restoring your account...');
 
     try {
-      // -----------------------------------------------------------------------
-      // CHECK DESIGN ENGINEER SESSION
-      // -----------------------------------------------------------------------
+      const me = await authAware(() => api.getMe());
+      setUserEmail(me.user.email);
+      setProjects(me.projects || []);
+      setGithub(me.github || { connected: false, githubUser: null });
+      setCodex(me.codex || { connected: false, codexUser: null });
+      setBusy(false);
+      setBusyLabel('');
+      setStep('dashboard');
 
-      const sessionStatus =
-        await api.getSessionStatus(
-          savedSessionId
-        );
-
-      console.log(
-        '[Design Engineer] Session status:',
-        sessionStatus
+      log(
+        'assistant',
+        `Welcome back${me.github.githubUser ? `, @${me.github.githubUser}` : ''}! You're signed in as ${me.user.email}.`
       );
+    } catch (e: any) {
+      console.error('[Design Engineer] Session restore failed:', e);
+      setBusy(false);
+      setBusyLabel('');
+      clearSessionLocally();
+      setStep('auth');
+      setMessages([
+        {
+          role: 'system',
+          text: 'Your previous session has expired. Please sign in again.',
+        },
+      ]);
+    }
+  }
 
-      // -----------------------------------------------------------------------
-      // CHECK CODEX CLI AUTH
-      // -----------------------------------------------------------------------
+  // ===========================================================================
+  // SIGN UP
+  // ===========================================================================
 
-      const codexStatus =
-        await api.getCodexStatus(
-          savedSessionId
-        );
+  async function handleSignup() {
+    const email = signupEmail.trim().toLowerCase();
+    const password = signupPassword;
+    const confirm = signupConfirm;
 
-      console.log(
-        '[Design Engineer] Codex status:',
-        codexStatus
-      );
+    if (!EMAIL_RE.test(email)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
+    }
+    if (password !== confirm) {
+      setError('Passwords do not match.');
+      return;
+    }
 
-      // -----------------------------------------------------------------------
-      // CODEX IS ALREADY AUTHENTICATED
-      // -----------------------------------------------------------------------
+    setError(null);
+    setBusy(true);
+    setBusyLabel('Creating your account...');
 
-      if (
-        codexStatus.connected
-      ) {
-        sendToPlugin({
-          type:
-            'save-codex-auth',
-        });
+    try {
+      const result = await api.signup(email, password);
 
-        log(
-          'assistant',
-          `Welcome back${
-            codexStatus.codexUser
-              ? `, ${codexStatus.codexUser}`
-              : ''
-          }! Codex is already authenticated.`
-        );
-
-        // ---------------------------------------------------------------------
-        // GITHUB ALSO CONNECTED
-        // ---------------------------------------------------------------------
-
-        if (
-          sessionStatus.githubConnected
-        ) {
-          log(
-            'assistant',
-            `GitHub is already connected${
-              sessionStatus.githubUser
-                ? ` as @${sessionStatus.githubUser}`
-                : ''
-            }. Loading repositories...`
-          );
-
-          await loadRepos(
-            savedSessionId
-          );
-
-          return;
-        }
-
-        // ---------------------------------------------------------------------
-        // CODEX YES, GITHUB NO
-        // ---------------------------------------------------------------------
-
+      if (result.confirmationRequired) {
         setBusy(false);
-
         setBusyLabel('');
-
-        setStep(
-          'github'
-        );
-
+        setSigninEmail(email);
+        setSigninPassword('');
+        setStep('signin');
+        setError('Check your inbox to confirm your email, then sign in.');
         return;
       }
 
-      // -----------------------------------------------------------------------
-      // CODEX NOT AUTHENTICATED
-      // -----------------------------------------------------------------------
-
-      console.log(
-        '[Design Engineer] Codex login is not available.'
-      );
-
-      setBusy(false);
-
-      setBusyLabel('');
-
-      setStep(
-        'signin'
-      );
-
-      setMessages([
-        {
-          role:
-            'system',
-
-          text:
-            'Your Design Engineer session exists, but Codex is not authenticated. Please sign in to Codex.',
-        },
-      ]);
-    } catch (error: any) {
-      console.error(
-        '[Design Engineer] Session restoration failed:',
-        error
-      );
-
-      setBusy(false);
-
-      setBusyLabel('');
-
-      // -----------------------------------------------------------------------
-      // IMPORTANT
-      //
-      // Do NOT automatically delete the session for every error.
-      // -----------------------------------------------------------------------
-
-      if (
-        String(
-          error?.message ||
-            ''
-        ).includes(
-          '404'
-        )
-      ) {
-        sendToPlugin({
-          type:
-            'clear-session',
+      if (result.accessToken && result.refreshToken && result.user) {
+        applySession({
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+          user: result.user,
         });
 
-        setSessionId(
-          null
-        );
+        log('user', `Create account: ${email}`);
+        log('assistant', `Account created ✓. Welcome, ${email}!`);
 
-        sessionIdRef.current =
-          null;
+        setBusy(false);
+        setBusyLabel('');
+        await goDashboardAfterAuth();
+      } else {
+        throw new Error('Account creation returned an unexpected response.');
       }
-
-      setStep(
-        'signin'
-      );
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      setError(e?.message || 'Could not create your account.');
     }
   }
 
@@ -2290,680 +391,464 @@ export default function App() {
   // SIGN IN
   // ===========================================================================
 
-  async function handleSignIn() {
-    setBusy(true);
+  async function handleSignin() {
+    const email = signinEmail.trim().toLowerCase();
+    const password = signinPassword;
 
-    setBusyLabel(
-      'Checking Codex authentication...'
-    );
+    if (!email || !password) {
+      setError('Enter your email and password.');
+      return;
+    }
 
     setError(null);
+    setBusy(true);
+    setBusyLabel('Signing in...');
 
     try {
-      // -----------------------------------------------------------------------
-      // CHECK EXISTING SESSION FIRST
-      // -----------------------------------------------------------------------
+      const result = await api.signin(email, password);
+      applySession(result);
 
-      let currentSessionId =
-        sessionIdRef.current;
-
-      // -----------------------------------------------------------------------
-      // IF SESSION EXISTS, CHECK CODEX BEFORE CREATING LOGIN
-      // -----------------------------------------------------------------------
-
-      if (
-        currentSessionId
-      ) {
-        const existingCodex =
-          await api.getCodexStatus(
-            currentSessionId
-          );
-
-        if (
-          existingCodex.connected
-        ) {
-          sendToPlugin({
-            type:
-              'save-codex-auth',
-          });
-
-          log(
-            'assistant',
-            'Codex is already authenticated. No device code is required.'
-          );
-
-          setBusy(false);
-
-          setBusyLabel('');
-
-          setStep(
-            'github'
-          );
-
-          return;
-        }
-      }
-
-      // -----------------------------------------------------------------------
-      // FIRST EVER LOGIN
-      // -----------------------------------------------------------------------
-
-      if (
-        !currentSessionId
-      ) {
-        const session =
-          await api.createSession();
-
-        currentSessionId =
-          session.sessionId;
-
-        setSessionId(
-          currentSessionId
-        );
-
-        sessionIdRef.current =
-          currentSessionId;
-
-        // Save Design Engineer session
-        // inside Figma clientStorage.
-        sendToPlugin({
-          type:
-            'save-session',
-
-          sessionId:
-            currentSessionId,
-        });
-      }
-
-      // -----------------------------------------------------------------------
-      // START CODEX DEVICE LOGIN
-      // -----------------------------------------------------------------------
-
-      log(
-        'user',
-        'Sign in to Codex'
-      );
-
-      setBusyLabel(
-        'Starting Codex login...'
-      );
-
-      const device =
-        await api.startCodexDeviceAuth(
-          currentSessionId
-        );
-
-      log(
-        'assistant',
-        `Enter the device code ${
-          device.user_code
-        } in the OpenAI authorization page.`
-      );
-
-      setBusyLabel(
-        `Waiting for Codex authorization: ${
-          device.user_code
-        }`
-      );
-
-      // Open browser.
-      window.open(
-        device.verification_uri_complete ||
-          device.verification_uri,
-        '_blank'
-      );
-
-      // -----------------------------------------------------------------------
-      // POLL
-      // -----------------------------------------------------------------------
-
-      if (
-        pollRef.current !==
-        null
-      ) {
-        window.clearInterval(
-          pollRef.current
-        );
-      }
-
-      pollRef.current =
-        window.setInterval(
-          async () => {
-            try {
-              const status =
-                await api.getCodexDeviceStatus(
-                  device.device_code
-                );
-
-              console.log(
-                '[Design Engineer] Codex device status:',
-                status
-              );
-
-              // ---------------------------------------------------------------
-              // APPROVED
-              // ---------------------------------------------------------------
-
-              if (
-                status.status ===
-                'approved'
-              ) {
-                if (
-                  pollRef.current !==
-                  null
-                ) {
-                  window.clearInterval(
-                    pollRef.current
-                  );
-
-                  pollRef.current =
-                    null;
-                }
-
-                sendToPlugin({
-                  type:
-                    'save-codex-auth',
-                });
-
-                log(
-                  'assistant',
-                  `Codex authentication successful${
-                    status.codexUser
-                      ? ` as ${status.codexUser}`
-                      : ''
-                  }.`
-                );
-
-                setBusy(false);
-
-                setBusyLabel('');
-
-                // IMPORTANT:
-                //
-                // We do NOT ask for another device code.
-                //
-                // Codex CLI has stored the
-                // authentication in CODEX_HOME.
-
-                setStep(
-                  'github'
-                );
-              }
-
-              // ---------------------------------------------------------------
-              // EXPIRED
-              // ---------------------------------------------------------------
-
-              if (
-                status.status ===
-                'expired'
-              ) {
-                if (
-                  pollRef.current !==
-                  null
-                ) {
-                  window.clearInterval(
-                    pollRef.current
-                  );
-
-                  pollRef.current =
-                    null;
-                }
-
-                setBusy(false);
-
-                setBusyLabel('');
-
-                setError(
-                  'Codex device authentication expired. Please try again.'
-                );
-              }
-            } catch (
-              pollingError
-            ) {
-              console.error(
-                '[Design Engineer] Codex polling error:',
-                pollingError
-              );
-            }
-          },
-          (
-            device.interval ||
-            3
-          ) *
-            1000
-        );
-    } catch (error: any) {
-      console.error(
-        '[Design Engineer] Codex login failed:',
-        error
-      );
+      log('user', `Sign in: ${email}`);
 
       setBusy(false);
-
       setBusyLabel('');
-
-      setError(
-        error?.message ||
-          'Codex login failed.'
-      );
+      await goDashboardAfterAuth();
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      setError(e?.message || 'Sign in failed.');
     }
+  }
+
+  async function goDashboardAfterAuth() {
+    try {
+      const me = await loadDashboard();
+      setStep('dashboard');
+      log(
+        'assistant',
+        `You're signed in as ${me.user.email}.\n\n` +
+          (me.github.connected
+            ? `GitHub is connected as @${me.github.githubUser}.`
+            : 'Connect GitHub when you create a project.') +
+          (me.codex.connected
+            ? ' Codex is ready for implementation.'
+            : ' Connect Codex when you are ready to implement screens.')
+      );
+    } catch (e: any) {
+      console.error('[Design Engineer] Dashboard load failed:', e);
+      setStep('dashboard');
+    }
+  }
+
+  // ===========================================================================
+  // SIGN OUT (switch app account)
+  // ===========================================================================
+
+  function handleSignOut() {
+    clearPoll();
+    clearSessionLocally();
+    setCheckedIds(new Set());
+    setFetchedScreens([]);
+    setSelectedRepo(null);
+    selectedRepoRef.current = null;
+    setSelectedBranch(null);
+    selectedBranchRef.current = null;
+    setRepos([]);
+    setBranches([]);
+    setError(null);
+    setStep('auth');
+    log('assistant', 'Signed out. See you soon!');
   }
 
   // ===========================================================================
   // GITHUB
   // ===========================================================================
 
-  function handleConnectGithub() {
-    const currentSessionId =
-      sessionIdRef.current;
-
-    if (
-      !currentSessionId
-    ) {
-      setError(
-        'No active session. Please sign in again.'
-      );
-
-      return;
-    }
-
-    window.open(
-      api.githubAuthUrl(
-        currentSessionId
-      ),
-      '_blank'
-    );
-
-    log(
-      'user',
-      'Connect GitHub'
-    );
-
-    log(
-      'assistant',
-      'GitHub authorization opened in your browser. Waiting for authorization...'
-    );
-
-    setBusy(true);
-
-    setBusyLabel(
-      'Waiting for GitHub authorization...'
-    );
-
-    if (
-      pollRef.current !==
-      null
-    ) {
-      window.clearInterval(
-        pollRef.current
-      );
-    }
-
-    pollRef.current =
-      window.setInterval(
-        async () => {
-          try {
-            const status =
-              await api.getSessionStatus(
-                currentSessionId
-              );
-
-            if (
-              status.githubConnected
-            ) {
-              if (
-                pollRef.current !==
-                null
-              ) {
-                window.clearInterval(
-                  pollRef.current
-                );
-
-                pollRef.current =
-                  null;
-              }
-
-              log(
-                'assistant',
-                `Connected as @${status.githubUser}. Loading repositories...`
-              );
-
-              await loadRepos(
-                currentSessionId
-              );
-            }
-          } catch (
-            pollingError
-          ) {
-            console.error(
-              '[Design Engineer] GitHub polling error:',
-              pollingError
-            );
-          }
-        },
-        2000
-      );
-  }
-
-  async function handleSwitchCodexAccount() {
-    const currentSessionId =
-      sessionIdRef.current;
-
-    if (
-      !currentSessionId
-    ) {
-      return;
-    }
-
-    setBusy(true);
-
-    setBusyLabel(
-      'Signing out of Codex...'
-    );
+  async function handleConnectGithub(goal: PendingGoal = 'dashboard') {
+    pendingGoalRef.current = goal;
 
     setError(null);
+    setBusy(true);
+    setBusyLabel('Opening GitHub authorization...');
 
     try {
-      await api.logoutCodex(
-        currentSessionId
-      );
+      const { url } = await authAware(() => api.githubConnect());
+      window.open(url, '_blank');
 
-      sendToPlugin({
-        type:
-          'clear-codex-auth',
-      });
+      log('user', 'Connect GitHub');
+      log('assistant', 'GitHub authorization opened in your browser. Waiting for authorization...');
 
+      clearPoll();
+
+      pollRef.current = window.setInterval(async () => {
+        try {
+          const status = await authAware(() => api.githubStatus());
+
+          if (status.connected) {
+            clearPoll();
+            setGithub(status);
+            setBusy(false);
+            setBusyLabel('');
+            log('assistant', `Connected as @${status.githubUser}.`);
+
+            const goalNow = pendingGoalRef.current;
+
+            if (goalNow === 'create-project') {
+              setStep('create-project');
+            } else if (goalNow === 'repo') {
+              setStep('dashboard');
+              await loadDashboard();
+              setStep('repo');
+              try {
+                await api.listRepos();
+              } catch {
+                // fall through
+              }
+              await loadRepos();
+            } else {
+              await loadDashboard();
+              setStep('dashboard');
+            }
+          }
+        } catch (pollError) {
+          console.error('[Design Engineer] GitHub polling error:', pollError);
+        }
+      }, 2000);
+    } catch (e: any) {
       setBusy(false);
-
       setBusyLabel('');
+      setError(e?.message || 'Could not open GitHub authorization.');
+    }
+  }
 
-      setStep(
-        'signin'
-      );
-
-      log(
-        'assistant',
-        'Codex signed out. Click Sign in to authenticate a different account.'
-      );
-    } catch (error: any) {
-      console.error(
-        '[Design Engineer] Codex account switch failed:',
-        error
-      );
-
+  async function handleDisconnectGithub() {
+    setError(null);
+    setBusy(true);
+    setBusyLabel('Disconnecting GitHub...');
+    try {
+      await authAware(() => api.githubDisconnect());
+      setGithub({ connected: false, githubUser: null });
+      log('assistant', 'GitHub disconnected.');
       setBusy(false);
-
       setBusyLabel('');
-
-      setError(
-        error?.message ||
-          'Could not sign out of Codex.'
-      );
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      setError(e?.message || 'Could not disconnect GitHub.');
     }
   }
 
   // ===========================================================================
-  // LOAD REPOSITORIES
+  // CODEX
   // ===========================================================================
 
-  async function loadRepos(
-    overrideSessionId?: string
-  ) {
-    const currentSessionId =
-      overrideSessionId ||
-      sessionIdRef.current;
-
-    if (
-      !currentSessionId
-    ) {
-      setError(
-        'No active session.'
-      );
-
-      setBusy(false);
-
-      return;
-    }
-
+  async function handleConnectCodex() {
+    setError(null);
     setBusy(true);
-
-    setBusyLabel(
-      'Loading repositories...'
-    );
+    setBusyLabel('Starting Codex login...');
 
     try {
-      const data =
-        await api.listRepos(
-          currentSessionId
-        );
+      const device = await authAware(() => api.startCodexDeviceAuth());
 
-      setRepos(
-        data.repos ||
-          []
-      );
-
-      setBusy(false);
-
-      setBusyLabel('');
-
-      setStep(
-        'repo'
-      );
-    } catch (error: any) {
-      console.error(
-        '[Design Engineer] Repository loading failed:',
-        error
-      );
-
-      setBusy(false);
-
-      setBusyLabel('');
-
-      if (
-        String(
-          error?.message ||
-            ''
-        ).includes(
-          'GITHUB_REAUTH_REQUIRED'
-        ) ||
-        String(
-          error?.message ||
-            ''
-        ).includes(
-          '401'
-        )
-      ) {
-        setStep(
-          'github'
-        );
-
-        setError(
-          'Your GitHub authorization expired. Reconnect GitHub to continue.'
-        );
-
-        log(
-          'assistant',
-          'GitHub authorization expired. Click Continue with GitHub to reconnect.'
-        );
-
+      if (device.alreadyAuthenticated) {
+        setBusy(false);
+        setBusyLabel('');
+        log('assistant', 'Codex is already authenticated — no device code required.');
+        await loadDashboard();
         return;
       }
 
-      setError(
-        error?.message ||
-          'Failed to load repositories.'
-      );
-    }
-  }
-
-  // ===========================================================================
-  // REPOSITORY
-  // ===========================================================================
-
-  async function handleSelectRepo(
-    fullName: string
-  ) {
-    const currentSessionId =
-      sessionIdRef.current;
-
-    if (
-      !currentSessionId
-    ) {
-      setError(
-        'No active session.'
-      );
-
-      return;
-    }
-
-    setSelectedRepo(
-      fullName
-    );
-
-    selectedRepoRef.current =
-      fullName;
-
-    log(
-      'user',
-      `Repo: ${fullName}`
-    );
-
-    setBusy(true);
-
-    setBusyLabel(
-      'Loading branches...'
-    );
-
-    try {
-      const [
-        owner,
-        repo,
-      ] =
-        fullName.split('/');
-
-      const data =
-        await api.listBranches(
-          currentSessionId,
-          owner,
-          repo
-        );
-
-      setBranches(
-        data.branches ||
-          []
-      );
+      setCodexDevice({
+        device_code: device.device_code,
+        user_code: device.user_code,
+        verification_uri_complete: device.verification_uri_complete || device.verification_uri,
+        verification_uri: device.verification_uri,
+        interval: device.interval || 3,
+      });
 
       log(
         'assistant',
-        'Pick a branch to work from.'
+        `Enter the device code ${device.user_code} at ${device.verification_uri}.\n\nOpening the login page now...`
+      );
+
+      window.open(
+        device.verification_uri_complete || device.verification_uri,
+        '_blank'
       );
 
       setBusy(false);
-
       setBusyLabel('');
 
-      setStep(
-        'branch'
-      );
-    } catch (error: any) {
-      console.error(
-        '[Design Engineer] Branch loading failed:',
-        error
-      );
+      clearPoll();
 
+      pollRef.current = window.setInterval(async () => {
+        try {
+          const status = await authAware(() =>
+            api.getCodexDeviceStatus(device.device_code)
+          );
+
+          if (status.status === 'approved') {
+            clearPoll();
+            setCodexDevice(null);
+            log(
+              'assistant',
+              `Codex authenticated${status.codexUser ? ` as ${status.codexUser}` : ''}. Your connection is saved in your database.`
+            );
+            await loadDashboard();
+          }
+
+          if (status.status === 'expired') {
+            clearPoll();
+            setCodexDevice(null);
+            setError('Codex login expired. Please try again.');
+          }
+        } catch (pollError) {
+          console.error('[Design Engineer] Codex polling error:', pollError);
+        }
+      }, (device.interval || 3) * 1000);
+    } catch (e: any) {
       setBusy(false);
-
       setBusyLabel('');
+      setError(e?.message || 'Could not start Codex login.');
+    }
+  }
 
-      setError(
-        error?.message ||
-          'Failed to load branches.'
-      );
+  async function handleSwitchCodexAccount() {
+    setError(null);
+    setBusy(true);
+    setBusyLabel('Signing out of Codex...');
+    try {
+      await authAware(() => api.logoutCodex());
+      setCodexDevice(null);
+      clearPoll();
+      log('assistant', 'Codex signed out. Connect a different account when you are ready.');
+      await loadDashboard();
+      setBusy(false);
+      setBusyLabel('');
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      setError(e?.message || 'Could not switch Codex account.');
     }
   }
 
   // ===========================================================================
-  // BRANCH
+  // PROJECTS
   // ===========================================================================
 
-  function handleSelectBranch(
-    name: string
-  ) {
-    setSelectedBranch(
-      name
-    );
+  async function handleCreateProject() {
+    const name = projectName.trim();
+    if (!name) {
+      setError('Give your project a name.');
+      return;
+    }
 
-    selectedBranchRef.current =
-      name;
+    setError(null);
+    setBusy(true);
+    setBusyLabel('Creating project...');
 
-    log(
-      'user',
-      `Branch: ${name}`
-    );
+    try {
+      const { project } = await authAware(() =>
+        api.createProject(name, projectDescription.trim())
+      );
+
+      setProjectName('');
+      setProjectDescription('');
+
+      log('user', `Create project: ${name}`);
+      log('assistant', `Project "${name}" created. Now connect it to a GitHub repository.`);
+
+      setProjects((current) => [project, ...current]);
+
+      setBusy(false);
+      setBusyLabel('');
+
+      // Straight into the repo picker for this project.
+      setCurrentProject(project);
+      currentProjectRef.current = project;
+      await loadRepos();
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      setError(e?.message || 'Could not create the project.');
+    }
+  }
+
+  async function handleDeleteProject(id: string) {
+    if (!window.confirm('Delete this project? Its saved screens will be removed.')) {
+      return;
+    }
+    setError(null);
+    try {
+      await authAware(() => api.deleteProject(id));
+      setProjects((current) => current.filter((p) => p.id !== id));
+      if (currentProjectRef.current?.id === id) {
+        setCurrentProject(null);
+        currentProjectRef.current = null;
+      }
+      log('assistant', 'Project deleted.');
+    } catch (e: any) {
+      setError(e?.message || 'Could not delete the project.');
+    }
+  }
+
+  async function openProject(project: api.Project) {
+    setCurrentProject(project);
+    currentProjectRef.current = project;
+    setFetchedScreens([]);
+    setCheckedIds(new Set());
+    setError(null);
+
+    log('assistant', `Opening project "${project.name}".`);
+
+    setBusy(true);
+    setBusyLabel('Loading repositories...');
+
+    try {
+      const data = await authAware(() => api.listRepos());
+      setRepos(data.repos || []);
+      setBusy(false);
+      setBusyLabel('');
+
+      // If the project already has a repository + branch, go straight to screens.
+      if (project.repository) {
+        const existingRepo = data.repos.find((r) => r.fullName === project.repository);
+        if (existingRepo) {
+          setSelectedRepo(project.repository);
+          selectedRepoRef.current = project.repository;
+
+          if (project.base_branch) {
+            setSelectedBranch(project.base_branch);
+            selectedBranchRef.current = project.base_branch;
+            setBranches([{ name: project.base_branch }]);
+            setStep('screens');
+            log(
+              'assistant',
+              `Using ${project.repository} @ ${project.base_branch}. Select screens on the canvas, then click Fetch.`
+            );
+            return;
+          }
+        }
+      }
+
+      setStep('repo');
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      handleGithubError(e);
+    }
+  }
+
+  function handleGithubError(e: any) {
+    const expired =
+      e instanceof api.ApiError &&
+      (e.code === 'GITHUB_REAUTH_REQUIRED' || e.status === 401);
+
+    if (expired) {
+      pendingGoalRef.current = 'repo';
+      setStep('github');
+      setError('Your GitHub authorization expired. Reconnect GitHub to continue.');
+      log('assistant', 'GitHub authorization expired. Click Connect GitHub to reconnect.');
+      return;
+    }
+    setError(e?.message || 'Request failed.');
+  }
+
+  // ===========================================================================
+  // REPO / BRANCH / SCREENS
+  // ===========================================================================
+
+  async function loadRepos() {
+    setBusy(true);
+    setBusyLabel('Loading repositories...');
+    try {
+      const data = await authAware(() => api.listRepos());
+      setRepos(data.repos || []);
+      setBusy(false);
+      setBusyLabel('');
+      setStep('repo');
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      handleGithubError(e);
+    }
+  }
+
+  async function handleSelectRepo(fullName: string) {
+    const parts = fullName.split('/');
+    if (parts.length !== 2) {
+      setError(`Invalid repository name: ${fullName}`);
+      return;
+    }
+
+    const [owner, repo] = parts;
+
+    setSelectedRepo(fullName);
+    selectedRepoRef.current = fullName;
+    log('user', `Repo: ${fullName}`);
+
+    setBusy(true);
+    setBusyLabel('Loading branches...');
+
+    try {
+      const data = await authAware(() => api.listBranches(owner, repo));
+      setBranches(data.branches || []);
+      setBusy(false);
+      setBusyLabel('');
+      setStep('branch');
+      log('assistant', 'Pick a branch to work from.');
+
+      // Remember the repo on the project.
+      const project = currentProjectRef.current;
+      if (project) {
+        authAware(() =>
+          api.updateProject(project.id, { repository: fullName })
+        ).catch(() => {});
+      }
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      handleGithubError(e);
+    }
+  }
+
+  function handleSelectBranch(name: string) {
+    setSelectedBranch(name);
+    selectedBranchRef.current = name;
+    log('user', `Branch: ${name}`);
+
+    const project = currentProjectRef.current;
+    if (project) {
+      authAware(() =>
+        api.updateProject(project.id, {
+          repository: selectedRepoRef.current || undefined,
+          base_branch: name,
+        })
+      ).catch(() => {});
+    }
 
     log(
       'assistant',
       'Select one or more screens on the Figma canvas, then click Fetch.'
     );
-
-    setStep(
-      'screens'
-    );
+    setStep('screens');
   }
 
-  // ===========================================================================
-  // SCREEN CHECKBOX
-  // ===========================================================================
-
-  function toggleChecked(
-    id: string
-  ) {
-    setCheckedIds(
-      (previous) => {
-        const next =
-          new Set(
-            previous
-          );
-
-        if (
-          next.has(id)
-        ) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
-
-        return next;
-      }
-    );
+  function toggleChecked(id: string) {
+    setCheckedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
-
-  // ===========================================================================
-  // SELECT ALL
-  // ===========================================================================
 
   function selectAllScreens() {
-    setCheckedIds(
-      new Set(
-        selection.map(
-          (
-            screen
-          ) =>
-            screen.id
-        )
-      )
-    );
+    setCheckedIds(new Set(selection.map((screen) => screen.id)));
   }
 
-  // ===========================================================================
-  // CLEAR
-  // ===========================================================================
-
   function clearScreenSelection() {
-    setCheckedIds(
-      new Set()
-    );
+    setCheckedIds(new Set());
   }
 
   // ===========================================================================
@@ -2971,306 +856,126 @@ export default function App() {
   // ===========================================================================
 
   function handleFetch() {
-    const currentSessionId =
-      sessionIdRef.current;
+    const project = currentProjectRef.current;
+    const repo = selectedRepoRef.current;
+    const branch = selectedBranchRef.current;
 
-    const currentRepo =
-      selectedRepoRef.current;
-
-    const currentBranch =
-      selectedBranchRef.current;
-
-    if (
-      !currentSessionId ||
-      !currentRepo ||
-      !currentBranch
-    ) {
-      setError(
-        'Session, repository, or branch is missing.'
-      );
-
+    if (!project || !repo || !branch) {
+      setError('Missing project, repository, or branch.');
       return;
     }
 
-    if (
-      checkedIds.size ===
-      0
-    ) {
-      setError(
-        'Please select at least one screen.'
-      );
-
+    if (checkedIds.size === 0) {
+      setError('Please select at least one screen.');
       return;
     }
 
     setError(null);
-
-    log(
-      'user',
-      `Fetch ${
-        checkedIds.size
-      } screen${
-        checkedIds.size >
-        1
-          ? 's'
-          : ''
-      }`
-    );
-
-    log(
-      'assistant',
-      `I'll analyze ${
-        checkedIds.size
-      } selected screen${
-        checkedIds.size >
-        1
-          ? 's'
-          : ''
-      } and create the Design Context.`
-    );
+    log('user', `Fetch ${checkedIds.size} screen${checkedIds.size > 1 ? 's' : ''}`);
+    log('assistant', `I'll analyze ${checkedIds.size} selected screen${checkedIds.size > 1 ? 's' : ''} and create the Design Context.`);
 
     setBusy(true);
+    setBusyLabel(`Extracting ${checkedIds.size} screen${checkedIds.size > 1 ? 's' : ''}...`);
 
-    setBusyLabel(
-      `Extracting ${
-        checkedIds.size
-      } screen${
-        checkedIds.size >
-        1
-          ? 's'
-          : ''
-      }...`
-    );
-
-    // Send ALL selected IDs.
     sendToPlugin({
-      type:
-        'extract-screens',
-
-      nodeIds:
-        Array.from(
-          checkedIds
-        ),
+      type: 'extract-screens',
+      nodeIds: Array.from(checkedIds),
     });
   }
 
-  // ===========================================================================
-  // EXTRACTION COMPLETE
-  // ===========================================================================
+  async function handleExtracted(results: any[]) {
+    const project = currentProjectRef.current;
+    const repo = selectedRepoRef.current;
+    const branch = selectedBranchRef.current;
 
-  async function handleExtracted(
-    results: any[]
-  ) {
-    const currentSessionId =
-      sessionIdRef.current;
-
-    const currentRepo =
-      selectedRepoRef.current;
-
-    const currentBranch =
-      selectedBranchRef.current;
-
-    if (
-      !currentSessionId ||
-      !currentRepo ||
-      !currentBranch
-    ) {
+    if (!project || !repo || !branch) {
       setBusy(false);
-
-      setError(
-        'Session, repository, or branch is missing.'
-      );
-
+      setError('Missing project, repository, or branch.');
       return;
     }
 
-    if (
-      !results ||
-      results.length ===
-      0
-    ) {
+    if (!results || results.length === 0) {
       setBusy(false);
-
       setBusyLabel('');
-
-      setError(
-        'No Design Context was returned by Figma.'
-      );
-
+      setError('No Design Context was returned by Figma.');
       return;
     }
 
     setBusy(true);
-
-    setBusyLabel(
-      `Saving ${
-        results.length
-      } Design Context file${
-        results.length >
-        1
-          ? 's'
-          : ''
-      }...`
-    );
+    setBusyLabel(`Saving ${results.length} Design Context file${results.length > 1 ? 's' : ''}...`);
 
     try {
-      const result =
-        await api.submitScreens(
-          currentSessionId,
-          currentRepo,
-          currentBranch,
-          results
-        );
+      const result = await authAware(() =>
+        api.submitScreens(project.id, repo, branch, results)
+      );
 
-      const saved =
-        result.saved ||
-        [];
+      const saved = result.saved || [];
 
       let message =
-        `✅ Successfully extracted ${
-          results.length
-        } screen${
-          results.length >
-          1
-            ? 's'
-            : ''
-        }.\n\n`;
+        `✅ Extracted ${results.length} screen${results.length > 1 ? 's' : ''}.\n\nDesign Context saved to your database:\n\n`;
 
-      if (
-        saved.length >
-        0
-      ) {
-        message +=
-          'Saved files:\n\n';
-
-        message += saved
-          .map(
-            (
-              file
-            ) =>
-              `✓ ${file}`
-          )
-          .join(
-            '\n'
-          );
+      if (saved.length > 0) {
+        message += saved.map((file) => `✓ ${file}`).join('\n');
       }
 
-      log(
-        'assistant',
-        message
-      );
+      log('assistant', message);
 
-      setFetchedScreens(
-        results
-      );
-
-      setCheckedIds(
-        new Set()
-      );
-
+      setFetchedScreens(results);
+      setCheckedIds(new Set());
       setBusy(false);
-
-      setBusyLabel(
-        `✓ ${
-          results.length
-        } screen${
-          results.length >
-          1
-            ? 's'
-            : ''
-        } saved successfully`
-      );
-
-      setStep(
-        'done'
-      );
-    } catch (error: any) {
-      console.error(
-        '[Design Engineer] Save failed:',
-        error
-      );
-
+      setBusyLabel(`✓ ${results.length} screen${results.length > 1 ? 's' : ''} saved`);
+      setStep('done');
+    } catch (e: any) {
       setBusy(false);
-
       setBusyLabel('');
-
-      setError(
-        error?.message ||
-          'Failed to save Design Context.'
-      );
+      setError(e?.message || 'Failed to save Design Context.');
     }
   }
 
+  // ===========================================================================
+  // IMPLEMENT
+  // ===========================================================================
+
   async function handleImplement() {
-    const currentSessionId =
-      sessionIdRef.current;
+    const project = currentProjectRef.current;
 
-    const currentRepo =
-      selectedRepoRef.current;
+    if (!project || fetchedScreens.length === 0) {
+      setError('Fetch at least one screen before starting implementation.');
+      return;
+    }
 
-    const currentBranch =
-      selectedBranchRef.current;
-
-    if (
-      !currentSessionId ||
-      !currentRepo ||
-      !currentBranch ||
-      fetchedScreens.length === 0
-    ) {
-      setError(
-        'Fetch at least one screen before starting implementation.'
-      );
-
+    if (!codex.connected) {
+      setError('Connect Codex first so screens can be implemented.');
       return;
     }
 
     setError(null);
-
     setBusy(true);
-
     setBusyLabel(
-      `Codex is implementing ${fetchedScreens.length} screen${fetchedScreens.length > 1 ? 's' : ''}...`
+      `Codex is implementing ${fetchedScreens.length} screen${fetchedScreens.length > 1 ? 's' : ''}... (this can take a while)`
     );
 
     try {
-      const result =
-        await api.implementScreens(
-          currentSessionId,
-          currentRepo,
-          currentBranch,
-          fetchedScreens
-        );
+      const result = await authAware(() =>
+        api.implementScreens(project.id, fetchedScreens)
+      );
 
       log(
         'assistant',
-        [
-          ...result.implementations
+        result.implementations
           .map(
             (implementation) =>
               `Implemented ${implementation.screens.join(', ')}\nBranch: ${implementation.branch}\nPull request: ${implementation.pullRequestUrl}`
-          ),
-        ].join('\n\n')
+          )
+          .join('\n\n')
       );
 
       setBusy(false);
-
-      setBusyLabel(
-        'Implementation complete. Pull request(s) ready for testing.'
-      );
-    } catch (error: any) {
-      console.error(
-        '[Design Engineer] Implementation failed:',
-        error
-      );
-
+      setBusyLabel('Implementation complete. Pull request ready for testing.');
+    } catch (e: any) {
       setBusy(false);
-
       setBusyLabel('');
-
-      setError(
-        error?.message ||
-          'Failed to implement screens.'
-      );
+      setError(e?.message || 'Failed to implement screens.');
     }
   }
 
@@ -3278,410 +983,515 @@ export default function App() {
   // RENDER
   // ===========================================================================
 
+  function renderAuth() {
+    return (
+      <div className="auth-view">
+        <div className="logo-mark">DE</div>
+        <h2>Design Engineer</h2>
+        <p className="muted">
+          Create an account or sign in. Your projects, GitHub and Codex
+          connections are stored securely in your database.
+        </p>
+        <button className="primary" onClick={() => { setError(null); setStep('signup'); }}>
+          Create an account
+        </button>
+        <button onClick={() => { setError(null); setStep('signin'); }}>
+          I already have an account
+        </button>
+      </div>
+    );
+  }
+
+  function renderSignup() {
+    return (
+      <div className="auth-view">
+        <h2>Create your account</h2>
+        <label>
+          Email
+          <input
+            type="email"
+            value={signupEmail}
+            placeholder="you@example.com"
+            onChange={(e) => setSignupEmail(e.target.value)}
+          />
+        </label>
+        <label>
+          Password <span className="hint">(min 8 characters)</span>
+          <input
+            type="password"
+            value={signupPassword}
+            placeholder="••••••••"
+            onChange={(e) => setSignupPassword(e.target.value)}
+          />
+        </label>
+        <label>
+          Confirm password
+          <input
+            type="password"
+            value={signupConfirm}
+            placeholder="••••••••"
+            onChange={(e) => setSignupConfirm(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSignup(); }}
+          />
+        </label>
+        <div className="row">
+          <button className="primary" disabled={busy} onClick={handleSignup}>
+            {busy ? 'Creating...' : 'Create account'}
+          </button>
+          <button disabled={busy} onClick={() => { setError(null); setStep('auth'); }}>
+            Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderSignin() {
+    return (
+      <div className="auth-view">
+        <h2>Sign in</h2>
+        <label>
+          Email
+          <input
+            type="email"
+            value={signinEmail}
+            placeholder="you@example.com"
+            onChange={(e) => setSigninEmail(e.target.value)}
+          />
+        </label>
+        <label>
+          Password
+          <input
+            type="password"
+            value={signinPassword}
+            placeholder="••••••••"
+            onChange={(e) => setSigninPassword(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSignin(); }}
+          />
+        </label>
+        <div className="row">
+          <button className="primary" disabled={busy} onClick={handleSignin}>
+            {busy ? 'Signing in...' : 'Sign in'}
+          </button>
+          <button disabled={busy} onClick={() => { setError(null); setStep('auth'); }}>
+            Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderDashboard() {
+    return (
+      <div className="dashboard">
+        <div className="card">
+          <div className="card-title">Account</div>
+          <div className="card-desc">{userEmail || session?.user.email}</div>
+          <div className="card-actions">
+            <button onClick={handleSignOut}>Switch account</button>
+          </div>
+        </div>
+
+        {/* GitHub */}
+        <div className="card">
+          <div className="card-title">GitHub</div>
+          {github.connected ? (
+            <>
+              <div className="card-desc">
+                Connected as <strong>@{github.githubUser}</strong>.
+              </div>
+              <div className="card-actions">
+                <button onClick={handleDisconnectGithub}>Disconnect</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="card-desc">Not connected.</div>
+              <div className="card-actions">
+                <button className="primary" onClick={() => handleConnectGithub('dashboard')}>
+                  Connect GitHub
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Codex */}
+        <div className="card">
+          <div className="card-title">Codex</div>
+          {codex.connected ? (
+            <>
+              <div className="card-desc">
+                Connected as <strong>{codex.codexUser || 'Codex CLI user'}</strong>.
+              </div>
+              <div className="card-actions">
+                <button onClick={handleSwitchCodexAccount}>Switch Codex account</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="card-desc">Not connected.</div>
+              <div className="card-actions">
+                <button className="primary" onClick={handleConnectCodex}>
+                  Connect Codex
+                </button>
+              </div>
+            </>
+          )}
+
+          {codexDevice && (
+            <div className="device-box">
+              <div>Enter this code:</div>
+              <div className="device-code">{codexDevice.user_code}</div>
+              <a
+                href={codexDevice.verification_uri_complete}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open authorization page
+              </a>
+            </div>
+          )}
+        </div>
+
+        {/* Projects */}
+        <div className="card">
+          <div className="card-title">
+            Projects
+            <button
+              className="inline-btn"
+              disabled={busy}
+              onClick={() => { setError(null); setStep('create-project'); }}
+            >
+              + New project
+            </button>
+          </div>
+
+          {projects.length === 0 ? (
+            <div className="card-desc">
+              No projects yet. Create one — you'll connect it to GitHub while creating it.
+            </div>
+          ) : (
+            <div className="project-list">
+              {projects.map((project) => (
+                <div className="project-item" key={project.id}>
+                  <div className="project-info">
+                    <div className="project-name">{project.name}</div>
+                    <div className="project-meta">
+                      {project.repository || 'No repository yet'}
+                      {project.status === 'active' ? ' • active' : ` • ${project.status}`}
+                    </div>
+                  </div>
+                  <div className="project-actions">
+                    <button className="primary" onClick={() => openProject(project)}>
+                      Open
+                    </button>
+                    <button onClick={() => handleDeleteProject(project.id)}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderCreateProject() {
+    return (
+      <div className="auth-view">
+        <h2>Create a project</h2>
+
+        {!github.connected ? (
+          <>
+            <p className="muted">
+              Projects are connected to a GitHub repository. Connect GitHub
+              first — the login is automated and your connection is stored in
+              your database.
+            </p>
+            <button className="primary" disabled={busy} onClick={() => handleConnectGithub('create-project')}>
+              {busy ? 'Waiting for GitHub...' : 'Connect GitHub'}
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="muted">
+              GitHub is connected as <strong>@{github.githubUser}</strong>.
+            </p>
+            <label>
+              Project name
+              <input
+                value={projectName}
+                placeholder="My React Native app"
+                onChange={(e) => setProjectName(e.target.value)}
+              />
+            </label>
+            <label>
+              Description <span className="hint">(optional)</span>
+              <textarea
+                value={projectDescription}
+                placeholder="What is this app about?"
+                onChange={(e) => setProjectDescription(e.target.value)}
+              />
+            </label>
+            <div className="row">
+              <button className="primary" disabled={busy} onClick={handleCreateProject}>
+                {busy ? 'Creating...' : 'Create project'}
+              </button>
+              <button disabled={busy} onClick={() => { setError(null); setStep('dashboard'); }}>
+                Back
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  function renderGithub() {
+    return (
+      <div>
+        <div className="card">
+          <div className="card-title">Connect GitHub</div>
+          <div className="card-desc">
+            Sign in to GitHub in the browser tab that opened. Your connection,
+            including tokens, will be stored securely in your database —
+            nothing is kept on this machine.
+          </div>
+          <div className="card-actions">
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={() => handleConnectGithub(pendingGoalRef.current)}
+            >
+              {busy ? 'Waiting for authorization...' : 'Connect GitHub'}
+            </button>
+            <button disabled={busy} onClick={() => { setError(null); setStep('dashboard'); }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderBuildHeader() {
+    const project = currentProject;
+    const repo = selectedRepo;
+    const branch = selectedBranch;
+
+    return (
+      <div className="subhead">
+        {project ? project.name : 'Project'}
+        {project?.repository
+          ? ` — ${project.repository}${branch ? ` @ ${branch}` : ''}`
+          : ''}
+      </div>
+    );
+  }
+
   return (
     <div className="app">
-      {/* =================================================================== */}
-      {/* HEADER                                                              */}
-      {/* =================================================================== */}
-
       <header>
-        <h1>
-          Design Engineer
-        </h1>
-
-        {selectedRepo && (
-          <div className="subhead">
-            {selectedRepo}
-
-            {selectedBranch
-              ? ` @ ${selectedBranch}`
-              : ''}
-          </div>
-        )}
-
-          {step !== 'restoring' &&
-            step !== 'signin' &&
-            sessionId && (
-            <button
-              type="button"
-              className="account-switch"
-              disabled={
-                busy
-              }
-              onClick={
-                handleSwitchCodexAccount
-              }
-            >
-              Switch Codex account
-            </button>
-          )}
+        <h1>Design Engineer</h1>
+        {renderBuildHeader()}
       </header>
 
       {/* =================================================================== */}
-      {/* RESTORING                                                           */}
+      {/* BOOT                                                              */}
       {/* =================================================================== */}
 
-      {step ===
-        'restoring' && (
-        <div
-          style={{
-            padding:
-              '16px',
-          }}
-        >
-          <ProgressCard
-            label="Checking your previous Codex login..."
-          />
+      {step === 'boot' && (
+        <div style={{ padding: '16px' }}>
+          <ProgressCard label="Restoring your account..." />
         </div>
       )}
 
       {/* =================================================================== */}
-      {/* SCREEN CHIPS                                                        */}
+      {/* AUTH / ACCOUNT FLOW                                              */}
       {/* =================================================================== */}
 
-      {step ===
-        'screens' &&
-        selection.length >
-          0 && (
-          <div className="chips">
-            {selection.map(
-              (
-                screen
-              ) => (
-                <ContextChip
-                  key={
-                    screen.id
-                  }
-                  label={
-                    screen.name
-                  }
-                  checked={checkedIds.has(
-                    screen.id
-                  )}
-                  onToggle={() =>
-                    toggleChecked(
-                      screen.id
-                    )
-                  }
-                />
-              )
-            )}
-          </div>
-        )}
+      {step === 'auth' && renderAuth()}
+      {step === 'signup' && renderSignup()}
+      {step === 'signin' && renderSignin()}
 
       {/* =================================================================== */}
-      {/* MULTI SCREEN CONTROLS                                               */}
+      {/* DASHBOARD                                                        */}
       {/* =================================================================== */}
 
-      {step ===
-        'screens' &&
-        selection.length >
-          1 && (
-          <div
-            style={{
-              display:
-                'flex',
-
-              gap:
-                '8px',
-
-              padding:
-                '8px 16px',
-            }}
-          >
-            <button
-              type="button"
-              onClick={
-                selectAllScreens
-              }
-              disabled={
-                busy
-              }
-            >
-              Select all
-            </button>
-
-            <button
-              type="button"
-              onClick={
-                clearScreenSelection
-              }
-              disabled={
-                busy
-              }
-            >
-              Clear
-            </button>
-          </div>
-        )}
+      {step === 'dashboard' && renderDashboard()}
 
       {/* =================================================================== */}
-      {/* CHAT                                                                */}
+      {/* CREATE PROJECT                                                    */}
       {/* =================================================================== */}
 
-      <Chat
-        messages={
-          messages
-        }
-      />
+      {step === 'create-project' && renderCreateProject()}
 
       {/* =================================================================== */}
-      {/* PROGRESS                                                            */}
+      {/* GITHUB RECONNECT                                                  */}
       {/* =================================================================== */}
 
-      {busy &&
-        busyLabel && (
-          <div
-            style={{
-              padding:
-                '0 16px',
-            }}
-          >
-            <ProgressCard
-              label={
-                busyLabel
-              }
+      {step === 'github' && renderGithub()}
+
+      {/* =================================================================== */}
+      {/* SCREEN CHIPS                                                       */}
+      {/* =================================================================== */}
+
+      {(step === 'screens' || step === 'done') && selection.length > 0 && (
+        <div className="chips">
+          {selection.map((screen) => (
+            <ContextChip
+              key={screen.id}
+              label={screen.name}
+              checked={checkedIds.has(screen.id)}
+              onToggle={() => toggleChecked(screen.id)}
             />
-          </div>
-        )}
+          ))}
+        </div>
+      )}
 
-      {/* =================================================================== */}
-      {/* ERROR                                                               */}
-      {/* =================================================================== */}
-
-      {error && (
-        <div className="error">
-          {error}
+      {(step === 'screens' || step === 'done') && selection.length > 1 && (
+        <div className="chips-actions">
+          <button type="button" onClick={selectAllScreens} disabled={busy}>
+            Select all
+          </button>
+          <button type="button" onClick={clearScreenSelection} disabled={busy}>
+            Clear
+          </button>
         </div>
       )}
 
       {/* =================================================================== */}
-      {/* FOOTER                                                              */}
+      {/* CHAT                                                               */}
+      {/* =================================================================== */}
+
+      {(step === 'screens' || step === 'done') && <Chat messages={messages} />}
+
+      {/* =================================================================== */}
+      {/* PROGRESS                                                          */}
+      {/* =================================================================== */}
+
+      {busy && busyLabel && (
+        <div style={{ padding: '0 16px' }}>
+          <ProgressCard label={busyLabel} />
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* ERROR                                                             */}
+      {/* =================================================================== */}
+
+      {error && <div className="error">{error}</div>}
+
+      {/* =================================================================== */}
+      {/* FOOTER ACTIONS                                                    */}
       {/* =================================================================== */}
 
       <footer>
-        {/* ----------------------------------------------------------------- */}
-        {/* SIGN IN                                                           */}
-        {/* ----------------------------------------------------------------- */}
-
-        {step ===
-          'signin' && (
-          <button
-            className="primary"
-            disabled={
-              busy
-            }
-            onClick={
-              handleSignIn
-            }
-          >
-            Sign in to Codex
-          </button>
-        )}
-
-        {/* ----------------------------------------------------------------- */}
-        {/* GITHUB                                                            */}
-        {/* ----------------------------------------------------------------- */}
-
-        {step ===
-          'github' && (
-          <button
-            className="primary"
-            disabled={
-              busy
-            }
-            onClick={
-              handleConnectGithub
-            }
-          >
-            Continue with GitHub
-          </button>
-        )}
-
-        {/* ----------------------------------------------------------------- */}
-        {/* REPOSITORY                                                        */}
-        {/* ----------------------------------------------------------------- */}
-
-        {step ===
-          'repo' && (
+        {step === 'repo' && currentProject && (
           <select
-            disabled={
-              busy
-            }
+            disabled={busy}
             defaultValue=""
-            onChange={(
-              event
-            ) => {
-              const value =
-                event.target
-                  .value;
-
-              if (value) {
-                handleSelectRepo(
-                  value
-                );
-              }
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value) handleSelectRepo(value);
             }}
           >
-            <option
-              value=""
-              disabled
-            >
+            <option value="" disabled>
               Choose a repository...
             </option>
-
-            {repos.map(
-              (
-                repo
-              ) => (
-                <option
-                  key={
-                    repo.fullName
-                  }
-                  value={
-                    repo.fullName
-                  }
-                >
-                  {
-                    repo.fullName
-                  }
-
-                  {repo.private
-                    ? ' (private)'
-                    : ''}
-                </option>
-              )
-            )}
+            {repos.map((repo) => (
+              <option key={repo.fullName} value={repo.fullName}>
+                {repo.fullName}
+                {repo.private ? ' (private)' : ''}
+              </option>
+            ))}
           </select>
         )}
 
-        {/* ----------------------------------------------------------------- */}
-        {/* BRANCH                                                            */}
-        {/* ----------------------------------------------------------------- */}
-
-        {step ===
-          'branch' && (
+        {step === 'branch' && currentProject && (
           <select
-            disabled={
-              busy
-            }
+            disabled={busy}
             defaultValue=""
-            onChange={(
-              event
-            ) => {
-              const value =
-                event.target
-                  .value;
-
-              if (value) {
-                handleSelectBranch(
-                  value
-                );
-              }
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value) handleSelectBranch(value);
             }}
           >
-            <option
-              value=""
-              disabled
-            >
+            <option value="" disabled>
               Choose a branch...
             </option>
-
-            {branches.map(
-              (
-                branch
-              ) => (
-                <option
-                  key={
-                    branch.name
-                  }
-                  value={
-                    branch.name
-                  }
-                >
-                  {
-                    branch.name
-                  }
-                </option>
-              )
-            )}
+            {branches.map((branch) => (
+              <option key={branch.name} value={branch.name}>
+                {branch.name}
+              </option>
+            ))}
           </select>
         )}
 
-        {/* ----------------------------------------------------------------- */}
-        {/* FETCH                                                             */}
-        {/* ----------------------------------------------------------------- */}
-
-        {step ===
-          'screens' && (
-          <button
-            className="primary"
-            disabled={
-              busy ||
-              checkedIds.size ===
-                0
-            }
-            onClick={
-              handleFetch
-            }
-          >
-            {checkedIds.size >
-            0
-              ? `Fetch (${checkedIds.size})`
-              : 'Select screens'}
+        {step === 'branch' && currentProject && (
+          <button disabled={busy} onClick={() => setStep('repo')}>
+            Back
           </button>
         )}
 
-        {/* ----------------------------------------------------------------- */}
-        {/* DONE                                                              */}
-        {/* ----------------------------------------------------------------- */}
+        {step === 'screens' && currentProject && (
+          <button
+            className="primary"
+            disabled={busy || checkedIds.size === 0}
+            onClick={handleFetch}
+          >
+            {checkedIds.size > 0 ? `Fetch (${checkedIds.size})` : 'Select screens'}
+          </button>
+        )}
 
-        {step ===
-          'done' && (
-          <>
-            <button
-              className="primary"
-              disabled={
-                busy
-              }
-              onClick={
-                handleImplement
-              }
-            >
-              Start implement
-            </button>
+        {step === 'screens' && currentProject && (
+          <button disabled={busy} onClick={() => setStep('branch')}>
+            Back
+          </button>
+        )}
 
-            <button
-              disabled={
-                busy
-              }
-              onClick={() => {
-                setStep(
-                  'screens'
-                );
+        {(step === 'screens' || step === 'done') && currentProject && (
+          <button
+            disabled={busy}
+            onClick={() => {
+              setFetchedScreens([]);
+              setCheckedIds(new Set());
+              setSelectedRepo(null);
+              selectedRepoRef.current = null;
+              setSelectedBranch(null);
+              selectedBranchRef.current = null;
+              setStep('dashboard');
+              loadDashboard().catch(() => {});
+            }}
+          >
+            All projects
+          </button>
+        )}
 
-                setBusyLabel('');
+        {step === 'done' && currentProject && (
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={handleImplement}
+          >
+            Start implement
+          </button>
+        )}
 
-                setError(null);
-              }}
-            >
-              Select more screens
-            </button>
-          </>
+        {step === 'done' && currentProject && (
+          <button
+            disabled={busy}
+            onClick={() => {
+              setStep('screens');
+              setBusyLabel('');
+              setError(null);
+            }}
+          >
+            Select more screens
+          </button>
         )}
       </footer>
-
-      {/* =================================================================== */}
-      {/* COMPOSER                                                            */}
-      {/* =================================================================== */}
-
-      {step ===
-        'done' && (
-        <Composer
-          onSend={() => {}}
-          disabled
-        />
-      )}
     </div>
   );
 }
