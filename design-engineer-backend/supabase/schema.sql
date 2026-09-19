@@ -62,6 +62,23 @@ CREATE TABLE IF NOT EXISTS public.github_connections (
   updated_at             timestamptz NOT NULL DEFAULT now()
 );
 
+-- Migration fixup: older schema versions created scopes as text[] but the
+-- backend sends a plain string ("repo,read:user"). Coerce the column to text
+-- (no-op on fresh installs where it is already text).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'github_connections'
+      AND column_name = 'scopes'
+      AND data_type = 'ARRAY'
+  ) THEN
+    ALTER TABLE public.github_connections
+      ALTER COLUMN scopes TYPE text USING array_to_string(scopes, ',');
+  END IF;
+END $$;
+
 -- -----------------------------------------------------------------------------
 -- 4. public.codex_accounts
 --    One active Codex connection per user (UNIQUE on user_id).
