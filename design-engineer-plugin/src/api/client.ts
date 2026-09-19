@@ -138,6 +138,13 @@ export interface GithubStatus {
   githubUser: string | null;
 }
 
+export interface GithubOAuthAppInfo {
+  configured: boolean;
+  clientId: string | null;
+  appName: string | null;
+  source: 'db' | 'env';
+}
+
 export interface CodexStatusInfo {
   connected: boolean;
   codexUser: string | null;
@@ -160,6 +167,7 @@ export interface MeResponse {
   user: AuthUser;
   profile: { email?: string } | null;
   github: GithubStatus;
+  githubApp: GithubOAuthAppInfo;
   projects: Project[];
   codex: CodexStatusInfo;
 }
@@ -182,6 +190,28 @@ export function githubStatus(): Promise<GithubStatus> {
 
 export function githubDisconnect(): Promise<{ success: boolean }> {
   return request('/api/github/disconnect', { method: 'POST' });
+}
+
+// -----------------------------------------------------------------------------
+// GITHUB OAUTH APP (per-user app credentials, stored encrypted in the DB)
+// -----------------------------------------------------------------------------
+
+export function getGithubOAuthApp(): Promise<GithubOAuthAppInfo> {
+  return request('/api/github/oauth-app');
+}
+
+export function saveGithubOAuthApp(
+  clientId: string,
+  clientSecret: string
+): Promise<{ success: boolean }> {
+  return request('/api/github/oauth-app', {
+    method: 'POST',
+    body: JSON.stringify({ clientId, clientSecret }),
+  });
+}
+
+export function clearGithubOAuthApp(): Promise<{ success: boolean }> {
+  return request('/api/github/oauth-app', { method: 'DELETE' });
 }
 
 // -----------------------------------------------------------------------------

@@ -84,6 +84,15 @@ export default function App() {
     githubUser: null,
   });
 
+  const [githubApp, setGithubApp] = useState<api.GithubOAuthAppInfo>({
+    configured: false,
+    clientId: null,
+    appName: null,
+    source: 'env',
+  });
+  const [oauthClientId, setOauthClientId] = useState('');
+  const [oauthClientSecret, setOauthClientSecret] = useState('');
+
   const [codex, setCodex] = useState<api.CodexStatusInfo>({
     connected: false,
     codexUser: null,
@@ -187,6 +196,9 @@ export default function App() {
     setCurrentProject(null);
     currentProjectRef.current = null;
     setGithub({ connected: false, githubUser: null });
+    setGithubApp({ configured: false, clientId: null, appName: null, source: 'env' });
+    setOauthClientId('');
+    setOauthClientSecret('');
     setCodex({ connected: false, codexUser: null });
     setCodexDevice(null);
     sendToPlugin({ type: 'clear-session' });
@@ -226,6 +238,9 @@ export default function App() {
     setProjects(me.projects || []);
     setGithub(me.github || { connected: false, githubUser: null });
     setCodex(me.codex || { connected: false, codexUser: null });
+    setGithubApp(
+      me.githubApp || { configured: false, clientId: null, appName: null, source: 'env' }
+    );
     return me;
   }
 
@@ -302,6 +317,9 @@ export default function App() {
       setProjects(me.projects || []);
       setGithub(me.github || { connected: false, githubUser: null });
       setCodex(me.codex || { connected: false, codexUser: null });
+      setGithubApp(
+        me.githubApp || { configured: false, clientId: null, appName: null, source: 'env' }
+      );
       setBusy(false);
       setBusyLabel('');
       setStep('dashboard');
@@ -528,13 +546,73 @@ export default function App() {
     try {
       await authAware(() => api.githubDisconnect());
       setGithub({ connected: false, githubUser: null });
-      log('assistant', 'GitHub disconnected.');
+      log('assistant', 'GitHub disconnected. You can connect a different account anytime.');
       setBusy(false);
       setBusyLabel('');
     } catch (e: any) {
       setBusy(false);
       setBusyLabel('');
       setError(e?.message || 'Could not disconnect GitHub.');
+    }
+  }
+
+  async function handleSaveGithubApp() {
+    const clientId = oauthClientId.trim();
+    const clientSecret = oauthClientSecret.trim();
+
+    if (!clientId || !clientSecret) {
+      setError('Enter both the Client ID and Client Secret of your GitHub OAuth App.');
+      return;
+    }
+
+    setError(null);
+    setBusy(true);
+    setBusyLabel('Saving your GitHub OAuth App...');
+
+    try {
+      await authAware(() => api.saveGithubOAuthApp(clientId, clientSecret));
+      setGithubApp({
+        configured: true,
+        clientId,
+        appName: 'My GitHub OAuth App',
+        source: 'db',
+      });
+      setOauthClientId('');
+      setOauthClientSecret('');
+      log(
+        'assistant',
+        'Your own GitHub OAuth App is saved in your database. It will be used for your GitHub login from now on.'
+      );
+      setBusy(false);
+      setBusyLabel('');
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      setError(e?.message || 'Could not save your GitHub OAuth App.');
+    }
+  }
+
+  async function handleClearGithubApp() {
+    setError(null);
+    setBusy(true);
+    setBusyLabel('Removing your GitHub OAuth App...');
+    try {
+      await authAware(() => api.clearGithubOAuthApp());
+      setGithubApp({
+        configured: false,
+        clientId: null,
+        appName: null,
+        source: 'env',
+      });
+      setOauthClientId('');
+      setOauthClientSecret('');
+      log('assistant', 'Your GitHub OAuth App was removed. The backend will use the built-in app.');
+      setBusy(false);
+      setBusyLabel('');
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      setError(e?.message || 'Could not remove your GitHub OAuth App.');
     }
   }
 
@@ -1088,7 +1166,7 @@ export default function App() {
           <div className="card-title">Account</div>
           <div className="card-desc">{userEmail || session?.user.email}</div>
           <div className="card-actions">
-            <button onClick={handleSignOut}>Switch account</button>
+            <button onClick={handleSignOut}>Log out</button>
           </div>
         </div>
 
@@ -1101,7 +1179,7 @@ export default function App() {
                 Connected as <strong>@{github.githubUser}</strong>.
               </div>
               <div className="card-actions">
-                <button onClick={handleDisconnectGithub}>Disconnect</button>
+                <button onClick={handleDisconnectGithub}>Log out GitHub</button>
               </div>
             </>
           ) : (
@@ -1114,6 +1192,50 @@ export default function App() {
               </div>
             </>
           )}
+        </div>
+
+        {/* GitHub OAuth app */}
+        <div className="card">
+          <div className="card-title">GitHub OAuth App</div>
+          <div className="card-desc">
+            {githubApp.source === 'db'
+              ? `Using your own app (${githubApp.clientId}).`
+              : 'Using the built-in app. The built-in app only powers the login flow — any GitHub account can connect to it.'}
+          </div>
+          <div className="card-desc muted">
+            Optional: save your own GitHub OAuth App to use for your GitHub
+            login (stored encrypted in your database, not in the backend .env).
+            Register it at github.com/settings/developers with callback URL{' '}
+            <code>http://localhost:4000/auth/github/callback</code>.
+          </div>
+          <label>
+            Client ID
+            <input
+              type="text"
+              value={oauthClientId}
+              placeholder="Iv1.xxxxxxxx"
+              onChange={(e) => setOauthClientId(e.target.value)}
+            />
+          </label>
+          <label>
+            Client Secret
+            <input
+              type="password"
+              value={oauthClientSecret}
+              placeholder="••••••••••••"
+              onChange={(e) => setOauthClientSecret(e.target.value)}
+            />
+          </label>
+          <div className="card-actions">
+            <button className="primary" disabled={busy} onClick={handleSaveGithubApp}>
+              Save my app
+            </button>
+            {githubApp.source === 'db' && (
+              <button disabled={busy} onClick={handleClearGithubApp}>
+                Use built-in app
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Codex */}

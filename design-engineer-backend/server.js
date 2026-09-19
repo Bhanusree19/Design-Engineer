@@ -421,6 +421,37 @@ async function requireGithubConnection(auth, res) {
   return conn;
 }
 
+// Resolve the GitHub OAuth App credentials to use for a user.
+//
+// The client_id + client_secret identify the OAuth *app* (the login flow) --
+// they NEVER belong to one GitHub user account. Any GitHub user can authorize
+// the app and connect. We prefer the user's OWN registered app (stored
+// encrypted in the DB via /api/github/oauth-app) and fall back to the
+// built-in app from .env when they haven't saved one.
+async function getGithubAppFor(userId, token) {
+  const rows = await pgQuery('github_oauth_apps', {
+    token,
+    query: `user_id=eq.${userId}&select=client_id,client_secret_encrypted,app_name&limit=1`,
+  });
+
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (row && row.client_id && row.client_secret_encrypted) {
+    return {
+      clientId: String(row.client_id),
+      clientSecret: decryptText(row.client_secret_encrypted),
+      appName: row.app_name || 'Your GitHub OAuth App',
+      source: 'db',
+    };
+  }
+
+  return {
+    clientId: GITHUB_CLIENT_ID,
+    clientSecret: GITHUB_CLIENT_SECRET,
+    appName: 'Built-in',
+    source: 'env',
+  };
+}
+
 // -----------------------------------------------------------------------------
 // GITHUB OAUTH STATE  (short-lived, in-memory, standard OAuth transient state)
 // -----------------------------------------------------------------------------
@@ -439,9 +470,19 @@ app.post('/api/github/connect', async (req, res) => {
   const auth = await requireUser(req, res);
   if (!auth) return;
 
-  if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+  let app;
+  try {
+    app = await getGithubAppFor(auth.user.id, auth.token);
+  } catch (error) {
     return res.status(500).json({
-      error: 'GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET are not configured on the backend.',
+      error: error.message || 'Could not load your GitHub OAuth app settings.',
+    });
+  }
+
+  if (!app.clientId || !app.clientSecret) {
+    return res.status(500).json({
+      error:
+        'No GitHub OAuth app is configured. Save your own app in the plugin dashboard, or set GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET in the backend .env.',
     });
   }
 
@@ -451,18 +492,19 @@ app.post('/api/github/connect', async (req, res) => {
   oauthStates.set(state, {
     userId: auth.user.id,
     accessToken: auth.token,
+    clientId: app.clientId,
     expiresAt: Date.now() + OAUTH_STATE_TTL_MS,
   });
 
   const redirectUri = `${BACKEND_URL}/auth/github/callback`;
   const url =
     'https://github.com/login/oauth/authorize' +
-    `?client_id=${encodeURIComponent(GITHUB_CLIENT_ID)}` +
+    `?client_id=${encodeURIComponent(app.clientId)}` +
     `&scope=${encodeURIComponent('repo read:user')}` +
     `&state=${encodeURIComponent(state)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}`;
 
-  res.json({ url });
+  res.json({ url, app: { configName: app.appName, source: app.source } });
 });
 
 app.get('/auth/github', (req, res) => {
@@ -478,7 +520,7 @@ app.get('/auth/github', (req, res) => {
   const redirectUri = `${BACKEND_URL}/auth/github/callback`;
   const url =
     'https://github.com/login/oauth/authorize' +
-    `?client_id=${encodeURIComponent(GITHUB_CLIENT_ID)}` +
+    `?client_id=${encodeURIComponent(claim.clientId || GITHUB_CLIENT_ID)}` +
     `&scope=${encodeURIComponent('repo read:user')}` +
     `&state=${encodeURIComponent(state)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}`;
@@ -499,6 +541,20 @@ app.get('/auth/github/callback', async (req, res) => {
   oauthStates.delete(state);
 
   try {
+    // Resolve the OAuth app that started this flow (the user's own saved app if
+    // it matches, otherwise the built-in .env app) so we exchange the code with
+    // the correct client_secret.
+    let app;
+    try {
+      app = await getGithubAppFor(claim.userId, claim.accessToken);
+    } catch (error) {
+      return res.status(500).send(`Could not load GitHub OAuth app settings: ${error.message}`);
+    }
+
+    const clientId = claim.clientId || app.clientId || GITHUB_CLIENT_ID;
+    const clientSecret =
+      app.clientId === clientId ? app.clientSecret : GITHUB_CLIENT_SECRET;
+
     const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
       headers: {
@@ -506,8 +562,8 @@ app.get('/auth/github/callback', async (req, res) => {
         Accept: 'application/json',
       },
       body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
-        client_secret: GITHUB_CLIENT_SECRET,
+        client_id: clientId,
+        client_secret: clientSecret,
         code,
         redirect_uri: `${BACKEND_URL}/auth/github/callback`,
       }),
@@ -599,6 +655,87 @@ app.post('/api/github/disconnect', async (req, res) => {
   });
 
   res.json({ success: true });
+});
+
+// -----------------------------------------------------------------------------
+// GITHUB OAUTH APP (per-user app credentials stored in the DB)
+// -----------------------------------------------------------------------------
+
+// Never returns the client secret to the client — only whether one is saved.
+app.get('/api/github/oauth-app', async (req, res) => {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  try {
+    const rows = await pgQuery('github_oauth_apps', {
+      token: auth.token,
+      query: `user_id=eq.${auth.user.id}&select=client_id,app_name&limit=1`,
+    });
+
+    const row = Array.isArray(rows) ? rows[0] : null;
+
+    res.json({
+      configured: !!(row && row.client_id),
+      clientId: row?.client_id || null,
+      appName: row?.app_name || null,
+      source: row && row.client_id ? 'db' : 'env',
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to load your GitHub OAuth app settings.' });
+  }
+});
+
+// Save the user's own GitHub OAuth App credentials (client secret is encrypted).
+app.post('/api/github/oauth-app', async (req, res) => {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  const clientId = String(req.body?.clientId || '').trim();
+  const clientSecret = String(req.body?.clientSecret || '').trim();
+
+  if (!clientId || !clientSecret) {
+    return res.status(400).json({ error: 'Client ID and Client Secret are required.' });
+  }
+
+  try {
+    const row = {
+      user_id: auth.user.id,
+      app_name: 'My GitHub OAuth App',
+      client_id: clientId,
+      client_secret_encrypted: encryptText(clientSecret),
+      updated_at: new Date().toISOString(),
+    };
+
+    await pgQuery('github_oauth_apps', {
+      token: auth.token,
+      method: 'POST',
+      query: 'on_conflict=user_id',
+      body: row,
+      prefer: 'resolution=merge-duplicates,return=representation',
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to save your GitHub OAuth App.' });
+  }
+});
+
+// Remove the user's own app so the backend falls back to the built-in .env app.
+app.delete('/api/github/oauth-app', async (req, res) => {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  try {
+    await pgQuery('github_oauth_apps', {
+      token: auth.token,
+      method: 'DELETE',
+      query: `user_id=eq.${auth.user.id}`,
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to clear your GitHub OAuth App.' });
+  }
 });
 
 // -----------------------------------------------------------------------------
@@ -752,7 +889,7 @@ app.get('/auth/me', async (req, res) => {
   if (!auth) return;
 
   try {
-    const [profile, github, projects, codexRow] = await Promise.all([
+    const [profile, github, projects, codexRow, oauthApp] = await Promise.all([
       getProfile(auth.user.id, auth.token),
       getGithubConnectionRow(auth.user.id, auth.token),
       pgQuery('projects', {
@@ -763,7 +900,26 @@ app.get('/auth/me', async (req, res) => {
         token: auth.token,
         query: `user_id=eq.${auth.user.id}&select=*&limit=1`,
       }),
+      pgQuery('github_oauth_apps', {
+        token: auth.token,
+        query: `user_id=eq.${auth.user.id}&select=client_id,app_name&limit=1`,
+      }),
     ]);
+
+    const oauthRow = Array.isArray(oauthApp) ? oauthApp[0] : null;
+    const githubApp = oauthRow && oauthRow.client_id
+      ? {
+          configured: true,
+          clientId: oauthRow.client_id,
+          appName: oauthRow.app_name || 'Your GitHub OAuth App',
+          source: 'db',
+        }
+      : {
+          configured: false,
+          clientId: GITHUB_CLIENT_ID,
+          appName: 'Built-in',
+          source: 'env',
+        };
 
     const codexSaved = !!(
       Array.isArray(codexRow)
@@ -789,6 +945,7 @@ app.get('/auth/me', async (req, res) => {
         connected: !!(github && github.access_token_encrypted),
         githubUser: github?.github_username || null,
       },
+      githubApp,
       projects: Array.isArray(projects) ? projects : [],
       codex: codexConnected
         ? {
