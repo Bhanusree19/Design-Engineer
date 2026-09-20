@@ -133,6 +133,28 @@ export function refreshSession(refreshToken: string): Promise<AuthSession> {
   );
 }
 
+export function logout(): Promise<{ success: boolean }> {
+  return request('/auth/logout', { method: 'POST' });
+}
+
+// -----------------------------------------------------------------------------
+// GOOGLE AUTH (create account / sign in with Google)
+// -----------------------------------------------------------------------------
+
+export function googleConnect(): Promise<{ url: string; state: string }> {
+  return request('/auth/google/connect', { method: 'POST' });
+}
+
+export interface GoogleStatusResponse {
+  status: 'pending' | 'done' | 'expired' | 'error';
+  session?: AuthSession;
+  error?: string;
+}
+
+export function googleStatus(state: string): Promise<GoogleStatusResponse> {
+  return request(`/auth/google/status?state=${encodeURIComponent(state)}`);
+}
+
 export interface GithubStatus {
   connected: boolean;
   githubUser: string | null;
@@ -144,6 +166,8 @@ export interface CodexStatusInfo {
   credentialsSaved?: boolean;
 }
 
+export type Stack = 'react-native' | 'react-js';
+
 export interface Project {
   id: string;
   user_id: string;
@@ -152,6 +176,7 @@ export interface Project {
   status: string;
   repository: string | null;
   base_branch: string | null;
+  stack: Stack | null;
   created_at: string;
   updated_at: string;
 }
@@ -205,7 +230,7 @@ export function getProject(id: string): Promise<{ project: Project; fetchedScree
 
 export function updateProject(
   id: string,
-  patch: Partial<Pick<Project, 'name' | 'description' | 'status' | 'repository' | 'base_branch'>>
+  patch: Partial<Pick<Project, 'name' | 'description' | 'status' | 'repository' | 'base_branch' | 'stack'>>
 ): Promise<{ project: Project }> {
   return request(`/api/projects/${encodeURIComponent(id)}`, {
     method: 'PATCH',
@@ -293,6 +318,35 @@ export interface ImplementationResult {
   screens: string[];
   branch: string;
   pullRequestUrl: string;
+}
+
+export interface ScreenPlanInfo {
+  name: string;
+  size: string | null;
+  page: string | null;
+  nodeCount: number;
+  details: string;
+}
+
+export interface ScreenPlan {
+  success: boolean;
+  plan: string;
+  prompt: string;
+  proposedBranch: string;
+  stack: Stack;
+  repository: string;
+  baseBranch: string;
+  screens: ScreenPlanInfo[];
+}
+
+export function planScreens(
+  projectId: string,
+  screens: unknown[]
+): Promise<ScreenPlan> {
+  return request('/api/screens/plan', {
+    method: 'POST',
+    body: JSON.stringify({ projectId, screens }),
+  });
 }
 
 export function implementScreens(

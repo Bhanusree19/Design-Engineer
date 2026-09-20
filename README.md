@@ -2,12 +2,14 @@
 
 Design Engineer is a Figma plugin plus a Node backend that turns Figma
 screens into **Design Context** JSON and (Phase 2) implements those screens
-as React Native code in a GitHub repo, opened as a pull request.
+as **React Native or React JS** code in a GitHub repo, opened as a pull
+request — the stack is chosen per project.
 
 Phase 1 scope:
 
 1. Import the plugin into Figma.
-2. **Create an account / sign in** (Supabase Auth).
+2. **Create an account / sign in** (Supabase Auth) with email + password or
+   **Continue with Google**; log out and switch accounts anytime.
 3. Dashboard shows your **projects** and **connections** (GitHub, Codex).
 4. Create a project → connect **GitHub** (OAuth, token stored encrypted in
    Supabase) → connect **Codex** (CLI device login, credentials stored
@@ -78,7 +80,16 @@ container no longer logs you out or loses connections.
    turn **off "Confirm email"** so signups can sign in immediately. If you
    leave it on, the plugin still works — it just shows "Check your email to
    confirm" and waits for you to confirm before signing in.
-4. Copy the project **URL** (e.g. `https://xxxx.supabase.co`) and the
+4. If you want **"Continue with Google"** in the plugin, enable
+   **Authentication → Providers → Google**, create a Google OAuth client for
+   your Supabase project (Web application), and set the authorized redirect
+   URI to `{SUPABASE_URL}/auth/v1/callback`. Then add the backend callback to
+   **Authentication → URL Configuration → Redirect URLs** — add
+   `http://localhost:4000/**` (or your deployed `BACKEND_URL` + `/**`) so
+   Supabase is allowed to redirect back after Google auth. The plugin then
+   offers Google sign-in/account creation alongside email + password. Users
+   can log out and sign in with a different Google account anytime.
+5. Copy the project **URL** (e.g. `https://xxxx.supabase.co`) and the
    **anon / publishable key** from **Settings → API** — these go in the
    backend's `.env` (§4). The Supabase keys live only in the backend;
    the plugin never sees them.
@@ -165,42 +176,63 @@ Open Console**.
 Use (or create) a Figma file with at least one frame you can pretend is a
 screen, e.g. name a frame `Product Details`.
 
-1. **Run the plugin.** You'll see the account screen: *"Already have an
-   account or create an account."*
-2. **Create an account** (email + password, password ≥ 8 chars, confirm
-   match) or **sign in** if you already have one.
-   - If Supabase email confirmation is enabled, you'll be told to check your
-     email, then sign in.
+1. **Run the plugin.** You'll see the account screen: *"Continue with Google"*
+   or *"Create an account with email"* / *"I already have an account"*.
+2. **Sign in any way you like:**
+   - **Continue with Google** — a browser tab opens, you pick the Google
+     account (you can switch accounts any time). The resulting session is
+     stored in Supabase and saved back into Figma, so next time the plugin
+     opens you're signed straight in.
+   - **Create an account** (email + password, password ≥ 8 chars, confirm
+     match) or **sign in** if you already have one.
+     - If Supabase email confirmation is enabled, you'll be told to check your
+       email, then sign in.
 3. You land on the **dashboard**: your projects (empty the first time) and
    your connections.
+   - Use **Log out** to revoke the current session and sign in with a
+     different Google/email account. **Switch account** does the same without
+     revoking the server session.
    - Click **Create project**, give it a name → the project opens and asks
      you to **connect GitHub**.
 4. **Connect GitHub** — the backend starts the OAuth flow (opens a browser
    tab to `http://localhost:4000/auth/github`). Authorize the app; the tab
    shows "GitHub connected ✅". **Close the tab** — the plugin polls and picks
    the connection up automatically. The dashboard now shows *Connected as
-   @yourhandle*, plus a **Switch accounts** button (disconnect + reconnect).
+   @yourhandle*, plus **Switch GitHub account** (reconnects with
+   `prompt=select_account` so GitHub shows the account chooser) and
+   **Disconnect**.
 5. Next the project asks you to **connect Codex**. Click **Connect Codex** →
    a **device code** is shown. Open <https://chatgpt.com/auth/login> (or the
    shown URL), sign in, enter the code, and approve. The plugin polls until
    approval comes through.
    - Codex is **universal per account** — once connected it applies to all
-     of your projects from then on. Use **Switch accounts** in the dashboard
-     to log out and connect a different Codex account.
+     of your projects from then on. Use **Switch Codex account** in the
+     dashboard to log out and connect a different Codex account.
 6. Back in the project: a **Choose a repository...** dropdown appears
-   (populated from your GitHub). Pick one, then **Choose a branch...**.
+   (populated from your GitHub). Pick one, then **Choose a branch...**, then
+   **choose the stack: React Native or React JS**. The stack is saved on the
+   project and tells the backend which folder structure to use when Codex
+   writes the implementation later.
 7. Chat log shows *"Now select one or more screens..."*. **Click a frame on
-   the canvas** (e.g. your `Product Details` frame). A chip for it appears at
-   the top of the plugin — click the chip to check it (shown with a border +
-   `×`).
+    the canvas** (e.g. your `Product Details` frame). Selected frames are
+    automatically checked — the **Fetch (N)** button updates immediately, no
+    need to tap each chip's `+`. (Chips at the top still toggle individually if
+    you want to exclude one, and **Clear** resets the list.)
 8. Click **Fetch (N)**. You'll see progress messages ("Reading layers for...",
    "Capturing screenshot of..."), then *"Uploading design context to
    backend..."*, then a confirmation.
-9. Click **Start implement** → the backend clones the repo/branch into a
-   temporary worktree, runs the authenticated Codex CLI, appends test steps to
-   `README.md`, commits, pushes an `implement/<frame>-<timestamp>` branch, and
-   opens a **pull request**. All selected screens are implemented together in
-   one branch/PR, which the plugin displays when the job finishes.
+9. Click **Plan implementation** → the backend builds a read-only plan from
+    the saved Design Contexts: a per-screen breakdown (size, page, node/text/
+    image/component counts), the exact step-by-step of how Codex will write the
+    code (branch, structure, navigation, tests), and the exact prompt that will
+    be sent. **No code is written and no PR is raised at this step.**
+10. Review the plan, then click **Start implement** (appears only after the
+    plan is generated) → the backend clones the repo/branch into a temporary
+    worktree, runs the authenticated Codex CLI (instructed to follow the chosen
+    React Native or React JS folder structure), appends test steps to
+    `README.md`, commits, pushes an `implement/<frame>-<timestamp>` branch, and
+    opens a **pull request**. All selected screens are implemented together in
+    one branch/PR, which the plugin displays when the job finishes.
 
 ### Verify the output
 
@@ -250,7 +282,12 @@ etc. are included since Codex will need positioning and styling info too.)
 
 ## 8. How the backend implements a screen (Phase 2)
 
-`POST /api/screens/implement` runs for your selected screens:
+`POST /api/screens/plan` first builds a read-only implementation plan from the
+saved Design Contexts (per-screen summary + the exact Codex steps and prompt).
+It writes no code and raises no PR.
+
+`POST /api/screens/implement` runs for your selected screens (the plugin shows
+it only after a plan has been generated):
 
 1. Reads each screen's Design Context from `design_contexts` (not from disk).
 2. Clones the project's repository + base branch into a temporary worktree.
@@ -261,7 +298,10 @@ etc. are included since Codex will need positioning and styling info too.)
    encrypted and stored in Supabase, then restored per user when needed).
 5. Runs the authenticated Codex CLI in the worktree. Codex reads the repo
    README and existing source tree, then follows the repository's current
-   React Native folder structure.
+   folder structure using the **stack the user chose on the project**
+   (`projects.stack` — `react-native` or `react-js`): `src/screens`,
+   `src/components`, `src/navigation` for React Native; `src/pages`,
+   `src/components`, `src/routes` for React JS (Vite).
 6. Removes the temporary context file, appends test steps to `README.md`,
    and commits the implementation.
 7. Creates a branch `implement/<frame-name>-<timestamp>`, pushes it, and
@@ -284,6 +324,15 @@ The backend must run where `git` is installed (it is, in the Docker image).
 - **Email confirmation**: if signup returns `confirmationRequired`, the
   plugin shows the sign-in screen with a note. Disable "Confirm email" in
   Supabase (Authentication → Providers → Email) for instant signups.
+- **Google sign-in**: optional. Enable **Authentication → Providers →
+  Google** in Supabase and point the Google OAuth redirect URI at
+  `{SUPABASE_URL}/auth/v1/callback`. The plugin then shows a **Continue with
+  Google** button on the account screen; the resulting session is stored like
+  the email/password session. **Log out** in the dashboard revokes the
+  Supabase session server-side so a different Google account can sign in.
+- **Project stack**: every project stores a `stack` column (`react-native` or
+  `react-js`). Choose it after selecting the repo + branch; the backend passes
+  it to Codex so generated code follows the matching folder structure.
 - **RLS**: all backend DB access uses your access token as the PostgREST
   JWT, so users can only read/write their own rows (`profiles` is keyed to
   `auth.uid()`, other tables to `user_id`). The `design_contexts` table is

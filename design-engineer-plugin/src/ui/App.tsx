@@ -42,11 +42,13 @@ type Step =
   | 'auth'
   | 'signup'
   | 'signin'
+  | 'google'
   | 'dashboard'
   | 'create-project'
   | 'github'
   | 'repo'
   | 'branch'
+  | 'stack'
   | 'screens'
   | 'done';
 
@@ -111,11 +113,13 @@ export default function App() {
   const [branches, setBranches] = useState<api.Branch[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
+  const [selectedStack, setSelectedStack] = useState<api.Stack | null>(null);
 
   // screens
   const [selection, setSelection] = useState<SelectionItem[]>([]);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [fetchedScreens, setFetchedScreens] = useState<any[]>([]);
+  const [implementationPlan, setImplementationPlan] = useState<string | null>(null);
 
   // busy / error / chat
   const [busy, setBusy] = useState(false);
@@ -135,6 +139,7 @@ export default function App() {
   const currentProjectRef = useRef<api.Project | null>(null);
   const selectedRepoRef = useRef<string | null>(null);
   const selectedBranchRef = useRef<string | null>(null);
+  const selectedStackRef = useRef<api.Stack | null>(null);
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => { sessionRef.current = session; }, [session]);
@@ -142,6 +147,7 @@ export default function App() {
   useEffect(() => { currentProjectRef.current = currentProject; }, [currentProject]);
   useEffect(() => { selectedRepoRef.current = selectedRepo; }, [selectedRepo]);
   useEffect(() => { selectedBranchRef.current = selectedBranch; }, [selectedBranch]);
+  useEffect(() => { selectedStackRef.current = selectedStack; }, [selectedStack]);
 
   // ===========================================================================
   // CHAT
@@ -247,7 +253,16 @@ export default function App() {
       }
 
       if (msg.type === 'selection-changed') {
-        setSelection(msg.selection || []);
+        const nextSelection: SelectionItem[] = msg.selection || [];
+        setSelection(nextSelection);
+        // Clicking a screen on the canvas immediately reflects in the Fetch
+        // button — any selected screen is auto-checked, without needing to hit
+        // the "+" chip. Manual unchecks stick until that screen is picked again.
+        setCheckedIds((previous) => {
+          const merged = new Set(previous);
+          for (const screen of nextSelection) merged.add(screen.id);
+          return merged;
+        });
       }
 
       if (msg.type === 'extract-started') {
@@ -441,6 +456,82 @@ export default function App() {
   }
 
   // ===========================================================================
+  // CONTINUE WITH GOOGLE (create account / sign in)
+  // ===========================================================================
+
+  async function handleConnectGoogle() {
+    setError(null);
+    setBusy(true);
+    setBusyLabel('Opening Google sign in...');
+
+    try {
+      const { url, state } = await api.googleConnect();
+      window.open(url, '_blank');
+
+      log('user', 'Continue with Google');
+      log('assistant', 'Google sign-in opened in your browser. Choose the Google account you want to use...');
+
+      setBusy(false);
+      setBusyLabel('');
+      clearPoll();
+      setStep('google');
+
+      let polls = 0;
+
+      pollRef.current = window.setInterval(async () => {
+        polls += 1;
+        try {
+          const status = await api.googleStatus(state);
+
+          if (status.status === 'done' && status.session) {
+            clearPoll();
+            applySession(status.session);
+            log(
+              'assistant',
+              `Signed in as ${status.session.user.email} ✓. Your session is stored and will be restored next time.`
+            );
+            await goDashboardAfterAuth();
+            return;
+          }
+
+          if (status.status === 'error' && status.error) {
+            clearPoll();
+            setStep('auth');
+            setBusy(false);
+            setBusyLabel('');
+            setError(status.error);
+            return;
+          }
+
+          if (status.status === 'expired') {
+            clearPoll();
+            setStep('auth');
+            setBusy(false);
+            setBusyLabel('');
+            setError('Google sign-in expired. Please try again.');
+            return;
+          }
+
+          if (polls > 300) {
+            // ~10 minutes — the backend OAuth state expires around then too.
+            clearPoll();
+            setStep('auth');
+            setBusy(false);
+            setBusyLabel('');
+            setError('Google sign-in timed out. Close the browser tab and try again.');
+          }
+        } catch (pollError) {
+          console.error('[Design Engineer] Google polling error:', pollError);
+        }
+      }, 2000);
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      setError(e?.message || 'Could not start Google sign in.');
+    }
+  }
+
+  // ===========================================================================
   // SIGN OUT (switch app account)
   // ===========================================================================
 
@@ -449,15 +540,55 @@ export default function App() {
     clearSessionLocally();
     setCheckedIds(new Set());
     setFetchedScreens([]);
+    setImplementationPlan(null);
     setSelectedRepo(null);
     selectedRepoRef.current = null;
     setSelectedBranch(null);
     selectedBranchRef.current = null;
+    setSelectedStack(null);
+    selectedStackRef.current = null;
     setRepos([]);
     setBranches([]);
     setError(null);
     setStep('auth');
     log('assistant', 'Signed out. See you soon!');
+  }
+
+  // ===========================================================================
+  // LOG OUT (revokes the Supabase session server-side so the user can sign in
+  // with a different Google / email account)
+  // ===========================================================================
+
+  async function handleLogout() {
+    setError(null);
+    setBusy(true);
+    setBusyLabel('Signing out...');
+    try {
+      await authAware(() => api.logout());
+    } catch (e: any) {
+      // The local clear below is what matters most; the backend also revokes
+      // the session even when the request itself errors.
+      console.warn('[Design Engineer] Backend logout call failed:', e);
+    } finally {
+      setBusy(false);
+      setBusyLabel('');
+      clearPoll();
+      clearSessionLocally();
+      setCheckedIds(new Set());
+      setFetchedScreens([]);
+    setImplementationPlan(null);
+      setSelectedRepo(null);
+      selectedRepoRef.current = null;
+      setSelectedBranch(null);
+      selectedBranchRef.current = null;
+      setSelectedStack(null);
+      selectedStackRef.current = null;
+      setRepos([]);
+      setBranches([]);
+      setError(null);
+      setStep('auth');
+      log('assistant', 'You are logged out. Sign in with a different Google account or email to continue.');
+    }
   }
 
   // ===========================================================================
@@ -535,6 +666,30 @@ export default function App() {
       setBusy(false);
       setBusyLabel('');
       setError(e?.message || 'Could not disconnect GitHub.');
+    }
+  }
+
+  // ===========================================================================
+  // SWITCH GITHUB ACCOUNT
+  // The backend now opens GitHub with prompt=select_account, so GitHub shows
+  // the account chooser and the user can authorize a different account.
+  // ===========================================================================
+
+  async function handleSwitchGithubAccount() {
+    setError(null);
+    setBusy(true);
+    setBusyLabel('Preparing GitHub account switch...');
+    try {
+      await authAware(() => api.githubDisconnect());
+      setGithub({ connected: false, githubUser: null });
+      setBusy(false);
+      setBusyLabel('');
+      log('assistant', 'GitHub disconnected. Choose the other GitHub account in the window that opens.');
+      await handleConnectGithub(pendingGoalRef.current || 'dashboard');
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      setError(e?.message || 'Could not switch GitHub account.');
     }
   }
 
@@ -696,6 +851,7 @@ export default function App() {
     setCurrentProject(project);
     currentProjectRef.current = project;
     setFetchedScreens([]);
+    setImplementationPlan(null);
     setCheckedIds(new Set());
     setError(null);
 
@@ -710,7 +866,8 @@ export default function App() {
       setBusy(false);
       setBusyLabel('');
 
-      // If the project already has a repository + branch, go straight to screens.
+      // If the project already has a repository + branch, go to the stack
+      // picker (if not chosen yet) or straight to screens.
       if (project.repository) {
         const existingRepo = data.repos.find((r) => r.fullName === project.repository);
         if (existingRepo) {
@@ -721,11 +878,22 @@ export default function App() {
             setSelectedBranch(project.base_branch);
             selectedBranchRef.current = project.base_branch;
             setBranches([{ name: project.base_branch }]);
-            setStep('screens');
-            log(
-              'assistant',
-              `Using ${project.repository} @ ${project.base_branch}. Select screens on the canvas, then click Fetch.`
-            );
+
+            if (project.stack) {
+              setSelectedStack(project.stack);
+              selectedStackRef.current = project.stack;
+              setStep('screens');
+              log(
+                'assistant',
+                `Using ${project.repository} @ ${project.base_branch} (${project.stack === 'react-js' ? 'React JS' : 'React Native'}). Select screens on the canvas, then click Fetch.`
+              );
+            } else {
+              setStep('stack');
+              log(
+                'assistant',
+                `Using ${project.repository} @ ${project.base_branch}. Choose the stack for this app.`
+              );
+            }
             return;
           }
         }
@@ -829,7 +997,24 @@ export default function App() {
 
     log(
       'assistant',
-      'Select one or more screens on the Figma canvas, then click Fetch.'
+      'Pick the stack for this app — React Native or React JS. The generated code and folder structure will match your choice.'
+    );
+    setStep('stack');
+  }
+
+  function handleSelectStack(stack: api.Stack) {
+    setSelectedStack(stack);
+    selectedStackRef.current = stack;
+    log('user', `Stack: ${stack === 'react-native' ? 'React Native' : 'React JS'}`);
+
+    const project = currentProjectRef.current;
+    if (project) {
+      authAware(() => api.updateProject(project.id, { stack })).catch(() => {});
+    }
+
+    log(
+      'assistant',
+      `Using ${stack === 'react-native' ? 'React Native' : 'React JS'}. Select one or more screens on the Figma canvas, then click Fetch.`
     );
     setStep('screens');
   }
@@ -933,6 +1118,44 @@ export default function App() {
   }
 
   // ===========================================================================
+  // PLAN (preview before implementation — writes no code, raises no PR)
+  // ===========================================================================
+
+  async function handlePlan() {
+    const project = currentProjectRef.current;
+
+    if (!project || fetchedScreens.length === 0) {
+      setError('Fetch at least one screen before generating an implementation plan.');
+      return;
+    }
+
+    setError(null);
+    setBusy(true);
+    setBusyLabel(
+      `Building the implementation plan for ${fetchedScreens.length} screen${fetchedScreens.length > 1 ? 's' : ''}...`
+    );
+
+    try {
+      const result = await authAware(() => api.planScreens(project.id, fetchedScreens));
+
+      const plan = result.plan || '';
+      setImplementationPlan(plan);
+
+      log(
+        'assistant',
+        `📋 Implementation plan ready for ${result.screens.length} screen${result.screens.length > 1 ? 's' : ''} (${result.stack === 'react-js' ? 'React JS' : 'React Native'} on ${result.repository} @ ${result.baseBranch}).\n\nReview the plan above. Codex will write code and open a pull request only when you click "Start implement".`
+      );
+
+      setBusy(false);
+      setBusyLabel('');
+    } catch (e: any) {
+      setBusy(false);
+      setBusyLabel('');
+      setError(e?.message || 'Failed to generate the implementation plan.');
+    }
+  }
+
+  // ===========================================================================
   // IMPLEMENT
   // ===========================================================================
 
@@ -989,11 +1212,22 @@ export default function App() {
         <div className="logo-mark">DE</div>
         <h2>Design Engineer</h2>
         <p className="muted">
-          Create an account or sign in. Your projects, GitHub and Codex
-          connections are stored securely in your database.
+          Sign in with Google or create an account with email and password.
+          Your projects, GitHub and Codex connections are stored securely in
+          your database.
         </p>
+        <button
+          className="google-btn"
+          disabled={busy}
+          onClick={handleConnectGoogle}
+        >
+          Continue with Google
+        </button>
+        <div className="divider">
+          <span>or</span>
+        </div>
         <button className="primary" onClick={() => { setError(null); setStep('signup'); }}>
-          Create an account
+          Create an account with email
         </button>
         <button onClick={() => { setError(null); setStep('signin'); }}>
           I already have an account
@@ -1006,6 +1240,16 @@ export default function App() {
     return (
       <div className="auth-view">
         <h2>Create your account</h2>
+        <button
+          className="google-btn"
+          disabled={busy}
+          onClick={handleConnectGoogle}
+        >
+          Continue with Google
+        </button>
+        <div className="divider">
+          <span>or sign up with email</span>
+        </div>
         <label>
           Email
           <input
@@ -1050,6 +1294,16 @@ export default function App() {
     return (
       <div className="auth-view">
         <h2>Sign in</h2>
+        <button
+          className="google-btn"
+          disabled={busy}
+          onClick={handleConnectGoogle}
+        >
+          Continue with Google
+        </button>
+        <div className="divider">
+          <span>or sign in with email</span>
+        </div>
         <label>
           Email
           <input
@@ -1081,6 +1335,38 @@ export default function App() {
     );
   }
 
+  function renderGoogle() {
+    return (
+      <div className="auth-view">
+        <h2>Continue with Google</h2>
+        <p className="muted">
+          Sign in with your Google account in the tab that opened. Your session
+          is stored securely — it will be restored next time you open the
+          plugin.
+        </p>
+        <div className="row">
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={handleConnectGoogle}
+          >
+            {busy ? 'Waiting for Google...' : 'Continue with Google'}
+          </button>
+          <button
+            disabled={busy}
+            onClick={() => {
+              clearPoll();
+              setError(null);
+              setStep('auth');
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   function renderDashboard() {
     return (
       <div className="dashboard">
@@ -1088,7 +1374,12 @@ export default function App() {
           <div className="card-title">Account</div>
           <div className="card-desc">{userEmail || session?.user.email}</div>
           <div className="card-actions">
-            <button onClick={handleSignOut}>Switch account</button>
+            <button onClick={() => { clearPoll(); handleSignOut(); }}>
+              Switch account
+            </button>
+            <button className="danger" onClick={handleLogout} disabled={busy}>
+              {busy ? 'Signing out...' : 'Log out'}
+            </button>
           </div>
         </div>
 
@@ -1101,6 +1392,9 @@ export default function App() {
                 Connected as <strong>@{github.githubUser}</strong>.
               </div>
               <div className="card-actions">
+                <button className="primary" onClick={handleSwitchGithubAccount}>
+                  Switch GitHub account
+                </button>
                 <button onClick={handleDisconnectGithub}>Disconnect</button>
               </div>
             </>
@@ -1179,6 +1473,9 @@ export default function App() {
                     <div className="project-name">{project.name}</div>
                     <div className="project-meta">
                       {project.repository || 'No repository yet'}
+                      {project.stack
+                        ? ` • ${project.stack === 'react-js' ? 'React JS' : 'React Native'}`
+                        : ''}
                       {project.status === 'active' ? ' • active' : ` • ${project.status}`}
                     </div>
                   </div>
@@ -1222,7 +1519,7 @@ export default function App() {
               Project name
               <input
                 value={projectName}
-                placeholder="My React Native app"
+                placeholder="My app"
                 onChange={(e) => setProjectName(e.target.value)}
               />
             </label>
@@ -1279,6 +1576,7 @@ export default function App() {
     const project = currentProject;
     const repo = selectedRepo;
     const branch = selectedBranch;
+    const stack = selectedStack;
 
     return (
       <div className="subhead">
@@ -1286,6 +1584,7 @@ export default function App() {
         {project?.repository
           ? ` — ${project.repository}${branch ? ` @ ${branch}` : ''}`
           : ''}
+        {stack ? ` (${stack === 'react-js' ? 'React JS' : 'React Native'})` : ''}
       </div>
     );
   }
@@ -1314,6 +1613,7 @@ export default function App() {
       {step === 'auth' && renderAuth()}
       {step === 'signup' && renderSignup()}
       {step === 'signin' && renderSignin()}
+      {step === 'google' && renderGoogle()}
 
       {/* =================================================================== */}
       {/* DASHBOARD                                                        */}
@@ -1358,6 +1658,17 @@ export default function App() {
           <button type="button" onClick={clearScreenSelection} disabled={busy}>
             Clear
           </button>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* IMPLEMENTATION PLAN                                              */}
+      {/* =================================================================== */}
+
+      {step === 'done' && implementationPlan && (
+        <div className="plan-box">
+          <div className="plan-title">📋 Implementation plan</div>
+          <pre className="plan-text">{implementationPlan}</pre>
         </div>
       )}
 
@@ -1435,6 +1746,36 @@ export default function App() {
           </button>
         )}
 
+        {step === 'stack' && currentProject && (
+          <div className="stack-options">
+            <button
+              className={
+                'stack-option' +
+                (selectedStack === 'react-native' ? ' active' : '')
+              }
+              disabled={busy}
+              onClick={() => handleSelectStack('react-native')}
+            >
+              React Native
+            </button>
+            <button
+              className={
+                'stack-option' + (selectedStack === 'react-js' ? ' active' : '')
+              }
+              disabled={busy}
+              onClick={() => handleSelectStack('react-js')}
+            >
+              React JS
+            </button>
+          </div>
+        )}
+
+        {step === 'stack' && currentProject && (
+          <button disabled={busy} onClick={() => setStep('branch')}>
+            Back
+          </button>
+        )}
+
         {step === 'screens' && currentProject && (
           <button
             className="primary"
@@ -1456,6 +1797,7 @@ export default function App() {
             disabled={busy}
             onClick={() => {
               setFetchedScreens([]);
+    setImplementationPlan(null);
               setCheckedIds(new Set());
               setSelectedRepo(null);
               selectedRepoRef.current = null;
@@ -1470,6 +1812,16 @@ export default function App() {
         )}
 
         {step === 'done' && currentProject && (
+          <button
+            className="primary"
+            disabled={busy || fetchedScreens.length === 0}
+            onClick={handlePlan}
+          >
+            {implementationPlan ? 'Regenerate plan' : 'Plan implementation'}
+          </button>
+        )}
+
+        {step === 'done' && currentProject && implementationPlan && (
           <button
             className="primary"
             disabled={busy}

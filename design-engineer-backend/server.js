@@ -388,6 +388,42 @@ app.post('/auth/refresh', async (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
+// LOGOUT (revoke the Supabase session server-side)
+// -----------------------------------------------------------------------------
+
+app.post('/auth/logout', async (req, res) => {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  try {
+    // Revoke the user's Supabase session so the access + refresh tokens can no
+    // longer be used to reach their account. This lets the user sign in with a
+    // different Google / email account afterwards.
+    const logoutRes = await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${auth.token}`,
+      },
+    });
+
+    if (!logoutRes.ok) {
+      const text = await logoutRes.text().catch(() => '');
+      console.warn(
+        `[Design Engineer] Supabase logout responded ${logoutRes.status}: ${text}`
+      );
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Design Engineer] Logout failed:', error);
+    // Still report success so the plugin always clears its local session state —
+    // that is the important part of logging out from the user's perspective.
+    res.json({ success: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
 // GITHUB CONNECTION HELPERS
 // -----------------------------------------------------------------------------
 
@@ -460,7 +496,8 @@ app.post('/api/github/connect', async (req, res) => {
     `?client_id=${encodeURIComponent(GITHUB_CLIENT_ID)}` +
     `&scope=${encodeURIComponent('repo read:user')}` +
     `&state=${encodeURIComponent(state)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&prompt=select_account`;
 
   res.json({ url });
 });
@@ -481,7 +518,8 @@ app.get('/auth/github', (req, res) => {
     `?client_id=${encodeURIComponent(GITHUB_CLIENT_ID)}` +
     `&scope=${encodeURIComponent('repo read:user')}` +
     `&state=${encodeURIComponent(state)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&prompt=select_account`;
 
   res.redirect(url);
 });
@@ -602,6 +640,261 @@ app.post('/api/github/disconnect', async (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
+// GOOGLE OAUTH (create account / sign in with Google)
+//
+// Pattern mirrors the GitHub flow so it works inside the sandboxed Figma
+// plugin: the plugin asks the backend for a URL, opens it in a browser tab,
+// then polls /auth/google/status until the callback stores the session.
+//
+// The Supabase Google provider must be enabled in the project (Dashboard ->
+// Authentication -> Providers -> Google). The final session (access token +
+// refresh token + user) is returned to the plugin and saved to Figma client
+// storage like the email/password session, while the account itself lives in
+// Supabase auth.users.
+// -----------------------------------------------------------------------------
+
+const googleOauthStates = new Map();
+const GOOGLE_OAUTH_TTL_MS = 10 * 60 * 1000;
+
+function pruneGoogleOauthStates() {
+  const now = Date.now();
+  for (const [state, claim] of googleOauthStates) {
+    if (claim.expiresAt < now) googleOauthStates.delete(state);
+  }
+}
+
+// Each OAuth attempt gets its own supabase client (with its own in-memory PKCE
+// code verifier) so concurrent sign-ins never overwrite each other's state.
+function createGoogleOAuthClient() {
+  return createClient(
+    SUPABASE_URL || 'http://localhost',
+    SUPABASE_ANON_KEY || 'x',
+    {
+      auth: {
+        flowType: 'pkce',
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
+  );
+}
+
+app.post('/auth/google/connect', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return res.status(500).json({
+      error: 'SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY are not configured on the backend.',
+    });
+  }
+
+  pruneGoogleOauthStates();
+
+  const state = crypto.randomBytes(24).toString('hex');
+  // The state goes in the PATH, not the query. GoTrue (Supabase Auth) appends
+  // its own query params (code, state, error) to redirect_to when it finishes,
+  // and if redirect_to already contains a query string the appended "code" can
+  // end up swallowed (nested inside an existing value, or after a second "?"),
+  // which the callback then can't see. A path-only redirect_to is immune to
+  // that clobbering, and Express reads it via req.params.state.
+  const redirectTo = `${BACKEND_URL}/auth/google/callback/${encodeURIComponent(state)}`;
+
+  try {
+    const client = createGoogleOAuthClient();
+
+    const { data, error } = await client.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo,
+        queryParams: {
+          prompt: 'select_account',
+        },
+      },
+    });
+
+    if (error || !data?.url) {
+      return res.status(400).json({
+        error:
+          (error && error.message) ||
+          'Google sign in could not be started. Make sure the Google provider is enabled in your Supabase project (Authentication → Providers → Google).',
+      });
+    }
+
+    googleOauthStates.set(state, {
+      client,
+      status: 'pending',
+      session: null,
+      error: null,
+      expiresAt: Date.now() + GOOGLE_OAUTH_TTL_MS,
+    });
+
+    res.json({ url: data.url, state });
+  } catch (e) {
+    console.error('[Design Engineer] Google OAuth start failed:', e);
+    res.status(500).json({ error: e.message || 'Google sign in could not be started.' });
+  }
+});
+
+// Shared handler for the Google OAuth callback. Registered on both the
+// path-param route (current flows: /auth/google/callback/:state) and the old
+// query-param route (legacy in-flight flows: ?de_state=...).
+async function handleGoogleCallback(code, state, res) {
+  console.log(
+    `[Design Engineer] Google callback for state ${state ? String(state).slice(0, 8) : '(none)'}`
+  );
+
+  const claim = state && googleOauthStates.get(String(state));
+  if (!claim || claim.expiresAt < Date.now()) {
+    return res
+      .status(400)
+      .send('Google sign-in expired. Close this tab and click Continue with Google again in the plugin.');
+  }
+
+  if (!code) {
+    claim.status = 'error';
+    claim.error = 'Google did not return an authorization code. Please try again.';
+    return res
+      .status(400)
+      .send('Google sign-in returned no authorization code. Please try again.');
+  }
+
+  try {
+    const { data, error } = await claim.client.auth.exchangeCodeForSession(
+      String(code)
+    );
+
+    if (error || !data?.session) {
+      const message = (error && error.message) || 'Google sign-in failed.';
+      claim.status = 'error';
+      claim.error = message;
+      console.error('[Design Engineer] Google auth exchange failed:', message);
+      return res.status(400).send(`Google sign-in failed: ${message}`);
+    }
+
+    const session = data.session;
+
+    // The trigger usually creates the profile, but make sure it exists so the
+    // dashboard works immediately after a brand-new Google signup.
+    await upsertProfile(session.user, session.access_token).catch((e) =>
+      console.error('[Design Engineer] Profile upsert warned:', e.message)
+    );
+
+    claim.status = 'done';
+    claim.session = {
+      accessToken: session.access_token,
+      refreshToken: session.refresh_token,
+      user: {
+        id: session.user.id,
+        email: session.user.email,
+        created_at: session.user.created_at,
+      },
+    };
+
+    console.log(`[Design Engineer] Google sign-in complete for ${session.user.email}`);
+
+    res.send(`
+      <html>
+        <body style="font-family:sans-serif;padding:40px">
+          <h2>Signed in with Google ✅</h2>
+          <p>
+            Authenticated as <strong>${session.user.email}</strong>.
+            You can close this tab and return to Figma.
+          </p>
+        </body>
+      </html>
+    `);
+  } catch (e) {
+    console.error('[Design Engineer] Google auth callback failed:', e);
+    claim.status = 'error';
+    claim.error = e.message || 'Google sign-in failed.';
+    res.status(500).send(`Google sign-in failed: ${e.message}`);
+  }
+}
+
+// Current flow: the state arrives as a path segment. GoTrue appends its own
+// query params (?code=..., ?error=..., ?state=...) to redirect_to, so they land
+// in req.query cleanly next to our path-based state.
+app.get('/auth/google/callback/:state', async (req, res) => {
+  const code =
+    typeof req.query.code === 'string'
+      ? req.query.code
+      : Array.isArray(req.query.code)
+        ? req.query.code[0]
+        : null;
+
+  if (req.query.error) {
+    const oauthError = String(req.query.error);
+    const oauthDescription = String(req.query.error_description || '');
+    const claim = req.params.state && googleOauthStates.get(req.params.state);
+    console.warn(
+      `[Design Engineer] Google OAuth reported an error: ${oauthError}${oauthDescription ? ` — ${oauthDescription}` : ''}`,
+      { url: req.originalUrl }
+    );
+    if (claim) {
+      claim.status = 'error';
+      claim.error = `Google refused the sign in (${oauthError}${oauthDescription ? `: ${oauthDescription}` : ''}). Please try again.`;
+    }
+    return res
+      .status(400)
+      .send(
+        `Google sign-in was not completed (${oauthError}${oauthDescription ? `: ${oauthDescription}` : ''}). Please close this tab and try again.`
+      );
+  }
+
+  await handleGoogleCallback(code, req.params.state, res);
+});
+
+// Legacy fallback: flows started before the path-based state fix.
+app.get('/auth/google/callback', async (req, res) => {
+  const state = String(req.query.de_state || req.query.state || '').trim();
+  const code =
+    typeof req.query.code === 'string'
+      ? req.query.code
+      : Array.isArray(req.query.code)
+        ? req.query.code[0]
+        : null;
+
+  if (req.query.error) {
+    const oauthError = String(req.query.error);
+    const oauthDescription = String(req.query.error_description || '');
+    const claim = state && googleOauthStates.get(state);
+    console.warn(
+      `[Design Engineer] Google OAuth reported an error: ${oauthError}${oauthDescription ? ` — ${oauthDescription}` : ''}`,
+      { url: req.originalUrl }
+    );
+    if (claim) {
+      claim.status = 'error';
+      claim.error = `Google refused the sign in (${oauthError}${oauthDescription ? `: ${oauthDescription}` : ''}). Please try again.`;
+    }
+    return res
+      .status(400)
+      .send(
+        `Google sign-in was not completed (${oauthError}${oauthDescription ? `: ${oauthDescription}` : ''}). Please close this tab and try again.`
+      );
+  }
+
+  await handleGoogleCallback(code, state, res);
+});
+
+app.get('/auth/google/status', (req, res) => {
+  const state = String(req.query.state || '').trim();
+
+  const claim = state && googleOauthStates.get(state);
+
+  if (!claim || claim.expiresAt < Date.now()) {
+    return res.json({ status: 'expired' });
+  }
+
+  if (claim.status === 'error') {
+    return res.json({ status: 'error', error: claim.error });
+  }
+
+  if (claim.status === 'done' && claim.session) {
+    return res.json({ status: 'done', session: claim.session });
+  }
+
+  res.json({ status: 'pending' });
+});
+
+// -----------------------------------------------------------------------------
 // PROJECTS
 // -----------------------------------------------------------------------------
 
@@ -694,7 +987,7 @@ app.patch('/api/projects/:id', async (req, res) => {
   const auth = await requireUser(req, res);
   if (!auth) return;
 
-  const allowed = ['name', 'description', 'status', 'repository', 'base_branch'];
+  const allowed = ['name', 'description', 'status', 'repository', 'base_branch', 'stack'];
   const body = req.body || {};
   const patch = {};
 
@@ -1499,23 +1792,45 @@ function getRepositoryParts(repository) {
   return parts;
 }
 
-function buildImplementationPrompt(screens, contextDir, baseBranch, branchName) {
+function stackLabel(stack) {
+  return stack === 'react-js' ? 'React JS' : 'React Native';
+}
+
+function buildImplementationPrompt(
+  screens,
+  contextDir,
+  baseBranch,
+  branchName,
+  stack
+) {
   const screenList = screens
     .map((screen) => `- ${screen.name}: ${path.join(contextDir, screen.fileName)}`)
     .join('\n');
 
-  return `You are implementing multiple Figma screens in an existing React Native repository.
+  const projectLabel = stackLabel(stack);
+  const isReactNative = stack !== 'react-js';
+
+  const structureHint = isReactNative
+    ? 'with an app entry point, src/screens, src/components, src/navigation, and src/theme or src/styles where appropriate'
+    : 'with a Vite entry point (index.html + src/main.jsx/tsx), src/pages, src/components, src/routes, and src/theme or src/styles where appropriate';
+
+  const validationHint = isReactNative
+    ? '- Start the React Native app using the package manager and command documented in README.md (for example: npm start, npm run android, or npx expo start).'
+    : '- Start the React JS (Vite) app using the package manager and command documented in README.md (for example: npm run dev).';
+
+  return `You are implementing multiple Figma screens in an existing ${projectLabel} repository.
 
 Screens and design context files:
 ${screenList}
 
 Base branch: ${baseBranch}
 Working branch: ${branchName}
+Requested stack: ${projectLabel}
 
 Instructions:
 1. Read README.md first, then inspect the complete repository tree, package.json files, and existing source before changing anything.
-2. The base branch may contain only README.md. If the app structure is missing, create a standard React Native project structure in this repository using the stack and package manager described by README.md. Keep the structure clear and production-ready, with an app entry point, src/screens, src/components, src/navigation, and src/theme or src/styles where appropriate.
-3. Preserve any existing React Native stack, package manager, naming conventions, and folder structure when those files already exist. Do not create a second app beside an existing app.
+2. The base branch may contain only README.md. If the app structure is missing, create a standard ${projectLabel} project structure in this repository using the stack and package manager described by README.md. Keep the structure clear and production-ready, ${structureHint}.
+3. Preserve any existing ${projectLabel} stack, package manager, naming conventions, and folder structure when those files already exist. Do not create a second app beside an existing app.
 4. Implement every supplied screen in the same branch and make the screens reachable through the app's navigation. Use the design context JSON files as the source of truth for layout, typography, spacing, colors, assets, and interactions.
 5. Inspect each extracted JSON for navigation relationships, destination names, tap targets, links, or screen transition metadata. Recreate those routes and transitions in the navigation setup, including the initial route and back behavior where the data indicates them.
 6. Share components, styles, theme tokens, and navigation configuration when screens have common structure. Do not duplicate whole screen implementations unnecessarily.
@@ -1524,10 +1839,18 @@ Instructions:
 9. Add or update focused tests when the repository has a test setup.
 10. Run the repository's relevant validation commands from README and package scripts before finishing.
 
+Testing (${projectLabel}):
+${validationHint}
+
 Leave the working tree containing all screen implementations and working navigation, not just placeholder files.`;
 }
 
-async function appendTestInstructions(worktree, screenNames, branchName) {
+async function appendTestInstructions(
+  worktree,
+  screenNames,
+  branchName,
+  stack
+) {
   const readmePath = path.join(worktree, 'README.md');
   if (!fs.existsSync(readmePath)) return;
 
@@ -1536,12 +1859,13 @@ async function appendTestInstructions(worktree, screenNames, branchName) {
   if (current.includes(marker)) return;
 
   const screenList = screenNames.map((screenName) => `- ${screenName}`).join('\n');
-  const section = `\n\n${marker}\n## Test implemented screens\n\nThis implementation was generated from the Figma design context for these screens on branch \`${branchName}\`:\n\n${screenList}\n\n1. Clone this branch and install dependencies using the repository's documented package manager.\n2. Start the React Native app using the existing README command.\n3. Open every implemented screen through the navigation flow and verify the initial route, links, transitions, and back behavior.\n4. Verify each screen's layout, typography, spacing, interactions, and responsive behavior against Figma.\n5. Run the repository's documented test and lint commands before accepting the pull request.\n`;
+  const appLabel = stack === 'react-js' ? 'React JS (web) app' : 'React Native app';
+  const section = `\n\n${marker}\n## Test implemented screens\n\nThis implementation was generated from the Figma design context for these screens on branch \`${branchName}\`:\n\n${screenList}\n\n1. Clone this branch and install dependencies using the repository's documented package manager.\n2. Start the ${appLabel} using the existing README command.\n3. Open every implemented screen through the navigation flow and verify the initial route, links, transitions, and back behavior.\n4. Verify each screen's layout, typography, spacing, interactions, and responsive behavior against Figma.\n5. Run the repository's documented test and lint commands before accepting the pull request.\n`;
 
   await fs.promises.writeFile(readmePath, `${current.trimEnd()}${section}`, 'utf8');
 }
 
-async function implementScreensInBranch(conn, repository, baseBranch, screens) {
+async function implementScreensInBranch(conn, repository, baseBranch, screens, stack) {
   const screenNames = screens.map((screen) => screen.name);
   const firstScreenName = screenNames[0] || 'screens';
   const safeScreenName = sanitizeFileName(firstScreenName).toLowerCase();
@@ -1587,7 +1911,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens) {
         '--dangerously-bypass-approvals-and-sandbox',
         '--cd',
         worktree,
-        buildImplementationPrompt(contextScreens, contextDir, baseBranch, branchName),
+        buildImplementationPrompt(contextScreens, contextDir, baseBranch, branchName, stack),
       ],
       {
         cwd: worktree,
@@ -1603,7 +1927,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens) {
       force: true,
     });
 
-    await appendTestInstructions(worktree, screenNames, branchName);
+    await appendTestInstructions(worktree, screenNames, branchName, stack);
 
     await runProcess('git', ['config', 'user.name', 'Design Engineer'], { cwd: worktree });
     await runProcess('git', ['config', 'user.email', 'design-engineer[bot]@users.noreply.github.com'], { cwd: worktree });
@@ -1642,6 +1966,220 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens) {
   }
 }
 
+// -----------------------------------------------------------------------------
+// IMPLEMENTATION PLAN (preview only — never writes code or raises a PR)
+// -----------------------------------------------------------------------------
+
+function describeDesignContext(row) {
+  const content = row && row.content;
+  const ctx =
+    content && content.screen && typeof content.screen === 'object'
+      ? content.screen
+      : content;
+
+  if (!ctx || typeof ctx !== 'object') return null;
+
+  const summary = ctx.summary || {};
+  const page = ctx.page && ctx.page.name ? ctx.page.name : null;
+  const size =
+    typeof ctx.width === 'number' && typeof ctx.height === 'number'
+      ? `${Math.round(ctx.width)}×${Math.round(ctx.height)}`
+      : null;
+
+  const parts = [];
+  if (typeof summary.textNodeCount === 'number')
+    parts.push(`${summary.textNodeCount} text`);
+  if (typeof summary.imageNodeCount === 'number')
+    parts.push(`${summary.imageNodeCount} image${summary.imageNodeCount === 1 ? '' : 's'}`);
+  if (typeof summary.componentCount === 'number')
+    parts.push(`${summary.componentCount} component${summary.componentCount === 1 ? '' : 's'}`);
+
+  return {
+    name: ctx.screen || row.screen_name,
+    size,
+    page,
+    detail: parts.join(', '),
+    nodes:
+      typeof summary.nodeCount === 'number'
+        ? summary.nodeCount
+        : Array.isArray(ctx.elements)
+          ? ctx.elements.length
+          : 0,
+  };
+}
+
+function buildImplementationPlan(selectedScreens, repository, baseBranch, stack) {
+  const firstScreen = selectedScreens[0]?.name || 'screens';
+  const proposedBranch = `implement/${sanitizeFileName(firstScreen).toLowerCase()}-screens-${Date.now()}`;
+  const projectLabel = stackLabel(stack);
+  const isReactNative = stack !== 'react-js';
+
+  const orderHint = isReactNative
+    ? 'an app entry point, src/screens, src/components, src/navigation, and src/theme or src/styles'
+    : 'a Vite entry point (index.html + src/main.jsx/tsx), src/pages, src/components, src/routes, and src/theme or src/styles';
+
+  const startHint = isReactNative
+    ? 'the React Native app using the documented package manager command (for example: npm start, npm run android, or npx expo start)'
+    : 'the React JS (Vite) app using the documented package manager command (for example: npm run dev)';
+
+  const screenLines = selectedScreens
+    .map((screen) => {
+      const info = describeDesignContext({ content: screen.context });
+      const bits = [];
+      if (info) {
+        if (info.size) bits.push(info.size);
+        if (info.page) bits.push(`page "${info.page}"`);
+        if (info.nodes) bits.push(`${info.nodes} nodes`);
+        if (info.detail) bits.push(info.detail);
+      }
+      return `- ${screen.name}${bits.length ? ` — ${bits.join(', ')}` : ''}`;
+    })
+    .join('\n');
+
+  const prompt = buildImplementationPrompt(
+    selectedScreens.map((screen, index) => ({
+      name: screen.name,
+      fileName: `${sanitizeFileName(screen.name).toLowerCase()}-${index + 1}.json`,
+    })),
+    '.design-engineer/context',
+    baseBranch,
+    proposedBranch,
+    stack
+  );
+
+  const plan = `# Implementation plan
+
+**Repository:** \`${repository}\`
+**Base branch:** \`${baseBranch}\`
+**Stack:** ${projectLabel}
+**Screens (${selectedScreens.length}):**
+
+${screenLines}
+
+## How Codex will write the code
+
+1. **Clone** \`${repository}\` at branch \`${baseBranch}\` and create a working branch \`${proposedBranch}\`.
+2. **Read README.md, package.json, and the existing source** to learn the stack, package manager, and conventions.
+3. **Scaffold only if missing** — build ${orderHint} using the documented package manager. If an app already exists, extend it; never create a second app beside it.
+4. **Implement every screen above** from its saved Design Context JSON — layout, typography, colors, spacing, images, and interactions.
+5. **Wire navigation** — recreate routes, links, transitions, and back behavior between the screens from the extracted JSON.
+6. **Share components, styles, and theme tokens** where screens have common structure; do not duplicate whole screen implementations.
+7. **Keep lockfiles and dependencies stable** unless a navigation/feature genuinely requires an addition.
+8. **Add or update tests** when the repository has a test setup, then run the documented validation commands (including starting ${startHint}).
+9. **Commit, push, and open a pull request** describing the implemented screens and the README test steps.
+
+Generating this plan writes no code and raises no pull request.
+Only when you click "Start implement" will Codex build the screens and open the PR.
+
+## Codex prompt (exact text that will be sent)
+
+${prompt}`;
+
+  return { plan, proposedBranch, prompt };
+}
+
+app.post('/api/screens/plan', async (req, res) => {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  const { projectId, screens } = req.body || {};
+
+  if (!projectId || !Array.isArray(screens) || screens.length === 0) {
+    return res
+      .status(400)
+      .json({ error: 'projectId and screens[] (non-empty) are required' });
+  }
+
+  try {
+    const projectRows = await pgQuery('projects', {
+      token: auth.token,
+      query: `id=eq.${projectId}&select=*&limit=1`,
+    });
+    const project = Array.isArray(projectRows) ? projectRows[0] : null;
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    const repository = project.repository;
+    const baseBranch = project.base_branch;
+    const stack = project.stack === 'react-js' ? 'react-js' : 'react-native';
+
+    if (!repository || !baseBranch) {
+      return res.status(400).json({
+        error: 'This project has no repository/branch selected yet. Fetch screens first.',
+      });
+    }
+
+    const screenNames = screens
+      .filter((screen) => screen && typeof screen === 'object')
+      .map((screen, index) => screen.screen || screen.name || `screen-${index + 1}`)
+      .map(sanitizeFileName);
+
+    if (screenNames.length === 0) {
+      return res.status(400).json({ error: 'No valid screens were supplied.' });
+    }
+
+    const contextRows = await pgQuery('design_contexts', {
+      token: auth.token,
+      query: `project_id=eq.${projectId}&select=screen_name,content`,
+    });
+
+    const byName = new Map(
+      (Array.isArray(contextRows) ? contextRows : []).map((row) => [
+        row.screen_name,
+        row,
+      ])
+    );
+
+    const selectedScreens = screenNames.map((name) => {
+      const row = byName.get(name);
+      if (!row?.content) {
+        throw new Error(
+          `Saved Design Context not found for "${name}". Fetch the screens again before generating a plan.`
+        );
+      }
+      return { name, context: row.content };
+    });
+
+    const summary = selectedScreens.map((screen) => {
+      const info = describeDesignContext({ content: screen.context });
+      return {
+        name: screen.name,
+        size: info?.size || null,
+        page: info?.page || null,
+        nodeCount: info?.nodes || 0,
+        details: info?.detail || '',
+      };
+    });
+
+    const { plan, proposedBranch, prompt } = buildImplementationPlan(
+      selectedScreens,
+      repository,
+      baseBranch,
+      stack
+    );
+
+    console.log(
+      `[Design Engineer] Generated implementation plan for ${selectedScreens.length} screen(s) on ${repository}`
+    );
+
+    res.json({
+      success: true,
+      plan,
+      prompt,
+      proposedBranch,
+      stack,
+      repository,
+      baseBranch,
+      screens: summary,
+    });
+  } catch (error) {
+    console.error('[Design Engineer] Failed to generate plan:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate the plan.' });
+  }
+});
+
 app.post('/api/screens/implement', async (req, res) => {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -1676,6 +2214,7 @@ app.post('/api/screens/implement', async (req, res) => {
 
     const repository = project.repository;
     const baseBranch = project.base_branch;
+    const stack = project.stack === 'react-js' ? 'react-js' : 'react-native';
 
     if (!repository || !baseBranch) {
       return res
@@ -1722,7 +2261,8 @@ app.post('/api/screens/implement', async (req, res) => {
       conn,
       repository,
       baseBranch,
-      selectedScreens
+      selectedScreens,
+      stack
     );
 
     res.json({ success: true, implementations: [implementation] });
