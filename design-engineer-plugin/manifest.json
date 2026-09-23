@@ -7,7 +7,7 @@
   "editorType": ["figma"],
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": ["http://localhost:4000"],
+    "allowedDomains": ["http://localhost:4000", "https://design-engineer.onrender.com"],
     "reasoning": "Talks to the Design Engineer backend for Codex/GitHub auth, repo + branch listing, and sending extracted Figma design context for storage."
   }
 }

@@ -6,7 +6,7 @@
 // was returned by signup / signin / refresh. All account, project, GitHub and
 // Codex state lives in Supabase via the backend; nothing here touches Docker.
 
-const DEFAULT_BASE_URL = 'http://localhost:4000';
+const DEFAULT_BASE_URL = 'https://design-engineer.onrender.com';
 
 function getBaseUrl(): string {
   return (
