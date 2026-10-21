@@ -248,7 +248,7 @@
 const DEFAULT_BASE_URL =
   'http://localhost:4000';
 
-function getBaseUrl(): string {
+export function getBaseUrl(): string {
   return (
     (window as any)
       .__DESIGN_ENGINEER_API__ ||
