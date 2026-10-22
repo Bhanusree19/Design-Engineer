@@ -8,7 +8,7 @@
 
 const DEFAULT_BASE_URL = 'https://design-engineer.onrender.com';
 
-function getBaseUrl(): string {
+export function getBaseUrl(): string {
   return (
     (window as any).__DESIGN_ENGINEER_API__ ||
     DEFAULT_BASE_URL
