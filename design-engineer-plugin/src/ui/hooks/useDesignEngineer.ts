@@ -183,11 +183,7 @@ export function useDesignEngineer() {
     if (!savedSessionId) {
       if (codexAuthenticated) {
         try {
-          const session = await api.createSession();
-          rememberSession(session.sessionId);
-          sendToPlugin({ type: 'save-session', sessionId: session.sessionId });
-
-          const codexStatus = await api.getCodexStatus(session.sessionId);
+          const codexStatus = await api.getCodexStatus();
           if (codexStatus.connected) {
             sendToPlugin({ type: 'save-codex-auth' });
             setCodexUser(codexStatus.codexUser);
@@ -324,7 +320,7 @@ export function useDesignEngineer() {
   // GITHUB
   // ===========================================================================
 
-  function connectGithub() {
+  async function connectGithub() {
     const currentSessionId = sessionIdRef.current;
     if (!currentSessionId) {
       setStep('signin');
@@ -333,27 +329,37 @@ export function useDesignEngineer() {
     }
 
     setError(null);
-    window.open(api.githubAuthUrl(currentSessionId), '_blank');
-    setWaiting('github');
 
-    stopPolling();
-    pollRef.current = window.setInterval(async () => {
-      try {
-        const status = await api.getSessionStatus(currentSessionId);
-        if (status.githubConnected) {
-          stopPolling();
-          setGithubUser(status.githubUser);
-          await loadRepos(currentSessionId);
+    try {
+      const { url } = await api.githubConnect();
+      window.open(url, '_blank');
+      setWaiting('github');
+
+      stopPolling();
+      pollRef.current = window.setInterval(async () => {
+        try {
+          const status = await api.getSessionStatus(currentSessionId);
+          if (status.githubConnected) {
+            stopPolling();
+            setGithubUser(status.githubUser);
+            await loadRepos(currentSessionId);
+          }
+        } catch (pollingError) {
+          console.error('[Design Engineer] GitHub polling error:', pollingError);
         }
-      } catch (pollingError) {
-        console.error('[Design Engineer] GitHub polling error:', pollingError);
-      }
-    }, 2000);
+      }, 2000);
+    } catch (err) {
+      fail(serverError(err, "Couldn't start GitHub sign-in."), err);
+    }
   }
 
-  function reopenGithub() {
-    const currentSessionId = sessionIdRef.current;
-    if (currentSessionId) window.open(api.githubAuthUrl(currentSessionId), '_blank');
+  async function reopenGithub() {
+    try {
+      const { url } = await api.githubConnect();
+      window.open(url, '_blank');
+    } catch (err) {
+      console.error('[Design Engineer] Failed to reopen GitHub auth:', err);
+    }
   }
 
   // ===========================================================================
@@ -373,7 +379,7 @@ export function useDesignEngineer() {
     setStep('repo');
 
     try {
-      const data = await api.listRepos(currentSessionId);
+      const data = await api.listRepos();
       setRepos(data.repos || []);
       setWaiting(null);
     } catch (err) {
@@ -400,7 +406,7 @@ export function useDesignEngineer() {
 
     try {
       const [owner, repo] = fullName.split('/');
-      const data = await api.listBranches(currentSessionId, owner, repo);
+      const data = await api.listBranches(owner, repo);
       setBranches(data.branches || []);
       setWaiting(null);
     } catch (err) {

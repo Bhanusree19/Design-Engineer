@@ -256,7 +256,7 @@ export function logoutCodex(): Promise<{ success: boolean }> {
   return request('/auth/codex/logout', { method: 'POST' });
 }
 
-export function startCodexDeviceAuth() {
+export function startCodexDeviceAuth(_sessionId?: string) {
   return request<{
     device_code: string;
     user_code: string;
@@ -273,6 +273,38 @@ export function getCodexDeviceStatus(deviceCode: string) {
     status: 'pending' | 'approved' | 'expired';
     codexUser: string | null;
   }>(`/auth/codex/device/${encodeURIComponent(deviceCode)}/status`);
+}
+
+// -----------------------------------------------------------------------------
+// LEGACY COMPATIBILITY HELPERS
+// -----------------------------------------------------------------------------
+
+export interface SessionInfo {
+  sessionId: string;
+}
+
+export function createSession(): Promise<SessionInfo> {
+  return Promise.resolve({ sessionId: `plugin-${Date.now()}` });
+}
+
+export interface SessionStatus {
+  githubConnected: boolean;
+  githubUser: string | null;
+}
+
+export function getSessionStatus(_sessionId?: string): Promise<SessionStatus> {
+  return getMe().then((me) => ({
+    githubConnected: !!me.github.connected,
+    githubUser: me.github.githubUser || null,
+  }));
+}
+
+export function getCodexStatus(_sessionId?: string): Promise<CodexStatusInfo> {
+  return codexStatus();
+}
+
+export function githubAuthUrl(_sessionId?: string): string {
+  return `${getBaseUrl()}/auth/github`;
 }
 
 // -----------------------------------------------------------------------------
