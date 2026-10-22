@@ -1,62 +1,105 @@
-// Shared frame pieces: header, step rail, banners, waiting row, footer.
+// Shared frame pieces: headers, project rail, body, footer, banners, waits, sheet.
 
 import React from 'react';
-import { Alert, Check, Mark } from './Icons';
+import { Alert, Back, Check, Mail, Mark } from './Icons';
 import type { Step } from '../hooks/useDesignEngineer';
 
 // -----------------------------------------------------------------------------
-// HEADER
+// HEADERS
 // -----------------------------------------------------------------------------
 
-export function Header({ children }: { children?: React.ReactNode }) {
+// Top level: logo, name and the account avatar.
+export function AppHeader({ email, onAvatar, avatarOpen }: { email?: string; onAvatar?: () => void; avatarOpen?: boolean }) {
+  const initial = (email || '?').trim().charAt(0).toUpperCase();
   return (
     <header className="head">
       <Mark />
       <span className="head-name">Design Engineer</span>
-      {children}
+      {onAvatar && (
+        <button
+          type="button"
+          className={`avatar ${avatarOpen ? 'on' : ''}`}
+          onClick={onAvatar}
+          aria-label="Account and connections"
+          aria-expanded={avatarOpen}
+          title={email}
+        >
+          {initial}
+        </button>
+      )}
     </header>
   );
 }
 
-export function Who({ name }: { name: string }) {
+// Account screens: a back link only.
+export function BackHeader({ label = 'Back', onBack }: { label?: string; onBack: () => void }) {
   return (
-    <span className="who" title={`Signed in as ${name}`}>
-      <span className="dot" />
-      {name}
-    </span>
+    <header className="head">
+      <button type="button" className="back" onClick={onBack}>
+        <Back />
+        {label}
+      </button>
+    </header>
   );
 }
 
-export function Route({ repo, branch }: { repo: string; branch: string }) {
-  const repoName = repo.split('/').pop() || repo;
+// Inside a project: back to Projects, project name, repo@branch chip.
+export function ProjectHeader({
+  name,
+  repo,
+  branch,
+  onBack,
+  onRoute,
+}: {
+  name: string;
+  repo?: string | null;
+  branch?: string | null;
+  onBack: () => void;
+  onRoute?: () => void;
+}) {
+  const repoName = repo ? repo.split('/').pop() : null;
   return (
-    <span className="route" title={`${repo} @ ${branch}`}>
-      <b>{repoName}</b>@{branch}
-    </span>
+    <header className="head">
+      <button type="button" className="back icon-only" onClick={onBack} aria-label="All projects" title="All projects">
+        <Back />
+      </button>
+      <span className="proj">{name}</span>
+      {repoName && branch && (
+        <button type="button" className="route" onClick={onRoute} title={`${repo} @ ${branch}. Change setup`}>
+          <b>{repoName}</b>@{branch}
+        </button>
+      )}
+    </header>
   );
 }
 
 // -----------------------------------------------------------------------------
-// STEP RAIL
+// PROJECT RAIL
 // -----------------------------------------------------------------------------
 
-const RAIL: { key: Step; label: string }[] = [
-  { key: 'signin', label: 'Codex' },
-  { key: 'github', label: 'GitHub' },
-  { key: 'repo', label: 'Repo' },
-  { key: 'branch', label: 'Branch' },
-  { key: 'screens', label: 'Screens' },
-];
+const RAIL = ['Repo', 'Branch', 'Stack', 'Screens', 'Build'];
+
+const RAIL_INDEX: Partial<Record<Step, number>> = {
+  repo: 0,
+  github: 0,
+  branch: 1,
+  stack: 2,
+  screens: 3,
+  done: 4,
+  plan: 4,
+  implementing: 4,
+  implemented: 5,
+};
 
 export function Rail({ step }: { step: Step }) {
-  const current = step === 'done' ? RAIL.length : RAIL.findIndex((r) => r.key === step);
+  const current = RAIL_INDEX[step] ?? 0;
   return (
-    <ol className="rail" aria-label="Setup progress">
-      {RAIL.map((r, i) => {
+    <ol className="rail" aria-label="Project setup">
+      {RAIL.map((label, i) => {
         const state = i < current ? 'done' : i === current ? 'now' : '';
         return (
-          <li key={r.key} className={state} aria-current={state === 'now' ? 'step' : undefined}>
-            {r.label}
+          <li key={label} className={state} aria-current={state === 'now' ? 'step' : undefined}>
+            {label}
           </li>
         );
       })}
@@ -65,14 +108,14 @@ export function Rail({ step }: { step: Step }) {
 }
 
 // -----------------------------------------------------------------------------
-// BODY / FOOTER
+// LAYOUT
 // -----------------------------------------------------------------------------
 
-export function Body({ children }: { children: React.ReactNode }) {
-  return <main className="body">{children}</main>;
+export function Body({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return <main className={`body ${className}`}>{children}</main>;
 }
 
-export function Footer({ children, hint }: { children: React.ReactNode; hint?: string }) {
+export function Footer({ children, hint }: { children: React.ReactNode; hint?: React.ReactNode }) {
   return (
     <footer className="foot">
       {children}
@@ -94,6 +137,24 @@ export function ErrorBanner({ message }: { message: string }) {
   );
 }
 
+export function WarnBanner({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="banner warn" role="alert">
+      <Alert className="ico" />
+      <p>{children}</p>
+    </div>
+  );
+}
+
+export function InfoBanner({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="banner info" role="status">
+      <Mail className="ico" />
+      <p>{children}</p>
+    </div>
+  );
+}
+
 export function SuccessBanner({ children }: { children: React.ReactNode }) {
   return (
     <div className="banner ok">
@@ -107,12 +168,35 @@ export function Spinner() {
   return <span className="spin" aria-hidden="true" />;
 }
 
-export function WaitRow({ label, detail }: { label: string; detail?: string }) {
+export function WaitRow({ label, detail }: { label: string; detail?: React.ReactNode }) {
   return (
     <div className="wait" role="status">
       <Spinner />
       <span className="wait-label">{label}</span>
       {detail && <span className="wait-detail">{detail}</span>}
     </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// SHEET
+// -----------------------------------------------------------------------------
+
+export function Sheet({ onClose, children, label }: { onClose: () => void; children: React.ReactNode; label: string }) {
+  return (
+    <>
+      <div className="scrim" onClick={onClose} aria-hidden="true" />
+      <div
+        className="sheet"
+        role="dialog"
+        aria-label={label}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose();
+        }}
+      >
+        <div className="grab" aria-hidden="true" />
+        {children}
+      </div>
+    </>
   );
 }
