@@ -1,6 +1,6 @@
 {
   "name": "Design Engineer",
-  "id": "1692214642613829013",
+  "id": "design-engineer-plugin",
   "api": "1.0.0",
   "main": "dist/code.js",
   "ui": "dist/ui.html",
