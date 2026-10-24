@@ -11,9 +11,9 @@ function plural(n: number, word: string) {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
-function ScreensHeader({ state }: { state: DesignEngineerState }) {
+function ScreensHeader({ state, actions }: Props) {
   return (
-    <Header>
+    <Header state={state} actions={actions}>
       {state.selectedRepo && state.selectedBranch && (
         <Route repo={state.selectedRepo} branch={state.selectedBranch} />
       )}
@@ -40,17 +40,23 @@ function Size({ item }: { item: SelectionItem }) {
 
 export function ScreensStep({ state, actions }: Props) {
   const busy = state.waiting === 'extracting' || state.waiting === 'saving';
-  if (busy) return <Fetching state={state} />;
+  if (busy) return <Fetching state={state} actions={actions} />;
 
   const total = state.selection.length;
   const checked = state.checkedIds.size;
 
   return (
     <>
-      <ScreensHeader state={state} />
+      <ScreensHeader state={state} actions={actions} />
       <Rail step="screens" />
       <Body>
         <h1>{total === 0 ? 'Select screens' : `${checked} of ${plural(total, 'screen')} selected`}</h1>
+        {state.currentPlan && state.selectedProject && (
+          <div className="plan-summary">
+            <span>Plan: {state.currentPlan.name} — {state.currentPlan.screen_limit_per_project} screens per project</span>
+            <button className="link small" type="button" onClick={() => actions.openUpgrade('Upgrade to fetch more screens per project')}>Upgrade</button>
+          </div>
+        )}
         {state.error && <ErrorBanner message={state.error} />}
 
         {total === 0 ? (
@@ -96,6 +102,7 @@ export function ScreensStep({ state, actions }: Props) {
         )}
       </Body>
       <Footer>
+        <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to branch</button>
         <button className="btn btn-primary" type="button" disabled={checked === 0} onClick={actions.fetchScreens}>
           {checked === 0 ? 'Select screens to fetch' : `Fetch ${plural(checked, 'screen')}`}
         </button>
@@ -108,14 +115,14 @@ export function ScreensStep({ state, actions }: Props) {
 // FETCHING
 // -----------------------------------------------------------------------------
 
-function Fetching({ state }: { state: DesignEngineerState }) {
+function Fetching({ state, actions }: Props) {
   const saving = state.waiting === 'saving';
   const items = state.selection.filter((s) => state.checkedIds.has(s.id));
   const count = state.extractingCount || items.length;
 
   return (
     <>
-      <ScreensHeader state={state} />
+      <ScreensHeader state={state} actions={actions} />
       <Rail step="screens" />
       <Body>
         <h1>{saving ? 'Saving Design Context' : `Fetching ${plural(count, 'screen')}`}</h1>
@@ -147,7 +154,7 @@ export function Done({ state, actions }: Props) {
 
   return (
     <>
-      <ScreensHeader state={state} />
+      <ScreensHeader state={state} actions={actions} />
       <Rail step="done" />
       <Body>
         <span className="big-ok" aria-hidden="true"><Check /></span>
@@ -169,6 +176,7 @@ export function Done({ state, actions }: Props) {
       <Footer>
         <button className="btn btn-primary" type="button" onClick={actions.fetchMore}>Fetch more screens</button>
         <div className="btn-row">
+          <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to screens</button>
           <button className="btn btn-ghost" type="button" onClick={actions.changeBranch}>Change branch</button>
           <button className="btn btn-ghost" type="button" onClick={actions.changeRepo}>Change repo</button>
         </div>

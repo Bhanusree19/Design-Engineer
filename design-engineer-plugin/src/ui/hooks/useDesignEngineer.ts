@@ -1,6 +1,6 @@
 // src/ui/hooks/useDesignEngineer.ts
 //
-// All plugin behaviour lives here: session restore, Codex device sign-in,
+// All plugin behaviour lives here: session restore, Codex browser sign-in,
 // GitHub OAuth polling, repo/branch loading and screen extraction.
 // Screens only read this state and call these actions, so the UI can be
 // redesigned without touching the auth or extraction flow.
@@ -9,6 +9,15 @@ import { useEffect, useRef, useState } from 'react';
 
 import { onPluginMessage, sendToPlugin } from '../figmaBridge';
 import * as api from '../../api/client';
+import {
+  getPlans,
+  getBillingUsage,
+  createBillingOrder,
+  verifyBillingPayment,
+  Plan,
+  UsageInfo,
+  Subscription,
+} from '../../api/client';
 
 // -----------------------------------------------------------------------------
 // TYPES
@@ -16,8 +25,10 @@ import * as api from '../../api/client';
 
 export type Step =
   | 'restoring'
+  | 'account'
   | 'signin'
   | 'github'
+  | 'project'
   | 'repo'
   | 'branch'
   | 'screens'
@@ -31,16 +42,18 @@ export interface SelectionItem {
   height: number;
 }
 
-export interface DeviceCode {
-  userCode: string;
-  verificationUri: string;
+export interface CodexBrowserAuth {
+  browserAuth: true;
 }
 
 // What the user is waiting on, if anything. Drives the waiting screens.
 export type Waiting =
   | null
+  | 'account'
   | 'codex'
   | 'github'
+  | 'projects'
+  | 'create-project'
   | 'repos'
   | 'branches'
   | 'extracting'
@@ -50,9 +63,13 @@ export interface DesignEngineerState {
   step: Step;
   waiting: Waiting;
   error: string | null;
+  notice: string | null;
+  accountSignedIn: boolean;
   codexUser: string | null;
   githubUser: string | null;
-  deviceCode: DeviceCode | null;
+  codexBrowserAuth: CodexBrowserAuth | null;
+  projects: api.Project[];
+  selectedProject: api.Project | null;
   repos: api.Repo[];
   branches: api.Branch[];
   selectedRepo: string | null;
@@ -61,6 +78,12 @@ export interface DesignEngineerState {
   checkedIds: Set<string>;
   extractingCount: number;
   savedFiles: string[];
+  plans: Plan[];
+  currentPlan: Plan | null;
+  subscription: Subscription | null;
+  usage: UsageInfo | null;
+  billingLoading: boolean;
+  upgradeModal: { open: boolean; reason?: string; limitType?: 'projects' | 'screens'; limit?: number; current?: number } | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -71,12 +94,15 @@ export function useDesignEngineer() {
   const [step, setStep] = useState<Step>('restoring');
   const [waiting, setWaiting] = useState<Waiting>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [codexUser, setCodexUser] = useState<string | null>(null);
   const [githubUser, setGithubUser] = useState<string | null>(null);
-  const [deviceCode, setDeviceCode] = useState<DeviceCode | null>(null);
+  const [codexBrowserAuth, setCodexBrowserAuth] = useState<CodexBrowserAuth | null>(null);
 
+  const [projects, setProjects] = useState<api.Project[]>([]);
+  const [selectedProject, setSelectedProject] = useState<api.Project | null>(null);
   const [repos, setRepos] = useState<api.Repo[]>([]);
   const [branches, setBranches] = useState<api.Branch[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
@@ -86,15 +112,23 @@ export function useDesignEngineer() {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [extractingCount, setExtractingCount] = useState(0);
   const [savedFiles, setSavedFiles] = useState<string[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [currentPlan, setCurrentPlan] = useState<Plan | null>(null);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [usage, setUsage] = useState<UsageInfo | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [upgradeModal, setUpgradeModal] = useState<{ open: boolean; reason?: string; limitType?: 'projects' | 'screens'; limit?: number; current?: number } | null>(null);
 
   // Refs mirror state for use inside the message listener and polling
   // callbacks, which are created once and would otherwise see stale values.
   const sessionIdRef = useRef<string | null>(null);
+  const selectedProjectRef = useRef<api.Project | null>(null);
   const selectedRepoRef = useRef<string | null>(null);
   const selectedBranchRef = useRef<string | null>(null);
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+  useEffect(() => { selectedProjectRef.current = selectedProject; }, [selectedProject]);
   useEffect(() => { selectedRepoRef.current = selectedRepo; }, [selectedRepo]);
   useEffect(() => { selectedBranchRef.current = selectedBranch; }, [selectedBranch]);
 
@@ -139,12 +173,9 @@ export function useDesignEngineer() {
   // ===========================================================================
 
   useEffect(() => {
-    sendToPlugin({ type: 'get-saved-session' });
-    sendToPlugin({ type: 'get-selection' });
-
     const cleanup = onPluginMessage((msg) => {
       if (msg.type === 'saved-session') {
-        restoreSavedSession(msg.sessionId, !!msg.codexAuthenticated);
+        restoreSavedSession(msg.session || null);
       }
 
       if (msg.type === 'selection-changed') {
@@ -165,6 +196,9 @@ export function useDesignEngineer() {
       }
     });
 
+    sendToPlugin({ type: 'get-saved-session' });
+    sendToPlugin({ type: 'get-selection' });
+
     return () => {
       cleanup();
       stopPolling();
@@ -177,61 +211,53 @@ export function useDesignEngineer() {
   // RESTORE SESSION
   // ===========================================================================
 
-  async function restoreSavedSession(savedSessionId: string | null, codexAuthenticated = false) {
-    // No saved session, but Codex was signed in before: recreate a session
-    // without forcing a new device login.
-    if (!savedSessionId) {
-      if (codexAuthenticated) {
-        try {
-          const codexStatus = await api.getCodexStatus();
-          if (codexStatus.connected) {
-            sendToPlugin({ type: 'save-codex-auth' });
-            setCodexUser(codexStatus.codexUser);
-            setStep('github');
-            return;
-          }
-        } catch (restoreError) {
-          console.error('[Design Engineer] Failed to restore session from Codex marker:', restoreError);
-        }
-      }
-
-      setStep('signin');
+  async function restoreSavedSession(savedSession: api.AuthSession | null) {
+    if (!savedSession?.accessToken || !savedSession.refreshToken) {
+      api.setAccessToken(null);
+      rememberSession(null);
+      setStep('account');
       return;
     }
 
-    rememberSession(savedSessionId);
+    api.setAccessToken(savedSession.accessToken);
+    rememberSession(savedSession.user?.id || null);
 
     try {
-      const sessionStatus = await api.getSessionStatus(savedSessionId);
-      const codexStatus = await api.getCodexStatus(savedSessionId);
+      let me: api.MeResponse;
+      try {
+        me = await api.getMe();
+      } catch (error) {
+        if (!(error instanceof api.ApiError) || error.status !== 401) throw error;
 
-      if (codexStatus.connected) {
-        sendToPlugin({ type: 'save-codex-auth' });
-        setCodexUser(codexStatus.codexUser);
+        const refreshed = await api.refreshSession(savedSession.refreshToken);
+        api.setAccessToken(refreshed.accessToken);
+        rememberSession(refreshed.user.id);
+        sendToPlugin({ type: 'save-session', session: refreshed });
+        me = await api.getMe();
+      }
 
-        if (sessionStatus.githubConnected) {
-          setGithubUser(sessionStatus.githubUser);
-          await loadRepos(savedSessionId);
+      rememberSession(me.user.id);
+      setCodexUser(me.codex.codexUser);
+      if (me.codex.connected) {
+        if (me.github.connected) {
+          setGithubUser(me.github.githubUser);
+          await loadProjects();
           return;
         }
-
         setStep('github');
         return;
       }
 
       setStep('signin');
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Design Engineer] Session restoration failed:', err);
-
-      // Only drop the saved session when the backend says it doesn't exist.
-      if (String(err?.message || '').includes('404')) {
-        sendToPlugin({ type: 'clear-session' });
+      if (err instanceof api.ApiError && err.status === 401) {
+        api.setAccessToken(null);
         rememberSession(null);
-      } else {
-        setError(serverError(err));
+        sendToPlugin({ type: 'clear-session' });
       }
-
-      setStep('signin');
+      setError(serverError(err, 'Your saved account session could not be restored.'));
+      setStep('account');
     }
   }
 
@@ -239,8 +265,117 @@ export function useDesignEngineer() {
   // CODEX SIGN-IN
   // ===========================================================================
 
+  function acceptAccountSession(session: api.AuthSession) {
+    api.setAccessToken(session.accessToken);
+    rememberSession(session.user.id);
+    sendToPlugin({ type: 'save-session', session });
+    setError(null);
+    setNotice(null);
+    setWaiting(null);
+    setStep('signin');
+  }
+
+  async function signInWithEmail(email: string, password: string) {
+    setError(null);
+    setNotice(null);
+    setWaiting('account');
+
+    try {
+      acceptAccountSession(await api.signin(email, password));
+    } catch (err) {
+      fail(serverError(err, 'Account sign-in failed.'), err);
+    }
+  }
+
+  async function signUpWithEmail(email: string, password: string) {
+    setError(null);
+    setNotice(null);
+    setWaiting('account');
+
+    try {
+      const result = await api.signup(email, password);
+      if (result.accessToken && result.refreshToken && result.user) {
+        acceptAccountSession({
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+          user: result.user,
+        });
+        return;
+      }
+
+      setWaiting(null);
+      setNotice(
+        result.confirmationRequired
+          ? `Check ${result.email || email} for a confirmation link, then sign in.`
+          : 'Account created. Sign in to continue.'
+      );
+    } catch (err) {
+      fail(serverError(err, 'Account creation failed.'), err);
+    }
+  }
+
+  async function connectGoogle() {
+    setError(null);
+    setNotice(null);
+    setWaiting('account');
+
+    try {
+      const { url, state: oauthState } = await api.googleConnect();
+      window.open(url, '_blank');
+
+      stopPolling();
+      pollRef.current = window.setInterval(async () => {
+        try {
+          const result = await api.googleStatus(oauthState);
+          if (result.status === 'done' && result.session) {
+            stopPolling();
+            acceptAccountSession(result.session);
+          } else if (result.status === 'error' || result.status === 'expired') {
+            stopPolling();
+            fail(result.error || 'Google sign-in expired. Please try again.');
+          }
+        } catch (err) {
+          stopPolling();
+          fail(serverError(err, 'Google sign-in could not be completed.'), err);
+        }
+      }, 2000);
+    } catch (err) {
+      fail(serverError(err, 'Google sign-in could not start.'), err);
+    }
+  }
+
+  async function continueAfterCodex(user: string | null) {
+    setCodexUser(user);
+    setWaiting(null);
+    setStep('github');
+
+    const currentSessionId = sessionIdRef.current;
+    if (!currentSessionId) {
+      return;
+    }
+
+    try {
+      const github = await api.getSessionStatus(currentSessionId);
+      if (github.githubConnected) {
+        setGithubUser(github.githubUser);
+        await loadProjects();
+        return;
+      }
+      setStep('github');
+    } catch (err) {
+      fail(serverError(err, "Codex is connected, but GitHub status couldn't be checked."), err);
+      setStep('github');
+    }
+  }
+
   async function signIn() {
     setError(null);
+    setNotice(null);
+    if (!api.getAccessToken()) {
+      setStep('account');
+      fail('Sign in to your Design Engineer account before connecting Codex.');
+      return;
+    }
     setWaiting('codex');
 
     try {
@@ -250,47 +385,38 @@ export function useDesignEngineer() {
       if (currentSessionId) {
         const existing = await api.getCodexStatus(currentSessionId);
         if (existing.connected) {
-          sendToPlugin({ type: 'save-codex-auth' });
-          setCodexUser(existing.codexUser);
-          setWaiting(null);
-          setStep('github');
+          await continueAfterCodex(existing.codexUser);
           return;
         }
       }
 
-      if (!currentSessionId) {
-        const session = await api.createSession();
-        currentSessionId = session.sessionId;
-        rememberSession(currentSessionId);
-        sendToPlugin({ type: 'save-session', sessionId: currentSessionId });
+      const device = await api.startCodexAuth();
+      if (device.alreadyAuthenticated) {
+        await continueAfterCodex(device.codexUser || null);
+        return;
       }
 
-      const device = await api.startCodexDeviceAuth(currentSessionId);
-      const code: DeviceCode = {
-        userCode: device.user_code,
-        verificationUri: device.verification_uri_complete || device.verification_uri,
-      };
-      setDeviceCode(code);
-      openDevicePage(code);
+      if (!device.browserAuth) {
+        fail('The local backend is out of date. Restart it to use browser-based Codex sign-in without a device code.');
+        return;
+      }
+      setCodexBrowserAuth({ browserAuth: true });
 
       stopPolling();
       pollRef.current = window.setInterval(async () => {
         try {
-          const status = await api.getCodexDeviceStatus(device.device_code);
+          const status = await api.getCodexAuthStatus(device.device_code);
 
           if (status.status === 'approved') {
             stopPolling();
-            sendToPlugin({ type: 'save-codex-auth' });
-            setCodexUser(status.codexUser);
-            setDeviceCode(null);
-            setWaiting(null);
-            setStep('github');
+            setCodexBrowserAuth(null);
+            await continueAfterCodex(status.codexUser);
           }
 
           if (status.status === 'expired') {
             stopPolling();
-            setDeviceCode(null);
-            fail('That code expired. Get a new code to try again.');
+            setCodexBrowserAuth(null);
+            fail(status.error || 'Codex browser sign-in did not complete. Try again.');
           }
         } catch (pollingError) {
           console.error('[Design Engineer] Codex polling error:', pollingError);
@@ -301,17 +427,9 @@ export function useDesignEngineer() {
     }
   }
 
-  // Opens the sign-in page and puts the code on the clipboard so the user
-  // can paste it instead of typing it.
-  function openDevicePage(code: DeviceCode | null = deviceCode) {
-    if (!code) return;
-    copyText(code.userCode);
-    window.open(code.verificationUri, '_blank');
-  }
-
   function cancelWaiting() {
     stopPolling();
-    setDeviceCode(null);
+    setCodexBrowserAuth(null);
     setWaiting(null);
     setError(null);
   }
@@ -342,7 +460,7 @@ export function useDesignEngineer() {
           if (status.githubConnected) {
             stopPolling();
             setGithubUser(status.githubUser);
-            await loadRepos(currentSessionId);
+            await loadProjects();
           }
         } catch (pollingError) {
           console.error('[Design Engineer] GitHub polling error:', pollingError);
@@ -362,13 +480,186 @@ export function useDesignEngineer() {
     }
   }
 
+  async function switchCodexAccount() {
+    stopPolling();
+    setError(null);
+    setWaiting('codex');
+
+    try {
+      await api.logoutCodex();
+      setCodexUser(null);
+      setCodexBrowserAuth(null);
+      setSelectedRepo(null);
+      setSelectedBranch(null);
+      selectedRepoRef.current = null;
+      selectedBranchRef.current = null;
+      setWaiting(null);
+      setStep('signin');
+    } catch (err) {
+      fail(serverError(err, "Couldn't switch Codex accounts."), err);
+    }
+  }
+
+  async function switchGithubAccount() {
+    setError(null);
+
+    try {
+      await api.githubDisconnect();
+      setGithubUser(null);
+      setRepos([]);
+      setBranches([]);
+      setProjects([]);
+      setSelectedProject(null);
+      selectedProjectRef.current = null;
+      setSelectedRepo(null);
+      setSelectedBranch(null);
+      selectedRepoRef.current = null;
+      selectedBranchRef.current = null;
+      setStep('github');
+    } catch (err) {
+      fail(serverError(err, "Couldn't switch GitHub accounts."), err);
+    }
+  }
+
+  async function logoutAccount() {
+    stopPolling();
+    setError(null);
+    setWaiting('account');
+
+    try {
+      await api.logout();
+      api.setAccessToken(null);
+      rememberSession(null);
+      sendToPlugin({ type: 'clear-session' });
+      setCodexUser(null);
+      setGithubUser(null);
+      setRepos([]);
+      setBranches([]);
+      setProjects([]);
+      setSelectedProject(null);
+      selectedProjectRef.current = null;
+      setSelectedRepo(null);
+      setSelectedBranch(null);
+      selectedRepoRef.current = null;
+      selectedBranchRef.current = null;
+      setCodexBrowserAuth(null);
+      setWaiting(null);
+      setStep('account');
+    } catch (err) {
+      fail(serverError(err, "Couldn't log out."), err);
+    }
+  }
+
+  function goBack() {
+    if (waiting === 'github' || waiting === 'codex') {
+      stopPolling();
+      setWaiting(null);
+      setCodexBrowserAuth(null);
+    }
+    setError(null);
+    if (step === 'github') setStep('signin');
+    else if (step === 'project') setStep('github');
+    else if (step === 'repo') setStep('project');
+    else if (step === 'branch') setStep('repo');
+    else if (step === 'screens') setStep('branch');
+    else if (step === 'done') setStep('screens');
+  }
+
+  function continueToGithub() {
+    if (codexUser) {
+      void continueAfterCodex(codexUser);
+    } else {
+      setStep('github');
+    }
+  }
+
   // ===========================================================================
   // REPOSITORIES AND BRANCHES
   // ===========================================================================
 
-  async function loadRepos(overrideSessionId?: string) {
-    const currentSessionId = overrideSessionId || sessionIdRef.current;
-    if (!currentSessionId) {
+  async function loadProjects() {
+    if (!sessionIdRef.current) {
+      fail('Your session ended. Sign in to Codex again.');
+      setStep('signin');
+      return;
+    }
+
+    setError(null);
+    setWaiting('projects');
+    setStep('project');
+
+    try {
+      const data = await api.listProjects();
+      setProjects(data.projects || []);
+      setWaiting(null);
+      loadBilling();
+    } catch (err) {
+      fail(serverError(err, "Couldn't load projects."), err);
+    }
+  }
+
+
+  async function loadBilling() {
+    setBillingLoading(true);
+    try {
+      const [plansRes, usageRes] = await Promise.all([
+        getPlans().catch(() => ({ plans: [] })),
+        getBillingUsage().catch(() => ({ plan: null, subscription: null, usage: null })),
+      ]);
+      setPlans(plansRes.plans || []);
+      setCurrentPlan(usageRes.plan);
+      setSubscription(usageRes.subscription);
+      setUsage(usageRes.usage);
+    } catch (err) {
+      // ignore
+    } finally {
+      setBillingLoading(false);
+    }
+  }
+
+  async function createProject(name: string) {
+    setError(null);
+    setWaiting('create-project');
+
+    try {
+      const result = await api.createProject(name);
+      setProjects((previous) => [result.project, ...previous]);
+      await activateProject(result.project);
+      loadBilling();
+    } catch (err: any) {
+      if (err?.code === 'PLAN_LIMIT_REACHED') {
+        setWaiting(null);
+        setUpgradeModal({ open: true, reason: err.message, limitType: err.limitType, limit: err.limit, current: err.current });
+        loadBilling();
+        return;
+      }
+      fail(serverError(err, "Couldn't create the project."), err);
+    }
+  }
+
+  async function chooseProject(projectId: string) {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) {
+      fail('Choose a valid project.');
+      return;
+    }
+
+    await activateProject(project);
+  }
+
+  async function activateProject(project: api.Project) {
+    setSelectedProject(project);
+    selectedProjectRef.current = project;
+    setSelectedRepo(project.repository);
+    selectedRepoRef.current = project.repository;
+    setSelectedBranch(project.base_branch);
+    selectedBranchRef.current = project.base_branch;
+    setBranches([]);
+    await loadRepos();
+  }
+
+  async function loadRepos() {
+    if (!sessionIdRef.current) {
       fail('Your session ended. Sign in to Codex again.');
       setStep('signin');
       return;
@@ -395,10 +686,13 @@ export function useDesignEngineer() {
       return;
     }
 
+    const keepBranch = selectedRepoRef.current === fullName;
     setSelectedRepo(fullName);
     selectedRepoRef.current = fullName;
-    setSelectedBranch(null);
-    selectedBranchRef.current = null;
+    if (!keepBranch) {
+      setSelectedBranch(null);
+      selectedBranchRef.current = null;
+    }
     setBranches([]);
     setError(null);
     setWaiting('branches');
@@ -414,9 +708,31 @@ export function useDesignEngineer() {
     }
   }
 
-  function chooseBranch(name: string) {
+  async function chooseBranch(name: string) {
+    const project = selectedProjectRef.current;
+    const repo = selectedRepoRef.current;
+    if (!project || !repo) {
+      fail('Choose a project and repository first.');
+      return;
+    }
+
+    setError(null);
+    setWaiting('saving');
+    try {
+      const result = await api.updateProject(project.id, {
+        repository: repo,
+        base_branch: name,
+      });
+      setSelectedProject(result.project);
+      selectedProjectRef.current = result.project;
+    } catch (err) {
+      fail(serverError(err, "Couldn't save the repository and branch to this project."), err);
+      return;
+    }
+
     setSelectedBranch(name);
     selectedBranchRef.current = name;
+    setWaiting(null);
     setError(null);
     setStep('screens');
     sendToPlugin({ type: 'get-selection' });
@@ -425,7 +741,7 @@ export function useDesignEngineer() {
   function changeRepo() {
     setError(null);
     setStep('repo');
-    if (repos.length === 0) loadRepos();
+    if (repos.length === 0) void loadRepos();
   }
 
   function changeBranch() {
@@ -459,8 +775,8 @@ export function useDesignEngineer() {
   }
 
   function fetchScreens() {
-    if (!sessionIdRef.current || !selectedRepoRef.current || !selectedBranchRef.current) {
-      fail('Choose a repository and branch first.');
+    if (!sessionIdRef.current || !selectedProjectRef.current || !selectedRepoRef.current || !selectedBranchRef.current) {
+      fail('Choose a project, repository and branch first.');
       return;
     }
     if (checkedIds.size === 0) {
@@ -479,8 +795,9 @@ export function useDesignEngineer() {
     const currentRepo = selectedRepoRef.current;
     const currentBranch = selectedBranchRef.current;
 
-    if (!currentSessionId || !currentRepo || !currentBranch) {
-      fail('Choose a repository and branch first.');
+    const currentProject = selectedProjectRef.current;
+    if (!currentSessionId || !currentProject || !currentRepo || !currentBranch) {
+      fail('Choose a project, repository and branch first.');
       return;
     }
     if (!results || results.length === 0) {
@@ -491,7 +808,7 @@ export function useDesignEngineer() {
     setWaiting('saving');
 
     try {
-      const result = await api.submitScreens(currentSessionId, currentRepo, currentBranch, results);
+      const result = await api.submitScreens(currentProject.id, currentRepo, currentBranch, results);
       setSavedFiles(result.saved || []);
       setCheckedIds(new Set());
       setWaiting(null);
@@ -510,9 +827,11 @@ export function useDesignEngineer() {
 
   function retry() {
     setError(null);
-    if (step === 'repo') loadRepos();
+    if (step === 'project') loadProjects();
+    else if (step === 'repo') loadRepos();
     else if (step === 'branch') changeBranch();
     else if (step === 'screens') fetchScreens();
+    else if (step === 'account') connectGoogle();
     else if (step === 'signin') signIn();
     else if (step === 'github') connectGithub();
   }
@@ -521,9 +840,13 @@ export function useDesignEngineer() {
     step,
     waiting,
     error,
+    notice,
+    accountSignedIn: !!api.getAccessToken(),
     codexUser,
     githubUser,
-    deviceCode,
+    codexBrowserAuth,
+    projects,
+    selectedProject,
     repos,
     branches,
     selectedRepo,
@@ -532,16 +855,84 @@ export function useDesignEngineer() {
     checkedIds,
     extractingCount,
     savedFiles,
+    plans,
+    currentPlan,
+    subscription,
+    usage,
+    billingLoading,
+    upgradeModal,
   };
 
+  async function openUpgrade(reason?: string, limitType?: 'projects' | 'screens', limit?: number, current?: number) {
+    setUpgradeModal({ open: true, reason, limitType, limit, current });
+    loadBilling();
+  }
+
+  function closeUpgrade() {
+    setUpgradeModal({ open: false });
+  }
+
+  async function startUpgrade(planSlug: string) {
+    setBillingLoading(true);
+    try {
+      const order = await createBillingOrder(planSlug);
+      // Try to use Razorpay checkout if available
+      const win: any = window as any;
+      if (win.Razorpay) {
+        const options = {
+          key: order.keyId,
+          amount: order.amount,
+          currency: order.currency,
+          name: 'Design Engineer',
+          description: `${order.plan.name} Plan`,
+          order_id: order.orderId,
+          handler: async function (response: any) {
+            try {
+              await verifyBillingPayment({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                planSlug,
+              });
+              setUpgradeModal({ open: false });
+              loadBilling();
+              alert('Payment successful! Plan upgraded.');
+            } catch (e: any) {
+              alert(e?.message || 'Payment verification failed');
+            }
+          },
+          prefill: {},
+          theme: { color: '#111111' },
+        };
+        const rzp = new win.Razorpay(options);
+        rzp.open();
+      } else {
+        alert('Razorpay checkout not loaded. Add Razorpay script to the plugin UI or try again.');
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Could not start payment');
+    } finally {
+      setBillingLoading(false);
+    }
+  }
+
   const actions = {
+    signInWithEmail,
+    signUpWithEmail,
+    connectGoogle,
     signIn,
-    openDevicePage: () => openDevicePage(),
-    copyDeviceCode: () => deviceCode && copyText(deviceCode.userCode),
+    switchCodexAccount,
+    switchGithubAccount,
+    logoutAccount,
+    goBack,
+    continueToGithub,
     cancelWaiting,
     connectGithub,
     reopenGithub,
     loadRepos: () => loadRepos(),
+    loadProjects,
+    chooseProject,
+    createProject,
     chooseRepo,
     chooseBranch,
     changeRepo,
@@ -553,6 +944,10 @@ export function useDesignEngineer() {
     fetchMore,
     retry,
     dismissError: () => setError(null),
+    loadBilling,
+    openUpgrade,
+    closeUpgrade,
+    startUpgrade,
   };
 
   return { state, actions };
@@ -571,23 +966,4 @@ function serverError(err: any, prefix = 'Something went wrong.'): string {
     return `${prefix} The Design Engineer server at ${api.getBaseUrl()} isn't responding. Check that it's running, then try again.`;
   }
   return message ? `${prefix} ${message}` : prefix;
-}
-
-// navigator.clipboard is often blocked inside the Figma plugin iframe,
-// so fall back to a hidden textarea and execCommand.
-export function copyText(text: string): boolean {
-  try {
-    const area = document.createElement('textarea');
-    area.value = text;
-    area.setAttribute('readonly', '');
-    area.style.position = 'fixed';
-    area.style.opacity = '0';
-    document.body.appendChild(area);
-    area.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(area);
-    return ok;
-  } catch {
-    return false;
-  }
 }

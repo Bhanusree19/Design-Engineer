@@ -107,6 +107,13 @@ container no longer logs you out or loses connections.
 4. Copy the **Client ID** and **Client Secret** — these go in the backend's
    `.env` (§4). The secret stays in `.env`; it is never sent to the plugin.
 
+The callback URL registered in GitHub must exactly match
+`<BACKEND_URL>/auth/github/callback`. For the local backend, use
+`http://localhost:4000/auth/github/callback` and ensure the `.env` Client ID
+and Client Secret belong to this OAuth app. A GitHub OAuth App has one callback
+URL; use a separate OAuth app for local and deployed backends if both are
+needed.
+
 ---
 
 ## 4. Run the backend
@@ -187,32 +194,21 @@ screen, e.g. name a frame `Product Details`.
      match) or **sign in** if you already have one.
      - If Supabase email confirmation is enabled, you'll be told to check your
        email, then sign in.
-3. You land on the **dashboard**: your projects (empty the first time) and
-   your connections.
-   - Use **Log out** to revoke the current session and sign in with a
-     different Google/email account. **Switch account** does the same without
-     revoking the server session.
-   - Click **Create project**, give it a name → the project opens and asks
-     you to **connect GitHub**.
-4. **Connect GitHub** — the backend starts the OAuth flow (opens a browser
-   tab to `http://localhost:4000/auth/github`). Authorize the app; the tab
-   shows "GitHub connected ✅". **Close the tab** — the plugin polls and picks
-   the connection up automatically. The dashboard now shows *Connected as
-   @yourhandle*, plus **Switch GitHub account** (reconnects with
-   `prompt=select_account` so GitHub shows the account chooser) and
-   **Disconnect**.
-5. Next the project asks you to **connect Codex**. Click **Connect Codex** →
-   a **device code** is shown. Open <https://chatgpt.com/auth/login> (or the
-   shown URL), sign in, enter the code, and approve. The plugin polls until
-   approval comes through.
-   - Codex is **universal per account** — once connected it applies to all
-     of your projects from then on. Use **Switch Codex account** in the
-     dashboard to log out and connect a different Codex account.
-6. Back in the project: a **Choose a repository...** dropdown appears
-   (populated from your GitHub). Pick one, then **Choose a branch...**, then
-   **choose the stack: React Native or React JS**. The stack is saved on the
-   project and tells the backend which folder structure to use when Codex
-   writes the implementation later.
+3. Connect **Codex** in the plugin. It opens OpenAI's browser sign-in and
+   continues automatically after authorization without asking you to copy or
+   enter a device code. This flow requires the backend to run locally in your
+   desktop session so Codex can open the browser and receive its localhost
+   callback. Codex is universal per Design Engineer account.
+4. Connect **GitHub** in the plugin. Authorize the app in the browser; the
+   plugin detects the connection automatically. Use **Switch GitHub account**
+   to connect a different GitHub account, or use the **Account** menu to log
+   out of Design Engineer.
+5. After both connections are ready, choose an existing project or click
+   **Create project** and enter a name. Projects are saved to your Design
+   Engineer account and can be selected again later.
+6. Select the GitHub repository and branch for the project. The repository
+   and branch are saved on that project. Use the Back buttons to revisit
+   previous setup steps.
 7. Chat log shows *"Now select one or more screens..."*. **Click a frame on
     the canvas** (e.g. your `Product Details` frame). Selected frames are
     automatically checked — the **Fetch (N)** button updates immediately, no

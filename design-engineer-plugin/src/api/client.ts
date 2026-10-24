@@ -6,7 +6,7 @@
 // was returned by signup / signin / refresh. All account, project, GitHub and
 // Codex state lives in Supabase via the backend; nothing here touches Docker.
 
-const DEFAULT_BASE_URL = 'https://design-engineer.onrender.com';
+const DEFAULT_BASE_URL = 'http://localhost:4000';
 
 export function getBaseUrl(): string {
   return (
@@ -256,23 +256,22 @@ export function logoutCodex(): Promise<{ success: boolean }> {
   return request('/auth/codex/logout', { method: 'POST' });
 }
 
-export function startCodexDeviceAuth(_sessionId?: string) {
+export function startCodexAuth() {
   return request<{
     device_code: string;
-    user_code: string;
-    verification_uri: string;
-    verification_uri_complete: string;
     interval: number;
     alreadyAuthenticated?: boolean;
+    browserAuth?: boolean;
     codexUser?: string;
   }>('/auth/codex/device', { method: 'POST' });
 }
 
-export function getCodexDeviceStatus(deviceCode: string) {
+export function getCodexAuthStatus(authId: string) {
   return request<{
     status: 'pending' | 'approved' | 'expired';
     codexUser: string | null;
-  }>(`/auth/codex/device/${encodeURIComponent(deviceCode)}/status`);
+    error?: string | null;
+  }>(`/auth/codex/device/${encodeURIComponent(authId)}/status`);
 }
 
 // -----------------------------------------------------------------------------
@@ -388,5 +387,65 @@ export function implementScreens(
   return request('/api/screens/implement', {
     method: 'POST',
     body: JSON.stringify({ projectId, screens }),
+  });
+}
+
+// -----------------------------------------------------------------------------
+// PLANS & BILLING
+// -----------------------------------------------------------------------------
+
+export interface Plan {
+  id: string;
+  name: string;
+  slug: string;
+  project_limit: number;
+  screen_limit_per_project: number;
+  price_inr: number;
+  currency: string;
+  is_active: boolean;
+  sort_order: number;
+  features?: any;
+}
+
+export interface Subscription {
+  id: string;
+  user_id: string;
+  plan_id: string | null;
+  plan_slug: string;
+  status: string;
+  started_at: string;
+  expires_at: string | null;
+}
+
+export interface UsageInfo {
+  projectCount: number;
+  screenCountTotal: number;
+  screensByProject: Record<string, number>;
+}
+
+export function getPlans(): Promise<{ plans: Plan[] }> {
+  return request('/api/plans');
+}
+
+export function getBillingUsage(): Promise<{ plan: Plan | null; subscription: Subscription | null; usage: UsageInfo }> {
+  return request('/api/billing/usage');
+}
+
+export function createBillingOrder(planSlug: string): Promise<{ orderId: string; amount: number; currency: string; keyId: string; plan: { name: string; slug: string } }> {
+  return request('/api/billing/create-order', {
+    method: 'POST',
+    body: JSON.stringify({ planSlug }),
+  });
+}
+
+export function verifyBillingPayment(payload: {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+  planSlug?: string;
+}): Promise<{ success: boolean; plan: any }> {
+  return request('/api/billing/verify', {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }

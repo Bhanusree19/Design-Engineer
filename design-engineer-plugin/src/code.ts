@@ -43,6 +43,10 @@ export interface SavedSession {
   accessToken: string;
   refreshToken: string;
   userEmail: string;
+  user?: {
+    id: string;
+    email: string;
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -128,6 +132,12 @@ figma.ui.onmessage = async (msg: any) => {
                   typeof saved.userEmail === 'string'
                     ? saved.userEmail
                     : '',
+                user:
+                  saved.user &&
+                  typeof saved.user.id === 'string' &&
+                  typeof saved.user.email === 'string'
+                    ? { id: saved.user.id, email: saved.user.email }
+                    : undefined,
               }
             : null;
 
@@ -164,7 +174,10 @@ figma.ui.onmessage = async (msg: any) => {
       await figma.clientStorage.setAsync(SESSION_STORAGE_KEY, {
         accessToken: session.accessToken,
         refreshToken: session.refreshToken,
-        userEmail: session.userEmail || '',
+        userEmail: session.user?.email || session.userEmail || '',
+        user: session.user
+          ? { id: session.user.id, email: session.user.email }
+          : undefined,
       });
 
       console.log('[Design Engineer] Session saved to Figma client storage.');

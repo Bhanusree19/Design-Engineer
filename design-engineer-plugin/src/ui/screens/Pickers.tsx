@@ -8,9 +8,9 @@ import type { DesignEngineerActions, DesignEngineerState } from '../hooks/useDes
 
 type Props = { state: DesignEngineerState; actions: DesignEngineerActions };
 
-function PickerHeader({ state }: { state: DesignEngineerState }) {
+function PickerHeader({ state, actions }: Props) {
   const name = state.githubUser ? `@${state.githubUser}` : state.codexUser;
-  return <Header>{name && <Who name={name} />}</Header>;
+  return <Header state={state} actions={actions}>{name && <Who name={name} />}</Header>;
 }
 
 // -----------------------------------------------------------------------------
@@ -41,7 +41,7 @@ export function RepoStep({ state, actions }: Props) {
 
   return (
     <>
-      <PickerHeader state={state} />
+      <PickerHeader state={state} actions={actions} />
       <Rail step="repo" />
       <Body>
         <h1>Choose a repository</h1>
@@ -63,6 +63,7 @@ export function RepoStep({ state, actions }: Props) {
         )}
       </Body>
       <Footer>
+        <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back</button>
         {failed ? (
           <button className="btn btn-primary" type="button" onClick={actions.loadRepos}>
             <Refresh />
@@ -88,16 +89,20 @@ export function RepoStep({ state, actions }: Props) {
 // -----------------------------------------------------------------------------
 
 export function BranchStep({ state, actions }: Props) {
-  const [highlight, setHighlight] = useState<string | null>(null);
-  const loading = state.waiting === 'branches';
+  const [highlight, setHighlight] = useState<string | null>(state.selectedBranch);
+  const loading = state.waiting === 'branches' || state.waiting === 'saving';
   const failed = !!state.error && state.branches.length === 0;
 
-  // Preselect the usual default branch so most people only press Enter.
   useEffect(() => {
-    if (highlight || state.branches.length === 0) return;
+    if (state.selectedBranch && state.branches.some((branch) => branch.name === state.selectedBranch)) {
+      setHighlight(state.selectedBranch);
+      return;
+    }
+    if (highlight && state.branches.some((branch) => branch.name === highlight)) return;
+    if (state.branches.length === 0) return;
     const preferred = state.branches.find((b) => b.name === 'main' || b.name === 'master');
     setHighlight((preferred || state.branches[0]).name);
-  }, [state.branches, highlight]);
+  }, [state.branches, state.selectedBranch, highlight]);
 
   const items = state.branches.map((branch) => ({
     id: branch.name,
@@ -112,7 +117,7 @@ export function BranchStep({ state, actions }: Props) {
 
   return (
     <>
-      <PickerHeader state={state} />
+      <PickerHeader state={state} actions={actions} />
       <Rail step="branch" />
       <Body>
         <h1>Choose a branch</h1>
@@ -122,7 +127,7 @@ export function BranchStep({ state, actions }: Props) {
           <button className="link" type="button" onClick={actions.changeRepo}>Change</button>
         </div>
         {state.error && <ErrorBanner message={state.error} />}
-        {loading && <WaitRow label="Loading branches" />}
+        {loading && <WaitRow label={state.waiting === 'saving' ? 'Saving project settings' : 'Loading branches'} />}
         {!loading && !failed && (
           <SearchList
             id="search-branches"
@@ -139,6 +144,7 @@ export function BranchStep({ state, actions }: Props) {
         )}
       </Body>
       <Footer>
+        <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to repository</button>
         {failed ? (
           <button className="btn btn-primary" type="button" onClick={actions.changeBranch}>
             <Refresh />

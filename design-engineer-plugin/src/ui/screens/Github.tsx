@@ -6,7 +6,7 @@ import type { DesignEngineerActions, DesignEngineerState } from '../hooks/useDes
 type Props = { state: DesignEngineerState; actions: DesignEngineerActions };
 
 export default function Github({ state, actions }: Props) {
-  const header = <Header>{state.codexUser && <Who name={state.codexUser} />}</Header>;
+  const header = <Header state={state} actions={actions}>{state.codexUser && <Who name={state.codexUser} />}</Header>;
 
   if (state.waiting === 'github') {
     return (
@@ -20,6 +20,7 @@ export default function Github({ state, actions }: Props) {
           <WaitRow label="Waiting for GitHub" />
         </Body>
         <Footer>
+          <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to Codex</button>
           <div className="btn-row">
             <button className="btn btn-ghost" type="button" onClick={actions.cancelWaiting}>Cancel</button>
             <button className="btn btn-ghost" type="button" onClick={actions.reopenGithub}>
@@ -44,14 +45,22 @@ export default function Github({ state, actions }: Props) {
         )}
         <h1>Connect GitHub</h1>
         {state.error && <ErrorBanner message={state.error} />}
-        <p className="lede">Choose which repository your screens belong to. Design Context is saved against that repo and branch.</p>
+        <p className="lede">Connect the GitHub account that contains the repository for your project.</p>
         <div className="points">
           <div><Shield className="ico" /><span>Your GitHub token stays on the Design Engineer server. The plugin never sees it.</span></div>
           <div><Lock className="ico" /><span>Private repos show up if you grant access.</span></div>
         </div>
       </Body>
       <Footer hint="Opens github.com in your browser">
-        <button className="btn btn-primary" type="button" onClick={actions.connectGithub}>Continue with GitHub</button>
+        <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to Codex</button>
+        {state.githubUser ? (
+          <>
+            <button className="btn btn-primary" type="button" onClick={actions.switchGithubAccount}>Switch GitHub account</button>
+            <button className="btn btn-ghost" type="button" onClick={actions.loadProjects}>Continue to projects</button>
+          </>
+        ) : (
+          <button className="btn btn-primary" type="button" onClick={actions.connectGithub}>Continue with GitHub</button>
+        )}
       </Footer>
     </>
   );

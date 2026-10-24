@@ -2,18 +2,34 @@
 
 import React from 'react';
 import { Alert, Check, Mark } from './Icons';
-import type { Step } from '../hooks/useDesignEngineer';
+import type { DesignEngineerActions, DesignEngineerState, Step } from '../hooks/useDesignEngineer';
 
 // -----------------------------------------------------------------------------
 // HEADER
 // -----------------------------------------------------------------------------
 
-export function Header({ children }: { children?: React.ReactNode }) {
+export function Header({
+  children,
+  state,
+  actions,
+}: {
+  children?: React.ReactNode;
+  state?: DesignEngineerState;
+  actions?: DesignEngineerActions;
+}) {
   return (
     <header className="head">
       <Mark />
       <span className="head-name">Design Engineer</span>
       {children}
+      {state?.accountSignedIn && actions && (
+        <details className="account-menu">
+          <summary aria-label="Account options" title="Account options">Account</summary>
+          <div className="account-menu-panel">
+            <button type="button" onClick={actions.logoutAccount}>Log out</button>
+          </div>
+        </details>
+      )}
     </header>
   );
 }
@@ -41,8 +57,10 @@ export function Route({ repo, branch }: { repo: string; branch: string }) {
 // -----------------------------------------------------------------------------
 
 const RAIL: { key: Step; label: string }[] = [
+  { key: 'account', label: 'Account' },
   { key: 'signin', label: 'Codex' },
   { key: 'github', label: 'GitHub' },
+  { key: 'project', label: 'Project' },
   { key: 'repo', label: 'Repo' },
   { key: 'branch', label: 'Branch' },
   { key: 'screens', label: 'Screens' },

@@ -7,7 +7,7 @@ export default function Restoring() {
       <div>
         <Mark size={52} />
         <h1>Design Engineer</h1>
-        <p>Checking your Codex sign-in…</p>
+        <p>Loading Design Engineer…</p>
         <div className="pulse" aria-hidden="true"><i /><i /><i /></div>
       </div>
     </div>

@@ -26,10 +26,46 @@ const path = require('path');
 const os = require('os');
 const { createClient } = require('@supabase/supabase-js');
 const { spawn } = require('child_process');
+const Razorpay = require('razorpay');
 
 const app = express();
 
 app.use(cors());
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function sendAuthComplete(res, provider, identity) {
+  const escapedProvider = escapeHtml(provider);
+  const escapedIdentity = escapeHtml(identity);
+
+  return res.type('html').send(`
+    <!doctype html>
+    <html>
+      <head><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+      <body style="font-family:sans-serif;padding:40px">
+        <h2>${escapedProvider} connected</h2>
+        <p>Signed in as <strong>${escapedIdentity}</strong>.</p>
+        <p id="return-message">Returning to Design Engineer…</p>
+        <script>
+          window.setTimeout(() => {
+            window.close();
+            window.setTimeout(() => {
+              document.getElementById('return-message').textContent =
+                'You can close this tab. Design Engineer will continue automatically.';
+            }, 300);
+          }, 300);
+        </script>
+      </body>
+    </html>
+  `);
+}
 
 app.use(
   express.json({
@@ -60,8 +96,11 @@ const SUPABASE_ANON_KEY =
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 
-// 32-byte key for AES-256-GCM. Prefer a real ENCRYPTION_KEY in .env (64 hex
-// chars). Falls back to a stable derivation so the flow works out of the box.
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
+
+// 32-byte key for AES-256-GCM. Set ENCRYPTION_KEY consistently for all
+// backends sharing Supabase; the fallback only works while these inputs match.
 function resolveEncryptionKey() {
   const raw = process.env.ENCRYPTION_KEY;
   if (!raw) {
@@ -260,6 +299,86 @@ async function upsertProfile(user, token) {
   });
 }
 
+
+// -----------------------------------------------------------------------------
+// PLANS & USAGE HELPERS
+// -----------------------------------------------------------------------------
+
+async function getPlans(token) {
+  const rows = await pgQuery('plans', {
+    token,
+    query: 'order=sort_order.asc&select=*&is_active=eq.true',
+  });
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function getUserSubscription(userId, token) {
+  const rows = await pgQuery('user_subscriptions', {
+    token,
+    query: `user_id=eq.${userId}&select=*&limit=1`,
+  });
+  if (Array.isArray(rows) && rows[0]) return rows[0];
+
+  // Ensure free subscription exists
+  const plans = await pgQuery('plans', {
+    token,
+    query: "slug=eq.free&select=*&limit=1",
+  });
+  const freePlan = Array.isArray(plans) ? plans[0] : null;
+  try {
+    const created = await pgQuery('user_subscriptions', {
+      token,
+      method: 'POST',
+      query: 'on_conflict=user_id',
+      body: {
+        user_id: userId,
+        plan_id: freePlan?.id || null,
+        plan_slug: 'free',
+        status: 'active',
+      },
+      prefer: 'resolution=merge-duplicates,return=representation',
+    });
+    return Array.isArray(created) ? created[0] : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function getUserPlan(userId, token) {
+  const sub = await getUserSubscription(userId, token);
+  const planSlug = sub?.plan_slug || 'free';
+  const planRows = await pgQuery('plans', {
+    token,
+    query: `slug=eq.${planSlug}&select=*&limit=1`,
+  });
+  if (Array.isArray(planRows) && planRows[0]) return planRows[0];
+  const allPlans = await getPlans(token);
+  return allPlans.find((p) => p.slug === planSlug) || allPlans[0] || null;
+}
+
+async function getUserUsage(userId, token) {
+  const [projects, contexts] = await Promise.all([
+    pgQuery('projects', {
+      token,
+      query: `user_id=eq.${userId}&select=id`,
+    }),
+    pgQuery('design_contexts', {
+      token,
+      query: `user_id=eq.${userId}&select=id,project_id`,
+    }),
+  ]);
+  const projectCount = Array.isArray(projects) ? projects.length : 0;
+  const screenCountTotal = Array.isArray(contexts) ? contexts.length : 0;
+  const screensByProject = {};
+  if (Array.isArray(contexts)) {
+    for (const ctx of contexts) {
+      if (!ctx.project_id) continue;
+      screensByProject[ctx.project_id] = (screensByProject[ctx.project_id] || 0) + 1;
+    }
+  }
+  return { projectCount, screenCountTotal, screensByProject };
+}
+
 // -----------------------------------------------------------------------------
 // AUTH ENDPOINTS
 // -----------------------------------------------------------------------------
@@ -438,10 +557,23 @@ async function getGithubConnectionRow(userId, token) {
 async function getGithubConnectionWithToken(userId, token) {
   const row = await getGithubConnectionRow(userId, token);
   if (!row || !row.access_token_encrypted) return null;
-  return {
-    ...row,
-    githubToken: decryptText(row.access_token_encrypted),
-  };
+
+  try {
+    return {
+      ...row,
+      githubToken: decryptText(row.access_token_encrypted),
+      tokenDecryptFailed: false,
+    };
+  } catch {
+    console.error(
+      '[Design Engineer] Could not decrypt the saved GitHub token. Check that ENCRYPTION_KEY matches the key used when this token was stored; otherwise reconnect GitHub.'
+    );
+    return {
+      ...row,
+      githubToken: null,
+      tokenDecryptFailed: true,
+    };
+  }
 }
 
 async function requireGithubConnection(auth, res) {
@@ -449,7 +581,9 @@ async function requireGithubConnection(auth, res) {
   if (!conn || !conn.githubToken) {
     res.status(401).json({
       error:
-        'GitHub is not connected. Connect GitHub in the plugin first.',
+        conn?.tokenDecryptFailed
+          ? 'The saved GitHub token cannot be decrypted. Reconnect GitHub in the plugin. If you need to preserve the old token, restore the original ENCRYPTION_KEY first.'
+          : 'GitHub is not connected. Connect GitHub in the plugin first.',
       code: 'GITHUB_REAUTH_REQUIRED',
     });
     return null;
@@ -597,17 +731,7 @@ app.get('/auth/github/callback', async (req, res) => {
 
     console.log(`[Design Engineer] GitHub connected for user ${claim.userId} as @${userData.login}`);
 
-    res.send(`
-      <html>
-        <body style="font-family:sans-serif;padding:40px">
-          <h2>GitHub connected ✅</h2>
-          <p>
-            Signed in as <strong>${userData.login}</strong>.
-            You can close this tab and return to Figma.
-          </p>
-        </body>
-      </html>
-    `);
+    sendAuthComplete(res, 'GitHub', userData.login);
   } catch (e) {
     console.error('[Design Engineer] GitHub authentication failed:', e);
     res.status(500).send(`GitHub auth failed: ${e.message}`);
@@ -618,11 +742,11 @@ app.get('/api/github/status', async (req, res) => {
   const auth = await requireUser(req, res);
   if (!auth) return;
 
-  const row = await getGithubConnectionRow(auth.user.id, auth.token);
+  const connection = await getGithubConnectionWithToken(auth.user.id, auth.token);
 
   res.json({
-    connected: !!(row && row.access_token_encrypted),
-    githubUser: row?.github_username || null,
+    connected: !!connection?.githubToken,
+    githubUser: connection?.githubToken ? connection.github_username : null,
   });
 });
 
@@ -790,17 +914,7 @@ async function handleGoogleCallback(code, state, res) {
 
     console.log(`[Design Engineer] Google sign-in complete for ${session.user.email}`);
 
-    res.send(`
-      <html>
-        <body style="font-family:sans-serif;padding:40px">
-          <h2>Signed in with Google ✅</h2>
-          <p>
-            Authenticated as <strong>${session.user.email}</strong>.
-            You can close this tab and return to Figma.
-          </p>
-        </body>
-      </html>
-    `);
+    sendAuthComplete(res, 'Google sign-in', session.user.email);
   } catch (e) {
     console.error('[Design Engineer] Google auth callback failed:', e);
     claim.status = 'error';
@@ -894,6 +1008,184 @@ app.get('/auth/google/status', (req, res) => {
   res.json({ status: 'pending' });
 });
 
+
+// -----------------------------------------------------------------------------
+// PLANS, USAGE & BILLING
+// -----------------------------------------------------------------------------
+
+app.get('/api/plans', async (req, res) => {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  try {
+    const plans = await getPlans(auth.token);
+    res.json({ plans });
+  } catch (error) {
+    console.error('[Design Engineer] Failed to load plans:', error);
+    res.status(500).json({ error: error.message || 'Failed to load plans.' });
+  }
+});
+
+app.get('/api/billing/usage', async (req, res) => {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  try {
+    const [plan, subscription, usage] = await Promise.all([
+      getUserPlan(auth.user.id, auth.token),
+      getUserSubscription(auth.user.id, auth.token),
+      getUserUsage(auth.user.id, auth.token),
+    ]);
+    res.json({
+      plan,
+      subscription,
+      usage,
+    });
+  } catch (error) {
+    console.error('[Design Engineer] Failed to load usage:', error);
+    res.status(500).json({ error: error.message || 'Failed to load usage.' });
+  }
+});
+
+app.post('/api/billing/create-order', async (req, res) => {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  const { planSlug } = req.body || {};
+  if (!planSlug) {
+    return res.status(400).json({ error: 'planSlug is required' });
+  }
+
+  try {
+    const planRows = await pgQuery('plans', {
+      token: auth.token,
+      query: `slug=eq.${planSlug}&select=*&limit=1`,
+    });
+    const plan = Array.isArray(planRows) ? planRows[0] : null;
+    if (!plan) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+    if (!plan.price_inr || plan.price_inr <= 0) {
+      return res.status(400).json({ error: 'This plan is free or not purchasable' });
+    }
+    if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
+      return res.status(500).json({ error: 'Razorpay keys not configured on the backend.' });
+    }
+
+    const razorpay = new Razorpay({
+      key_id: RAZORPAY_KEY_ID,
+      key_secret: RAZORPAY_KEY_SECRET,
+    });
+
+    const receipt = `plan_${plan.slug}_${Date.now()}`;
+    const order = await razorpay.orders.create({
+      amount: plan.price_inr * 100,
+      currency: plan.currency || 'INR',
+      receipt,
+      notes: {
+        user_id: auth.user.id,
+        plan_slug: plan.slug,
+      },
+    });
+
+    await pgQuery('payments', {
+      token: auth.token,
+      method: 'POST',
+      query: 'select=*',
+      body: {
+        user_id: auth.user.id,
+        plan_id: plan.id,
+        plan_slug: plan.slug,
+        amount: plan.price_inr,
+        currency: plan.currency || 'INR',
+        razorpay_order_id: order.id,
+        status: 'created',
+        receipt,
+      },
+      prefer: 'return=representation',
+    });
+
+    res.json({
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      keyId: RAZORPAY_KEY_ID,
+      plan: { name: plan.name, slug: plan.slug },
+    });
+  } catch (error) {
+    console.error('[Design Engineer] Failed to create Razorpay order:', error);
+    res.status(500).json({ error: error.message || 'Failed to create order.' });
+  }
+});
+
+app.post('/api/billing/verify', async (req, res) => {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, planSlug } = req.body || {};
+
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return res.status(400).json({ error: 'Missing Razorpay payment details' });
+  }
+
+  try {
+    const sign = razorpay_order_id + '|' + razorpay_payment_id;
+    const expectedSign = crypto
+      .createHmac('sha256', RAZORPAY_KEY_SECRET)
+      .update(sign.toString())
+      .digest('hex');
+
+    if (expectedSign !== razorpay_signature) {
+      return res.status(400).json({ error: 'Invalid payment signature' });
+    }
+
+    // Find payment
+    const paymentRows = await pgQuery('payments', {
+      token: auth.token,
+      query: `razorpay_order_id=eq.${razorpay_order_id}&select=*&limit=1`,
+    });
+    const payment = Array.isArray(paymentRows) ? paymentRows[0] : null;
+
+    if (payment) {
+      await pgQuery('payments', {
+        token: auth.token,
+        method: 'PATCH',
+        query: `id=eq.${payment.id}`,
+        body: {
+          razorpay_payment_id,
+          razorpay_signature,
+          status: 'paid',
+          updated_at: new Date().toISOString(),
+        },
+      });
+    }
+
+    const targetSlug = planSlug || payment?.plan_slug || 'free';
+    const planRows = await pgQuery('plans', {
+      token: auth.token,
+      query: `slug=eq.${targetSlug}&select=*&limit=1`,
+    });
+    const plan = Array.isArray(planRows) ? planRows[0] : null;
+
+    await pgQuery('user_subscriptions', {
+      token: auth.token,
+      method: 'POST',
+      query: 'on_conflict=user_id',
+      body: {
+        user_id: auth.user.id,
+        plan_id: plan?.id || null,
+        plan_slug: targetSlug,
+        status: 'active',
+        started_at: new Date().toISOString(),
+      },
+      prefer: 'resolution=merge-duplicates,return=representation',
+    });
+
+    res.json({ success: true, plan: plan || { slug: targetSlug } });
+  } catch (error) {
+    console.error('[Design Engineer] Failed to verify payment:', error);
+    res.status(500).json({ error: error.message || 'Payment verification failed.' });
+  }
+});
+
 // -----------------------------------------------------------------------------
 // PROJECTS
 // -----------------------------------------------------------------------------
@@ -927,6 +1219,23 @@ app.post('/api/projects', async (req, res) => {
   }
 
   try {
+    // Enforce plan limits for creating projects
+    const [plan, usage] = await Promise.all([
+      getUserPlan(auth.user.id, auth.token),
+      getUserUsage(auth.user.id, auth.token),
+    ]);
+    const projectLimit = plan?.project_limit !== undefined && plan?.project_limit !== null ? Number(plan.project_limit) : 2;
+    if (usage.projectCount >= projectLimit) {
+      return res.status(403).json({
+        error: `Project limit reached for your plan. Upgrade to create more projects.`,
+        code: 'PLAN_LIMIT_REACHED',
+        upgradeRequired: true,
+        limitType: 'projects',
+        current: usage.projectCount,
+        limit: projectLimit,
+      });
+    }
+
     const rows = await pgQuery('projects', {
       token: auth.token,
       method: 'POST',
@@ -1047,7 +1356,7 @@ app.get('/auth/me', async (req, res) => {
   try {
     const [profile, github, projects, codexRow] = await Promise.all([
       getProfile(auth.user.id, auth.token),
-      getGithubConnectionRow(auth.user.id, auth.token),
+      getGithubConnectionWithToken(auth.user.id, auth.token),
       pgQuery('projects', {
         token: auth.token,
         query: `user_id=eq.${auth.user.id}&order=created_at.desc&select=*`,
@@ -1079,8 +1388,8 @@ app.get('/auth/me', async (req, res) => {
       },
       profile: profile || null,
       github: {
-        connected: !!(github && github.access_token_encrypted),
-        githubUser: github?.github_username || null,
+        connected: !!github?.githubToken,
+        githubUser: github?.githubToken ? github.github_username : null,
       },
       projects: Array.isArray(projects) ? projects : [],
       codex: codexConnected
@@ -1143,10 +1452,11 @@ function getCodexLoginStatus() {
       const combined = `${stdout}\n${stderr}`;
       const loggedIn =
         code === 0 &&
+        !/(not logged in|not authenticated|unauthenticated)/i.test(combined) &&
         (/logged in/i.test(combined) ||
           /authenticated/i.test(combined) ||
-          /signed in/i.test(combined)) &&
-        !/not logged in/i.test(combined);
+          /signed in/i.test(combined) ||
+          !!readCodexAuthFile());
 
       resolve(loggedIn ? 'connected' : 'pending');
     });
@@ -1228,7 +1538,7 @@ async function persistCodexCredentials(userId, token) {
       user_id: userId,
       codex_user_id: info.userId,
       codex_email: info.email,
-      auth_type: 'codex-cli-device-auth',
+      auth_type: 'codex-cli-browser-auth',
       credential_reference: encrypted,
       status: 'active',
       last_verified_at: now,
@@ -1324,7 +1634,7 @@ app.get('/auth/codex/status', async (req, res) => {
   }
 });
 
-function waitForCodexDeviceAuth(deviceCode, userId, accessToken) {
+function startCodexBrowserAuth(deviceCode, userId, accessToken) {
   return new Promise((resolve, reject) => {
     const entry = deviceSessions.get(deviceCode);
 
@@ -1344,52 +1654,15 @@ function waitForCodexDeviceAuth(deviceCode, userId, accessToken) {
 
     const child = spawn(
       process.execPath,
-      [CODEX_CLI_BIN, 'login', '--device-auth'],
+      [CODEX_CLI_BIN, 'login'],
       {
         cwd: __dirname,
         env: { ...process.env, CODEX_HOME, HOME: CODEX_HOME },
-        stdio: ['pipe', 'pipe', 'pipe'],
+        stdio: 'ignore',
       }
     );
 
     entry.process = child;
-
-    let buffer = '';
-    let promptAccepted = false;
-
-    const parseOutput = (chunk) => {
-      buffer += chunk.toString();
-
-      const cleanBuffer = buffer.replace(/\u001b\[[0-9;]*m/g, '');
-
-      const urlMatch = cleanBuffer.match(/https?:\/\/[^\s]+/g);
-      const codeMatch =
-        cleanBuffer.match(/\b[A-Z0-9]{4}-[A-Z0-9]{5}\b/) ||
-        cleanBuffer.match(/\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/);
-
-      const authUrl =
-        urlMatch &&
-        urlMatch.find((value) => value.includes('auth.openai.com'));
-
-      if (authUrl && codeMatch) {
-        entry.verificationUri = authUrl.trim();
-        entry.verificationUriComplete = authUrl.trim();
-        entry.userCode = codeMatch[0].trim();
-        entry.status = 'pending';
-        resolve();
-      }
-
-      if (
-        !promptAccepted &&
-        cleanBuffer.includes('Continue only if you started this login in Codex')
-      ) {
-        child.stdin.write('\n');
-        promptAccepted = true;
-      }
-    };
-
-    child.stdout.on('data', parseOutput);
-    child.stderr.on('data', parseOutput);
 
     child.on('error', (error) => {
       entry.status = 'expired';
@@ -1397,23 +1670,30 @@ function waitForCodexDeviceAuth(deviceCode, userId, accessToken) {
     });
 
     child.on('exit', async (code) => {
-      if (entry.status !== 'approved') {
-        entry.status = code === 0 ? 'approved' : 'expired';
+      if (entry.status === 'approved') return;
+
+      try {
+        if (code === 0 && (await getCodexLoginStatus()) === 'connected') {
+          entry.status = 'approved';
+          entry.codexUser = 'Codex CLI user';
+          await persistCodexCredentials(userId, accessToken);
+          return;
+        }
+      } catch (error) {
+        console.error('[Design Engineer] Failed to verify Codex browser sign-in:', error);
       }
 
-      if (
-        entry.status === 'approved' &&
-        (await getCodexLoginStatus()) === 'connected'
-      ) {
-        entry.codexUser = 'Codex CLI user';
-
-        // IMPORTANT: persist the credentials into Supabase so the login
-        // survives container rebuilds and other account switches.
-        await persistCodexCredentials(userId, accessToken).catch((error) =>
-          console.error('[Design Engineer] Failed to persist Codex credentials:', error)
-        );
+      if (code !== 0) {
+        entry.status = 'expired';
+        entry.error = 'Codex browser sign-in did not complete. Please try again.';
+      } else {
+        entry.processExited = true;
       }
     });
+
+    // The CLI opens the browser for its normal OAuth flow; no one-time code
+    // is needed. Resolve once the child process is successfully started.
+    child.once('spawn', resolve);
   });
 }
 
@@ -1430,9 +1710,6 @@ app.post('/auth/codex/device', async (req, res) => {
 
       return res.json({
         device_code: '',
-        user_code: '',
-        verification_uri: '',
-        verification_uri_complete: '',
         expires_in: 0,
         interval: 3,
         alreadyAuthenticated: true,
@@ -1449,22 +1726,21 @@ app.post('/auth/codex/device', async (req, res) => {
       status: 'pending',
       codexUser: null,
       process: null,
-      verificationUri: 'https://auth.openai.com/codex/device',
-      verificationUriComplete: 'https://auth.openai.com/codex/device',
-      userCode: null,
+      error: null,
+      expiresAt: Date.now() + 15 * 60 * 1000,
     };
 
     deviceSessions.set(deviceCode, entry);
 
-    await waitForCodexDeviceAuth(deviceCode, auth.user.id, auth.token);
+    // Browser OAuth requires this backend process to run in the user's
+    // desktop session so Codex can open the browser and receive its callback.
+    await startCodexBrowserAuth(deviceCode, auth.user.id, auth.token);
 
     res.json({
       device_code: deviceCode,
-      user_code: entry.userCode,
-      verification_uri: entry.verificationUri,
-      verification_uri_complete: entry.verificationUriComplete,
       expires_in: 900,
       interval: 3,
+      browserAuth: true,
     });
   } catch (error) {
     console.error('[Design Engineer] Codex device auth failed:', error);
@@ -1482,21 +1758,30 @@ app.get('/auth/codex/device/:deviceCode/status', async (req, res) => {
     return res.status(404).json({ status: 'expired', codexUser: null });
   }
 
+  if (entry.expiresAt < Date.now() && entry.status === 'pending') {
+    entry.status = 'expired';
+    entry.error = 'Codex browser sign-in expired. Please try again.';
+  }
+
   if (entry.status === 'pending') {
     const loginStatus = await getCodexLoginStatus();
     if (loginStatus === 'connected') {
-      entry.status = 'approved';
-      entry.codexUser = 'Codex CLI user';
-      await persistCodexCredentials(entry.userId, entry.accessToken).catch(
-        (error) =>
-          console.error('[Design Engineer] Failed to persist Codex credentials:', error)
-      );
+      try {
+        await persistCodexCredentials(entry.userId, entry.accessToken);
+        entry.status = 'approved';
+        entry.codexUser = 'Codex CLI user';
+      } catch (error) {
+        console.error('[Design Engineer] Failed to persist Codex credentials:', error);
+        entry.status = 'expired';
+        entry.error = 'Codex signed in, but its credentials could not be saved. Please try again.';
+      }
     }
   }
 
   res.json({
     status: entry.status,
     codexUser: entry.codexUser,
+    error: entry.error,
   });
 });
 
@@ -1516,13 +1801,18 @@ app.post('/auth/codex/logout', async (req, res) => {
       );
     }
 
-    // Keep the row (so their login can be restored later) but mark it inactive.
+    // Clear the stored credential so the next sign-in can authenticate a
+    // different account instead of silently restoring the old one.
     await pgQuery('codex_accounts', {
       token: auth.token,
       method: 'PATCH',
       query: `user_id=eq.${auth.user.id}`,
-      body: { status: 'inactive', updated_at: new Date().toISOString() },
-    }).catch(() => {});
+      body: {
+        status: 'inactive',
+        credential_reference: null,
+        updated_at: new Date().toISOString(),
+      },
+    });
 
     res.json({ success: true });
   } catch (error) {
@@ -1656,6 +1946,24 @@ app.post('/api/screens/fetch', async (req, res) => {
   try {
     const saved = [];
 
+    // Enforce plan limits for screens per project
+    const [plan, usage] = await Promise.all([
+      getUserPlan(auth.user.id, auth.token),
+      getUserUsage(auth.user.id, auth.token),
+    ]);
+    const screenLimit = plan?.screen_limit_per_project !== undefined && plan?.screen_limit_per_project !== null ? Number(plan.screen_limit_per_project) : 5;
+    const currentScreens = usage.screensByProject[projectId] || 0;
+    if (currentScreens + screens.length > screenLimit) {
+      return res.status(403).json({
+        error: `Screen limit reached for this project on your plan. Upgrade to add more screens.`,
+        code: 'PLAN_LIMIT_REACHED',
+        upgradeRequired: true,
+        limitType: 'screens',
+        current: currentScreens,
+        limit: screenLimit,
+      });
+    }
+
     for (let index = 0; index < screens.length; index++) {
       const screen = screens[index];
       if (!screen || typeof screen !== 'object') continue;
@@ -1682,6 +1990,7 @@ app.post('/api/screens/fetch', async (req, res) => {
         query: 'on_conflict=project_id,screen_name',
         body: {
           project_id: projectId,
+          user_id: auth.user.id,
           screen_name: safeName,
           content: payload,
           updated_at: new Date().toISOString(),
