@@ -343,7 +343,13 @@ The backend must run where `git` is installed (it is, in the Docker image).
   standard cross-request OAuth bookkeeping, not user data.
 - **Encryption**: GitHub tokens and Codex credentials are AES-256-GCM
   encrypted at rest with a key from `ENCRYPTION_KEY` (64 hex chars) or a
-  stable fallback derived from `.env` values.
+  stable fallback derived from `.env` values. The fallback includes `PORT`, so
+  always set an explicit `ENCRYPTION_KEY` and use the **same** value on every
+  backend that shares the Supabase project. To rotate keys, put the old value
+  in `ENCRYPTION_KEY_PREVIOUS` (comma-separated if multiple); the backend will
+  decrypt legacy rows and re-encrypt them under the new key. Run
+  `npm run check:key -- '<encrypted-value>'` to see which configured key can
+  read a stored credential.
 - **Component detection**: for a Figma `INSTANCE`, the plugin resolves
   `getMainComponentAsync()` to record which component it's an instance of —
   useful later for mapping to your design system's real components.

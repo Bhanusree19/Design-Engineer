@@ -99,23 +99,40 @@ const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
 
-// 32-byte key for AES-256-GCM. Set ENCRYPTION_KEY consistently for all
-// backends sharing Supabase; the fallback only works while these inputs match.
-function resolveEncryptionKey() {
-  const raw = process.env.ENCRYPTION_KEY;
-  if (!raw) {
-    return crypto
-      .createHash('sha256')
-      .update(`${SUPABASE_URL}|${GITHUB_CLIENT_SECRET}|${PORT}`)
-      .digest();
-  }
-  if (/^[0-9a-fA-F]{64}$/.test(raw)) {
-    return Buffer.from(raw, 'hex');
-  }
-  return crypto.createHash('sha256').update(raw).digest();
+// 32-byte key for AES-256-GCM. ENCRYPTION_KEY is the primary key used for all
+// new writes. Old keys can be supplied via ENCRYPTION_KEY_PREVIOUS /
+// ENCRYPTION_KEY_OLD so rows written before a rotation remain readable and can
+// be re-encrypted. See encryption.js for the full resolution order.
+const {
+  buildEncryptionKeys,
+  encryptText: encryptTextWithKey,
+  decryptText: decryptTextWithKeys,
+} = require('./encryption');
+
+const { keys: ENCRYPTION_KEYS, primaryKey: ENCRYPTION_KEY } =
+  buildEncryptionKeys();
+
+// The fingerprint is a short, non-reversible identifier. It is safe to log and
+// lets you compare the key actually loaded by Render with the key you expect.
+console.log(
+  `[Design Engineer] Encryption keys: ${ENCRYPTION_KEYS.map(
+    (candidate) => `${candidate.label}#${candidate.fingerprint}`
+  ).join(', ')}`
+);
+
+if (!ENCRYPTION_KEYS[0]?.explicit) {
+  console.warn(
+    '[Design Engineer] ENCRYPTION_KEY is not set. The key is derived from SUPABASE_URL|GITHUB_CLIENT_SECRET|PORT, so it changes between localhost and Render. Set an explicit ENCRYPTION_KEY everywhere.'
+  );
 }
 
-const ENCRYPTION_KEY = resolveEncryptionKey();
+// Only migrate legacy rows when an explicit ENCRYPTION_KEY is configured.
+// Otherwise the fallback key (which depends on PORT) is the primary key, and
+// silently re-encrypting under it would make the data less portable.
+const CAN_REENCRYPT_LEGACY =
+  ENCRYPTION_KEYS[0]?.source === 'ENCRYPTION_KEY';
+
+const warnedLegacyKeyFingerprints = new Set();
 
 // Persistent Codex CLI home. This is the one local-on-disk dependency that the
 // Codex CLI itself requires. The credentials are ALSO stored encrypted in
@@ -142,38 +159,26 @@ fs.mkdirSync(CODEX_HOME, { recursive: true });
 // -----------------------------------------------------------------------------
 
 function encryptText(plainText) {
-  if (plainText === null || plainText === undefined) return null;
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
-  const encrypted = Buffer.concat([
-    cipher.update(String(plainText), 'utf8'),
-    cipher.final(),
-  ]);
-  const tag = cipher.getAuthTag();
-  return [
-    iv.toString('base64'),
-    tag.toString('base64'),
-    encrypted.toString('base64'),
-  ].join(':');
+  return encryptTextWithKey(plainText, ENCRYPTION_KEY);
+}
+
+function decryptTextDetailed(payload) {
+  const result = decryptTextWithKeys(payload, ENCRYPTION_KEYS);
+  if (
+    result &&
+    result.legacy &&
+    !warnedLegacyKeyFingerprints.has(result.key.fingerprint)
+  ) {
+    warnedLegacyKeyFingerprints.add(result.key.fingerprint);
+    console.warn(
+      `[Design Engineer] Decrypted a credential with legacy key ${result.key.label}#${result.key.fingerprint}. It will be re-encrypted under the primary key when possible.`
+    );
+  }
+  return result;
 }
 
 function decryptText(payload) {
-  if (!payload) return null;
-  const [ivB64, tagB64, dataB64] = String(payload).split(':');
-  if (!ivB64 || !tagB64 || !dataB64) {
-    throw new Error('Malformed encrypted payload');
-  }
-  const decipher = crypto.createDecipheriv(
-    'aes-256-gcm',
-    ENCRYPTION_KEY,
-    Buffer.from(ivB64, 'base64')
-  );
-  decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(dataB64, 'base64')),
-    decipher.final(),
-  ]);
-  return decrypted.toString('utf8');
+  return decryptTextDetailed(payload)?.value ?? null;
 }
 
 // -----------------------------------------------------------------------------
@@ -559,14 +564,52 @@ async function getGithubConnectionWithToken(userId, token) {
   if (!row || !row.access_token_encrypted) return null;
 
   try {
+    const access = decryptTextDetailed(row.access_token_encrypted);
+    let refresh = null;
+
+    if (row.refresh_token_encrypted) {
+      try {
+        refresh = decryptTextDetailed(row.refresh_token_encrypted);
+      } catch (error) {
+        console.error(
+          '[Design Engineer] Could not decrypt the saved GitHub refresh token:',
+          error.message
+        );
+      }
+    }
+
+    if (CAN_REENCRYPT_LEGACY && (access.legacy || refresh?.legacy)) {
+      const updates = {};
+      if (access.legacy) {
+        updates.access_token_encrypted = encryptText(access.value);
+      }
+      if (refresh?.legacy) {
+        updates.refresh_token_encrypted = encryptText(refresh.value);
+      }
+      updates.updated_at = new Date().toISOString();
+
+      pgQuery('github_connections', {
+        token,
+        method: 'PATCH',
+        query: `user_id=eq.${userId}`,
+        body: updates,
+      }).catch((error) => {
+        console.error(
+          '[Design Engineer] Could not re-encrypt the saved GitHub token:',
+          error.message
+        );
+      });
+    }
+
     return {
       ...row,
-      githubToken: decryptText(row.access_token_encrypted),
+      githubToken: access.value,
       tokenDecryptFailed: false,
     };
-  } catch {
+  } catch (error) {
     console.error(
-      '[Design Engineer] Could not decrypt the saved GitHub token. Check that ENCRYPTION_KEY matches the key used when this token was stored; otherwise reconnect GitHub.'
+      '[Design Engineer] Could not decrypt the saved GitHub token. Check that ENCRYPTION_KEY matches the key used when this token was stored; otherwise reconnect GitHub.',
+      error.message
     );
     return {
       ...row,
@@ -582,7 +625,7 @@ async function requireGithubConnection(auth, res) {
     res.status(401).json({
       error:
         conn?.tokenDecryptFailed
-          ? 'The saved GitHub token cannot be decrypted. Reconnect GitHub in the plugin. If you need to preserve the old token, restore the original ENCRYPTION_KEY first.'
+          ? 'The saved GitHub token cannot be decrypted. Reconnect GitHub in the plugin, or set ENCRYPTION_KEY_PREVIOUS to the key originally used to store it.'
           : 'GitHub is not connected. Connect GitHub in the plugin first.',
       code: 'GITHUB_REAUTH_REQUIRED',
     });
@@ -1550,11 +1593,32 @@ async function ensureCodexCredential(userId, token) {
   }
 
   let stored;
+  let decrypted;
   try {
-    stored = JSON.parse(decryptText(acc.credential_reference));
+    decrypted = decryptTextDetailed(acc.credential_reference);
+    stored = JSON.parse(decrypted.value);
   } catch (error) {
     console.error('[Design Engineer] Failed to decrypt Codex credentials:', error);
     return false;
+  }
+
+  if (CAN_REENCRYPT_LEGACY && decrypted.legacy) {
+    try {
+      await pgQuery('codex_accounts', {
+        token,
+        method: 'PATCH',
+        query: `user_id=eq.${userId}`,
+        body: {
+          credential_reference: encryptText(JSON.stringify(stored)),
+          updated_at: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      console.error(
+        '[Design Engineer] Could not re-encrypt the Codex credentials:',
+        error.message
+      );
+    }
   }
 
   const currentAuthJson = readCodexAuthFile();
