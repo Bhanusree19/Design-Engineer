@@ -27,8 +27,8 @@ design-engineer-plugin/    ← the Figma plugin (TypeScript + React)
 design-engineer-backend/   ← the Node/Express backend it talks to
 ```
 
-The plugin never talks to GitHub or Supabase directly — it only talks to the
-backend on `http://localhost:4000`. The backend holds the GitHub OAuth
+The plugin never talks to GitHub or Supabase directly — it talks to the
+backend on `https://design-engineer.onrender.com` by default. The backend holds the GitHub OAuth
 **client secret** (`.env`, never exposed to the plugin) and talks to Supabase
 with the user's own JWT, so row-level security keeps every user on their own
 rows.
@@ -85,7 +85,7 @@ container no longer logs you out or loses connections.
    your Supabase project (Web application), and set the authorized redirect
    URI to `{SUPABASE_URL}/auth/v1/callback`. Then add the backend callback to
    **Authentication → URL Configuration → Redirect URLs** — add
-   `http://localhost:4000/**` (or your deployed `BACKEND_URL` + `/**`) so
+   `https://design-engineer.onrender.com/**` so
    Supabase is allowed to redirect back after Google auth. The plugin then
    offers Google sign-in/account creation alongside email + password. Users
    can log out and sign in with a different Google account anytime.
@@ -100,19 +100,19 @@ container no longer logs you out or loses connections.
 
 1. Go to <https://github.com/settings/developers> → **New OAuth App**.
 2. Fill in:
-   - **Application name**: `Design Engineer (local)`
-   - **Homepage URL**: `http://localhost:4000`
-   - **Authorization callback URL**: `http://localhost:4000/auth/github/callback`
+   - **Application name**: `Design Engineer`
+   - **Homepage URL**: `https://design-engineer.onrender.com`
+   - **Authorization callback URL**: `https://design-engineer.onrender.com/auth/github/callback`
 3. Click **Register application**, then **Generate a new client secret**.
 4. Copy the **Client ID** and **Client Secret** — these go in the backend's
    `.env` (§4). The secret stays in `.env`; it is never sent to the plugin.
 
 The callback URL registered in GitHub must exactly match
-`<BACKEND_URL>/auth/github/callback`. For the local backend, use
-`http://localhost:4000/auth/github/callback` and ensure the `.env` Client ID
-and Client Secret belong to this OAuth app. A GitHub OAuth App has one callback
-URL; use a separate OAuth app for local and deployed backends if both are
-needed.
+`<BACKEND_URL>/auth/github/callback`. For the deployed backend, use
+`https://design-engineer.onrender.com/auth/github/callback` and ensure the
+Render `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` belong to this OAuth app.
+A GitHub OAuth App has one callback URL; use a separate OAuth app for local
+and deployed backends if both are needed.
 
 ---
 
@@ -125,6 +125,7 @@ cp .env.example .env
 # edit .env:
 #   - SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY  (from §2)
 #   - GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET  (from §3)
+#   - BACKEND_URL=http://localhost:4000 (when running the backend locally)
 #   - ENCRYPTION_KEY (optional; 64 hex chars, e.g. `openssl rand -hex 32`.
 #     If empty, a stable key is derived from SUPABASE_URL|GITHUB_CLIENT_SECRET|PORT)
 npm start
@@ -137,6 +138,12 @@ Design Engineer backend listening on http://localhost:4000
 ```
 
 Leave this running in a terminal tab.
+
+For local development, set `BACKEND_URL=http://localhost:4000` in `.env` and
+use a separate GitHub OAuth App configured with
+`http://localhost:4000/auth/github/callback`. In Render, set
+`BACKEND_URL=https://design-engineer.onrender.com` and configure the production
+GitHub OAuth app callback as shown in §3.
 
 ### Docker (optional)
 
@@ -309,10 +316,9 @@ The backend must run where `git` is installed (it is, in the Docker image).
 
 ## 9. Notes / gotchas
 
-- **`networkAccess.allowedDomains`** in `manifest.json` is currently
-  `http://localhost:4000`. If you deploy the backend anywhere else, add
-  that domain here too, or the plugin's `fetch()` calls will be blocked
-  by Figma.
+- **`networkAccess.allowedDomains`** in `manifest.json` must include the
+  backend host, or the plugin's `fetch()` calls will be blocked by Figma. The
+  deployed Render host and localhost for local development are both allowed.
 - **Why polling instead of a direct callback into the plugin?** The Figma
   plugin UI is a sandboxed iframe; a separate browser tab can't
   `postMessage` into it directly. Polling the backend endpoints is the
@@ -327,8 +333,8 @@ The backend must run where `git` is installed (it is, in the Docker image).
   the email/password session. **Log out** in the dashboard revokes the
   Supabase session server-side so a different Google account can sign in.
 - **Project stack**: every project stores a `stack` column (`react-native` or
-  `react-js`). Choose it after selecting the repo + branch; the backend passes
-  it to Codex so generated code follows the matching folder structure.
+  `react-js`). Choose it after selecting screens; the backend passes it to
+  Codex so generated code follows the matching folder structure.
 - **RLS**: all backend DB access uses your access token as the PostgREST
   JWT, so users can only read/write their own rows (`profiles` is keyed to
   `auth.uid()`, other tables to `user_id`). The `design_contexts` table is

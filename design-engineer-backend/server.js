@@ -86,7 +86,7 @@ app.use(
 const PORT = process.env.PORT || 4000;
 
 const BACKEND_URL =
-  process.env.BACKEND_URL || `http://localhost:${PORT}`;
+  process.env.BACKEND_URL || 'https://design-engineer.onrender.com';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY =
