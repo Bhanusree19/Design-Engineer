@@ -13,7 +13,6 @@ import Github from './screens/Github';
 import Projects from './screens/Projects';
 import { BranchStep, RepoStep } from './screens/Pickers';
 import { Done, ScreensStep } from './screens/Screens';
-import UpgradeModal from './components/UpgradeModal';
 
 interface ErrorBoundaryState {
   error: Error | null;
@@ -63,7 +62,6 @@ function DesignEngineerApp() {
       {state.step === 'branch' && <BranchStep {...props} />}
       {state.step === 'screens' && <ScreensStep {...props} />}
       {state.step === 'done' && <Done {...props} />}
-      {state.upgradeModal?.open && <UpgradeModal state={state} actions={actions} />}
     </div>
   );
 }

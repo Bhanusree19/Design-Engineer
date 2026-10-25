@@ -44,12 +44,6 @@ export default function Projects({ state, actions }: Props) {
         <h1>{creating ? 'Create a project' : 'Choose a project'}</h1>
         {state.error && <ErrorBanner message={state.error} />}
         {!creating && <p className="lede">Choose an existing project or create a new one before selecting its GitHub repository.</p>}
-        {!creating && state.currentPlan && (
-          <div className="plan-summary">
-            <span>Current plan: <b>{state.currentPlan.name}</b> ({state.currentPlan.project_limit} projects, {state.currentPlan.screen_limit_per_project} screens/project)</span>
-            <button className="link small" type="button" onClick={() => actions.openUpgrade('Upgrade to get more projects and screens')}>Upgrade</button>
-          </div>
-        )}
         {loading && <WaitRow label="Loading projects" />}
         {creatingProject && <WaitRow label="Creating project" />}
         {!loading && !creatingProject && (

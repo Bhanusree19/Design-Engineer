@@ -20,6 +20,11 @@ Phase 1 scope:
    normalizes it into the **Design Context** format, and sends it to the
    backend, which stores it in Supabase.
 
+> **Phase 1 has no subscription or payment gating.** Every account can create
+> unlimited projects and fetch unlimited screens. The `plans`,
+> `user_subscriptions`, and `payments` tables stay in Supabase for a later
+> phase, but the backend and plugin do not use them.
+
 There are two folders:
 
 ```
@@ -28,7 +33,7 @@ design-engineer-backend/   ← the Node/Express backend it talks to
 ```
 
 The plugin never talks to GitHub or Supabase directly — it only talks to the
-backend on `http://localhost:4000`. The backend holds the GitHub OAuth
+backend on `https://design-engineer.onrender.com`. The backend holds the GitHub OAuth
 **client secret** (`.env`, never exposed to the plugin) and talks to Supabase
 with the user's own JWT, so row-level security keeps every user on their own
 rows.
@@ -85,7 +90,7 @@ container no longer logs you out or loses connections.
    your Supabase project (Web application), and set the authorized redirect
    URI to `{SUPABASE_URL}/auth/v1/callback`. Then add the backend callback to
    **Authentication → URL Configuration → Redirect URLs** — add
-   `http://localhost:4000/**` (or your deployed `BACKEND_URL` + `/**`) so
+   `https://design-engineer.onrender.com/**` (or your deployed `BACKEND_URL` + `/**`) so
    Supabase is allowed to redirect back after Google auth. The plugin then
    offers Google sign-in/account creation alongside email + password. Users
    can log out and sign in with a different Google account anytime.
@@ -100,23 +105,28 @@ container no longer logs you out or loses connections.
 
 1. Go to <https://github.com/settings/developers> → **New OAuth App**.
 2. Fill in:
-   - **Application name**: `Design Engineer (local)`
-   - **Homepage URL**: `http://localhost:4000`
-   - **Authorization callback URL**: `http://localhost:4000/auth/github/callback`
+   - **Application name**: `Design Engineer`
+   - **Homepage URL**: `https://design-engineer.onrender.com`
+   - **Authorization callback URL**: `https://design-engineer.onrender.com/auth/github/callback`
 3. Click **Register application**, then **Generate a new client secret**.
 4. Copy the **Client ID** and **Client Secret** — these go in the backend's
    `.env` (§4). The secret stays in `.env`; it is never sent to the plugin.
 
 The callback URL registered in GitHub must exactly match
-`<BACKEND_URL>/auth/github/callback`. For the local backend, use
-`http://localhost:4000/auth/github/callback` and ensure the `.env` Client ID
+`<BACKEND_URL>/auth/github/callback`. For the deployed backend use
+`https://design-engineer.onrender.com/auth/github/callback` and ensure the `.env` Client ID
 and Client Secret belong to this OAuth app. A GitHub OAuth App has one callback
 URL; use a separate OAuth app for local and deployed backends if both are
 needed.
 
 ---
 
-## 4. Run the backend
+## 4. Run the backend (local) or deploy it
+
+The plugin defaults to the deployed backend at
+`https://design-engineer.onrender.com`. To run the backend locally instead,
+set `BACKEND_URL=http://localhost:4000` in `.env` and add
+`http://localhost:4000` to `design-engineer-plugin/manifest.json`.
 
 ```bash
 cd design-engineer-backend
@@ -133,7 +143,7 @@ npm start
 You should see:
 
 ```
-Design Engineer backend listening on http://localhost:4000
+Design Engineer backend listening on https://design-engineer.onrender.com
 ```
 
 Leave this running in a terminal tab.
@@ -194,11 +204,12 @@ screen, e.g. name a frame `Product Details`.
      match) or **sign in** if you already have one.
      - If Supabase email confirmation is enabled, you'll be told to check your
        email, then sign in.
-3. Connect **Codex** in the plugin. It opens OpenAI's browser sign-in and
-   continues automatically after authorization without asking you to copy or
-   enter a device code. This flow requires the backend to run locally in your
-   desktop session so Codex can open the browser and receive its localhost
-   callback. Codex is universal per Design Engineer account.
+3. Connect **Codex** in the plugin. When the backend runs locally it opens
+   OpenAI's browser sign-in and continues automatically after authorization.
+   When the backend is deployed (for example on Render), the plugin shows a
+   one-time device code and opens the OpenAI sign-in page; enter the code there
+   and the plugin continues automatically. Codex is universal per Design
+   Engineer account.
 4. Connect **GitHub** in the plugin. Authorize the app in the browser; the
    plugin detects the connection automatically. Use **Switch GitHub account**
    to connect a different GitHub account, or use the **Account** menu to log
@@ -310,7 +321,7 @@ The backend must run where `git` is installed (it is, in the Docker image).
 ## 9. Notes / gotchas
 
 - **`networkAccess.allowedDomains`** in `manifest.json` is currently
-  `http://localhost:4000`. If you deploy the backend anywhere else, add
+  `https://design-engineer.onrender.com`. If you deploy the backend anywhere else, add
   that domain here too, or the plugin's `fetch()` calls will be blocked
   by Figma.
 - **Why polling instead of a direct callback into the plugin?** The Figma

@@ -9,15 +9,6 @@ import { useEffect, useRef, useState } from 'react';
 
 import { onPluginMessage, sendToPlugin } from '../figmaBridge';
 import * as api from '../../api/client';
-import {
-  getPlans,
-  getBillingUsage,
-  createBillingOrder,
-  verifyBillingPayment,
-  Plan,
-  UsageInfo,
-  Subscription,
-} from '../../api/client';
 
 // -----------------------------------------------------------------------------
 // TYPES
@@ -46,6 +37,11 @@ export interface CodexBrowserAuth {
   browserAuth: true;
 }
 
+export interface CodexDeviceAuth {
+  verificationUrl: string;
+  userCode: string;
+}
+
 // What the user is waiting on, if anything. Drives the waiting screens.
 export type Waiting =
   | null
@@ -68,6 +64,7 @@ export interface DesignEngineerState {
   codexUser: string | null;
   githubUser: string | null;
   codexBrowserAuth: CodexBrowserAuth | null;
+  codexDeviceAuth: CodexDeviceAuth | null;
   projects: api.Project[];
   selectedProject: api.Project | null;
   repos: api.Repo[];
@@ -78,12 +75,6 @@ export interface DesignEngineerState {
   checkedIds: Set<string>;
   extractingCount: number;
   savedFiles: string[];
-  plans: Plan[];
-  currentPlan: Plan | null;
-  subscription: Subscription | null;
-  usage: UsageInfo | null;
-  billingLoading: boolean;
-  upgradeModal: { open: boolean; reason?: string; limitType?: 'projects' | 'screens'; limit?: number; current?: number } | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -100,6 +91,7 @@ export function useDesignEngineer() {
   const [codexUser, setCodexUser] = useState<string | null>(null);
   const [githubUser, setGithubUser] = useState<string | null>(null);
   const [codexBrowserAuth, setCodexBrowserAuth] = useState<CodexBrowserAuth | null>(null);
+  const [codexDeviceAuth, setCodexDeviceAuth] = useState<CodexDeviceAuth | null>(null);
 
   const [projects, setProjects] = useState<api.Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<api.Project | null>(null);
@@ -112,12 +104,6 @@ export function useDesignEngineer() {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [extractingCount, setExtractingCount] = useState(0);
   const [savedFiles, setSavedFiles] = useState<string[]>([]);
-  const [plans, setPlans] = useState<Plan[]>([]);
-  const [currentPlan, setCurrentPlan] = useState<Plan | null>(null);
-  const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [usage, setUsage] = useState<UsageInfo | null>(null);
-  const [billingLoading, setBillingLoading] = useState(false);
-  const [upgradeModal, setUpgradeModal] = useState<{ open: boolean; reason?: string; limitType?: 'projects' | 'screens'; limit?: number; current?: number } | null>(null);
 
   // Refs mirror state for use inside the message listener and polling
   // callbacks, which are created once and would otherwise see stale values.
@@ -396,11 +382,18 @@ export function useDesignEngineer() {
         return;
       }
 
-      if (!device.browserAuth) {
-        fail('The local backend is out of date. Restart it to use browser-based Codex sign-in without a device code.');
+      if (device.deviceAuth && device.verificationUrl && device.userCode) {
+        setCodexDeviceAuth({
+          verificationUrl: device.verificationUrl,
+          userCode: device.userCode,
+        });
+        window.open(device.verificationUrl, '_blank');
+      } else if (device.browserAuth) {
+        setCodexBrowserAuth({ browserAuth: true });
+      } else {
+        fail('Codex sign-in could not start. Try again in a moment.');
         return;
       }
-      setCodexBrowserAuth({ browserAuth: true });
 
       stopPolling();
       pollRef.current = window.setInterval(async () => {
@@ -410,13 +403,15 @@ export function useDesignEngineer() {
           if (status.status === 'approved') {
             stopPolling();
             setCodexBrowserAuth(null);
+            setCodexDeviceAuth(null);
             await continueAfterCodex(status.codexUser);
           }
 
           if (status.status === 'expired') {
             stopPolling();
             setCodexBrowserAuth(null);
-            fail(status.error || 'Codex browser sign-in did not complete. Try again.');
+            setCodexDeviceAuth(null);
+            fail(status.error || 'Codex sign-in did not complete. Try again.');
           }
         } catch (pollingError) {
           console.error('[Design Engineer] Codex polling error:', pollingError);
@@ -430,6 +425,7 @@ export function useDesignEngineer() {
   function cancelWaiting() {
     stopPolling();
     setCodexBrowserAuth(null);
+    setCodexDeviceAuth(null);
     setWaiting(null);
     setError(null);
   }
@@ -489,6 +485,7 @@ export function useDesignEngineer() {
       await api.logoutCodex();
       setCodexUser(null);
       setCodexBrowserAuth(null);
+      setCodexDeviceAuth(null);
       setSelectedRepo(null);
       setSelectedBranch(null);
       selectedRepoRef.current = null;
@@ -543,6 +540,7 @@ export function useDesignEngineer() {
       selectedRepoRef.current = null;
       selectedBranchRef.current = null;
       setCodexBrowserAuth(null);
+      setCodexDeviceAuth(null);
       setWaiting(null);
       setStep('account');
     } catch (err) {
@@ -555,6 +553,7 @@ export function useDesignEngineer() {
       stopPolling();
       setWaiting(null);
       setCodexBrowserAuth(null);
+      setCodexDeviceAuth(null);
     }
     setError(null);
     if (step === 'github') setStep('signin');
@@ -592,28 +591,8 @@ export function useDesignEngineer() {
       const data = await api.listProjects();
       setProjects(data.projects || []);
       setWaiting(null);
-      loadBilling();
     } catch (err) {
       fail(serverError(err, "Couldn't load projects."), err);
-    }
-  }
-
-
-  async function loadBilling() {
-    setBillingLoading(true);
-    try {
-      const [plansRes, usageRes] = await Promise.all([
-        getPlans().catch(() => ({ plans: [] })),
-        getBillingUsage().catch(() => ({ plan: null, subscription: null, usage: null })),
-      ]);
-      setPlans(plansRes.plans || []);
-      setCurrentPlan(usageRes.plan);
-      setSubscription(usageRes.subscription);
-      setUsage(usageRes.usage);
-    } catch (err) {
-      // ignore
-    } finally {
-      setBillingLoading(false);
     }
   }
 
@@ -625,14 +604,7 @@ export function useDesignEngineer() {
       const result = await api.createProject(name);
       setProjects((previous) => [result.project, ...previous]);
       await activateProject(result.project);
-      loadBilling();
-    } catch (err: any) {
-      if (err?.code === 'PLAN_LIMIT_REACHED') {
-        setWaiting(null);
-        setUpgradeModal({ open: true, reason: err.message, limitType: err.limitType, limit: err.limit, current: err.current });
-        loadBilling();
-        return;
-      }
+    } catch (err) {
       fail(serverError(err, "Couldn't create the project."), err);
     }
   }
@@ -845,6 +817,7 @@ export function useDesignEngineer() {
     codexUser,
     githubUser,
     codexBrowserAuth,
+    codexDeviceAuth,
     projects,
     selectedProject,
     repos,
@@ -855,66 +828,7 @@ export function useDesignEngineer() {
     checkedIds,
     extractingCount,
     savedFiles,
-    plans,
-    currentPlan,
-    subscription,
-    usage,
-    billingLoading,
-    upgradeModal,
   };
-
-  async function openUpgrade(reason?: string, limitType?: 'projects' | 'screens', limit?: number, current?: number) {
-    setUpgradeModal({ open: true, reason, limitType, limit, current });
-    loadBilling();
-  }
-
-  function closeUpgrade() {
-    setUpgradeModal({ open: false });
-  }
-
-  async function startUpgrade(planSlug: string) {
-    setBillingLoading(true);
-    try {
-      const order = await createBillingOrder(planSlug);
-      // Try to use Razorpay checkout if available
-      const win: any = window as any;
-      if (win.Razorpay) {
-        const options = {
-          key: order.keyId,
-          amount: order.amount,
-          currency: order.currency,
-          name: 'Design Engineer',
-          description: `${order.plan.name} Plan`,
-          order_id: order.orderId,
-          handler: async function (response: any) {
-            try {
-              await verifyBillingPayment({
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-                planSlug,
-              });
-              setUpgradeModal({ open: false });
-              loadBilling();
-              alert('Payment successful! Plan upgraded.');
-            } catch (e: any) {
-              alert(e?.message || 'Payment verification failed');
-            }
-          },
-          prefill: {},
-          theme: { color: '#111111' },
-        };
-        const rzp = new win.Razorpay(options);
-        rzp.open();
-      } else {
-        alert('Razorpay checkout not loaded. Add Razorpay script to the plugin UI or try again.');
-      }
-    } catch (e: any) {
-      alert(e?.message || 'Could not start payment');
-    } finally {
-      setBillingLoading(false);
-    }
-  }
 
   const actions = {
     signInWithEmail,
@@ -944,10 +858,6 @@ export function useDesignEngineer() {
     fetchMore,
     retry,
     dismissError: () => setError(null),
-    loadBilling,
-    openUpgrade,
-    closeUpgrade,
-    startUpgrade,
   };
 
   return { state, actions };

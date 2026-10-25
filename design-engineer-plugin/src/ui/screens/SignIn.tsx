@@ -6,6 +6,36 @@ import type { DesignEngineerActions, DesignEngineerState } from '../hooks/useDes
 type Props = { state: DesignEngineerState; actions: DesignEngineerActions };
 
 export default function SignIn({ state, actions }: Props) {
+  if (state.codexDeviceAuth) {
+    return (
+      <>
+        <Header state={state} actions={actions} />
+        <Rail step="signin" />
+        <Body>
+          <h1>Sign in to Codex</h1>
+          <p className="lede">
+            Open the OpenAI sign-in page and enter this one-time code. The plugin
+            continues automatically after you approve.
+          </p>
+          <p className="device-code">{state.codexDeviceAuth.userCode}</p>
+          <div className="grow" />
+          <WaitRow label="Waiting for Codex sign-in" />
+        </Body>
+        <Footer>
+          <button className="btn btn-ghost" type="button" onClick={actions.cancelWaiting}>Cancel</button>
+          <a
+            className="btn btn-primary"
+            href={state.codexDeviceAuth.verificationUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open sign-in page
+          </a>
+        </Footer>
+      </>
+    );
+  }
+
   if (state.codexBrowserAuth) {
     return (
       <>

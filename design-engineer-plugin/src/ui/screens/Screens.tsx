@@ -51,12 +51,6 @@ export function ScreensStep({ state, actions }: Props) {
       <Rail step="screens" />
       <Body>
         <h1>{total === 0 ? 'Select screens' : `${checked} of ${plural(total, 'screen')} selected`}</h1>
-        {state.currentPlan && state.selectedProject && (
-          <div className="plan-summary">
-            <span>Plan: {state.currentPlan.name} — {state.currentPlan.screen_limit_per_project} screens per project</span>
-            <button className="link small" type="button" onClick={() => actions.openUpgrade('Upgrade to fetch more screens per project')}>Upgrade</button>
-          </div>
-        )}
         {state.error && <ErrorBanner message={state.error} />}
 
         {total === 0 ? (
