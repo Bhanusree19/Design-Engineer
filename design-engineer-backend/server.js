@@ -1496,6 +1496,20 @@ app.get('/auth/me', async (req, res) => {
 
 const deviceSessions = new Map();
 
+async function updateCodexAuthSession(entry, status, error = null) {
+  await pgQuery('codex_auth_sessions', {
+    token: entry.accessToken,
+    method: 'PATCH',
+    query: `device_code=eq.${entry.deviceCode}&user_id=eq.${entry.userId}`,
+    body: {
+      status,
+      error,
+      updated_at: new Date().toISOString(),
+    },
+    prefer: 'return=minimal',
+  });
+}
+
 function newId() {
   return crypto.randomBytes(16).toString('hex');
 }
@@ -1768,6 +1782,10 @@ function startCodexBrowserAuth(deviceCode, userId, accessToken) {
 
     child.on('error', (error) => {
       entry.status = 'expired';
+      entry.error = 'Codex browser sign-in could not start. Please try again.';
+      updateCodexAuthSession(entry, entry.status, entry.error).catch((dbError) => {
+        console.error('[Design Engineer] Failed to update Codex auth session:', dbError);
+      });
       reject(error);
     });
 
@@ -1776,18 +1794,27 @@ function startCodexBrowserAuth(deviceCode, userId, accessToken) {
 
       try {
         if (code === 0 && (await getCodexLoginStatus()) === 'connected') {
+          await persistCodexCredentials(userId, accessToken);
           entry.status = 'approved';
           entry.codexUser = 'Codex CLI user';
-          await persistCodexCredentials(userId, accessToken);
+          await updateCodexAuthSession(entry, entry.status);
           return;
         }
       } catch (error) {
         console.error('[Design Engineer] Failed to verify Codex browser sign-in:', error);
+        entry.status = 'expired';
+        entry.error = 'Codex signed in, but its credentials could not be saved. Please try again.';
+        await updateCodexAuthSession(entry, entry.status, entry.error).catch((dbError) => {
+          console.error('[Design Engineer] Failed to update Codex auth session:', dbError);
+        });
       }
 
       if (code !== 0) {
         entry.status = 'expired';
         entry.error = 'Codex browser sign-in did not complete. Please try again.';
+        await updateCodexAuthSession(entry, entry.status, entry.error).catch((dbError) => {
+          console.error('[Design Engineer] Failed to update Codex auth session:', dbError);
+        });
       } else {
         entry.processExited = true;
       }
@@ -1832,6 +1859,17 @@ app.post('/auth/codex/device', async (req, res) => {
       expiresAt: Date.now() + 15 * 60 * 1000,
     };
 
+    await pgQuery('codex_auth_sessions', {
+      token: auth.token,
+      method: 'POST',
+      body: {
+        device_code: deviceCode,
+        user_id: auth.user.id,
+        status: entry.status,
+        expires_at: new Date(entry.expiresAt).toISOString(),
+      },
+      prefer: 'return=minimal',
+    });
     deviceSessions.set(deviceCode, entry);
 
     // Browser OAuth requires this backend process to run in the user's
@@ -1854,37 +1892,78 @@ app.get('/auth/codex/device/:deviceCode/status', async (req, res) => {
   const auth = await requireUser(req, res);
   if (!auth) return;
 
-  const entry = deviceSessions.get(req.params.deviceCode);
+  try {
+    const deviceCode = req.params.deviceCode;
+    const rows = await pgQuery('codex_auth_sessions', {
+      token: auth.token,
+      query: `device_code=eq.${encodeURIComponent(deviceCode)}&user_id=eq.${auth.user.id}&select=device_code,status,error,expires_at&limit=1`,
+    });
+    const session = Array.isArray(rows) ? rows[0] : null;
 
-  if (!entry || entry.userId !== auth.user.id) {
-    return res.status(404).json({ status: 'expired', codexUser: null });
-  }
+    if (!session) {
+      console.warn('[Design Engineer] Codex auth session not found:', {
+        userId: auth.user.id,
+        reason: 'missing_or_not_owned',
+      });
+      return res.json({
+        status: 'expired',
+        codexUser: null,
+        error: 'Codex sign-in session was lost. Please start sign-in again.',
+      });
+    }
 
-  if (entry.expiresAt < Date.now() && entry.status === 'pending') {
-    entry.status = 'expired';
-    entry.error = 'Codex browser sign-in expired. Please try again.';
-  }
-
-  if (entry.status === 'pending') {
-    const loginStatus = await getCodexLoginStatus();
-    if (loginStatus === 'connected') {
-      try {
-        await persistCodexCredentials(entry.userId, entry.accessToken);
-        entry.status = 'approved';
-        entry.codexUser = 'Codex CLI user';
-      } catch (error) {
-        console.error('[Design Engineer] Failed to persist Codex credentials:', error);
+    const entry = deviceSessions.get(deviceCode);
+    if (session.status === 'pending' && Date.parse(session.expires_at) < Date.now()) {
+      const error = 'Codex browser sign-in expired. Please try again.';
+      if (entry) {
         entry.status = 'expired';
-        entry.error = 'Codex signed in, but its credentials could not be saved. Please try again.';
+        entry.error = error;
+        await updateCodexAuthSession(entry, entry.status, entry.error);
+      } else {
+        await pgQuery('codex_auth_sessions', {
+          token: auth.token,
+          method: 'PATCH',
+          query: `device_code=eq.${encodeURIComponent(deviceCode)}&user_id=eq.${auth.user.id}`,
+          body: {
+            status: 'expired',
+            error,
+            updated_at: new Date().toISOString(),
+          },
+          prefer: 'return=minimal',
+        });
+      }
+      return res.json({ status: 'expired', codexUser: null, error });
+    }
+
+    if (entry && session.status === 'pending') {
+      const loginStatus = await getCodexLoginStatus();
+      if (loginStatus === 'connected') {
+        try {
+          await persistCodexCredentials(entry.userId, entry.accessToken);
+          entry.status = 'approved';
+          entry.codexUser = 'Codex CLI user';
+          await updateCodexAuthSession(entry, entry.status);
+        } catch (error) {
+          console.error('[Design Engineer] Failed to persist Codex credentials:', error);
+          entry.status = 'expired';
+          entry.error = 'Codex signed in, but its credentials could not be saved. Please try again.';
+          await updateCodexAuthSession(entry, entry.status, entry.error);
+        }
       }
     }
-  }
 
-  res.json({
-    status: entry.status,
-    codexUser: entry.codexUser,
-    error: entry.error,
-  });
+    const status = entry?.status || session.status;
+    res.json({
+      status,
+      codexUser: status === 'approved' ? 'Codex CLI user' : null,
+      error: status === 'expired' ? entry?.error || session.error : null,
+    });
+  } catch (error) {
+    console.error('[Design Engineer] Codex auth status check failed:', error);
+    res.status(500).json({
+      error: error.message || 'Could not check Codex sign-in status.',
+    });
+  }
 });
 
 app.post('/auth/codex/logout', async (req, res) => {

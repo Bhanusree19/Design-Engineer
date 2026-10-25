@@ -164,6 +164,23 @@ create table if not exists public.codex_accounts (
   unique(user_id)
 );
 
+-- ---------------------------------------------------------------------------
+-- CODEX AUTH SESSIONS (shared polling state across backend instances)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.codex_auth_sessions (
+  device_code text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  status text not null default 'pending'
+    check (status in ('pending', 'approved', 'expired')),
+  error text,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+grant select, insert, update on public.codex_auth_sessions to authenticated;
+
 -- -----------------------------------------------------------------------------
 -- DESIGN CONTEXTS (fetched screens)
 -- -----------------------------------------------------------------------------
@@ -250,6 +267,7 @@ alter table public.profiles enable row level security;
 alter table public.projects enable row level security;
 alter table public.github_connections enable row level security;
 alter table public.codex_accounts enable row level security;
+alter table public.codex_auth_sessions enable row level security;
 alter table public.design_contexts enable row level security;
 alter table public.plans enable row level security;
 alter table public.user_subscriptions enable row level security;
@@ -292,6 +310,14 @@ drop policy if exists "codex_update_own" on public.codex_accounts;
 create policy "codex_update_own" on public.codex_accounts for update using (auth.uid() = user_id);
 drop policy if exists "codex_delete_own" on public.codex_accounts;
 create policy "codex_delete_own" on public.codex_accounts for delete using (auth.uid() = user_id);
+
+-- Codex auth sessions
+drop policy if exists "codex_auth_sessions_select_own" on public.codex_auth_sessions;
+create policy "codex_auth_sessions_select_own" on public.codex_auth_sessions for select using (auth.uid() = user_id);
+drop policy if exists "codex_auth_sessions_insert_own" on public.codex_auth_sessions;
+create policy "codex_auth_sessions_insert_own" on public.codex_auth_sessions for insert with check (auth.uid() = user_id);
+drop policy if exists "codex_auth_sessions_update_own" on public.codex_auth_sessions;
+create policy "codex_auth_sessions_update_own" on public.codex_auth_sessions for update using (auth.uid() = user_id);
 
 -- Design contexts
 drop policy if exists "design_contexts_select_own" on public.design_contexts;

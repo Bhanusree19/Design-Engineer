@@ -10,6 +10,7 @@ const expected = {
   projects: ['id', 'user_id', 'name', 'repository', 'base_branch', 'created_at', 'updated_at'],
   github_connections: ['id', 'user_id', 'provider', 'login', 'access_token', 'refresh_token', 'expires_at', 'created_at', 'updated_at'],
   codex_accounts: ['id', 'user_id', 'email', 'credential_reference', 'created_at', 'updated_at'],
+  codex_auth_sessions: ['device_code', 'user_id', 'status', 'error', 'expires_at', 'created_at', 'updated_at'],
   design_contexts: ['id', 'project_id', 'screen_name', 'content', 'created_at', 'updated_at'],
 };
 

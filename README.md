@@ -42,6 +42,7 @@ rows.
 | Projects (repo, base branch) | `public.projects` |
 | GitHub OAuth tokens (encrypted) | `public.github_connections` |
 | Codex CLI credentials (encrypted) | `public.codex_accounts` |
+| Codex sign-in polling state | `public.codex_auth_sessions` |
 | Fetched design contexts (JSON) | `public.design_contexts` |
 | Plugin session (access/refresh token) | Figma `clientStorage` (GitHub/Codex credentials never touch Figma storage) |
 
@@ -68,9 +69,9 @@ container no longer logs you out or loses connections.
    `design-engineer-backend/supabase/schema.sql`, and **Run**.
 
    This creates `profiles`, `projects`, `github_connections`,
-   `codex_accounts`, and `design_contexts` (idempotent — safe to re-run), the
-   row-level-security policies, a trigger that auto-creates a profile row on
-   signup, and `updated_at` triggers.
+   `codex_accounts`, `codex_auth_sessions`, and `design_contexts` (idempotent
+   — safe to re-run), the row-level-security policies, a trigger that
+   auto-creates a profile row on signup, and `updated_at` triggers.
 
    > If you already ran an earlier version of the schema, re-run the current
    > `schema.sql` — it adds missing tables/columns (e.g. `design_contexts`,

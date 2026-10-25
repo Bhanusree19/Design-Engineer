@@ -400,6 +400,12 @@ export function useDesignEngineer() {
             fail(status.error || 'Codex browser sign-in did not complete. Try again.');
           }
         } catch (pollingError) {
+          if (pollingError instanceof api.ApiError && pollingError.status === 404) {
+            stopPolling();
+            setCodexBrowserAuth(null);
+            fail('Codex sign-in session was lost. Please start sign-in again.', pollingError);
+            return;
+          }
           console.error('[Design Engineer] Codex polling error:', pollingError);
         }
       }, (device.interval || 3) * 1000);
