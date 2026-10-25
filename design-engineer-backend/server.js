@@ -1219,23 +1219,6 @@ app.post('/api/projects', async (req, res) => {
   }
 
   try {
-    // Enforce plan limits for creating projects
-    const [plan, usage] = await Promise.all([
-      getUserPlan(auth.user.id, auth.token),
-      getUserUsage(auth.user.id, auth.token),
-    ]);
-    const projectLimit = plan?.project_limit !== undefined && plan?.project_limit !== null ? Number(plan.project_limit) : 2;
-    if (usage.projectCount >= projectLimit) {
-      return res.status(403).json({
-        error: `Project limit reached for your plan. Upgrade to create more projects.`,
-        code: 'PLAN_LIMIT_REACHED',
-        upgradeRequired: true,
-        limitType: 'projects',
-        current: usage.projectCount,
-        limit: projectLimit,
-      });
-    }
-
     const rows = await pgQuery('projects', {
       token: auth.token,
       method: 'POST',
@@ -1945,24 +1928,6 @@ app.post('/api/screens/fetch', async (req, res) => {
 
   try {
     const saved = [];
-
-    // Enforce plan limits for screens per project
-    const [plan, usage] = await Promise.all([
-      getUserPlan(auth.user.id, auth.token),
-      getUserUsage(auth.user.id, auth.token),
-    ]);
-    const screenLimit = plan?.screen_limit_per_project !== undefined && plan?.screen_limit_per_project !== null ? Number(plan.screen_limit_per_project) : 5;
-    const currentScreens = usage.screensByProject[projectId] || 0;
-    if (currentScreens + screens.length > screenLimit) {
-      return res.status(403).json({
-        error: `Screen limit reached for this project on your plan. Upgrade to add more screens.`,
-        code: 'PLAN_LIMIT_REACHED',
-        upgradeRequired: true,
-        limitType: 'screens',
-        current: currentScreens,
-        limit: screenLimit,
-      });
-    }
 
     for (let index = 0; index < screens.length; index++) {
       const screen = screens[index];

@@ -64,6 +64,7 @@ const RAIL: { key: Step; label: string }[] = [
   { key: 'repo', label: 'Repo' },
   { key: 'branch', label: 'Branch' },
   { key: 'screens', label: 'Screens' },
+  { key: 'stack', label: 'Stack' },
 ];
 
 export function Rail({ step }: { step: Step }) {

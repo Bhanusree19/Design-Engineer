@@ -157,7 +157,7 @@ button { font: inherit; color: inherit; }
   list-style: none;
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(8, 1fr);
   gap: 4px;
   padding: 12px 14px 0;
 }
@@ -321,6 +321,54 @@ button { font: inherit; color: inherit; }
 .ctx-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctx .link { margin-left: auto; font-family: var(--f-body); font-size: 12px; flex: none; }
 
+/* ---------- Tech stack ---------- */
+.stack-options { display: grid; gap: 10px; }
+.stack-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  text-align: left;
+  cursor: pointer;
+}
+.stack-option:hover { border-color: var(--muted); }
+.stack-option.selected { border-color: var(--accent); background: var(--accent-soft); }
+.stack-radio { width: 16px; height: 16px; border: 1.5px solid var(--line); border-radius: 50%; flex: none; }
+.stack-option.selected .stack-radio { border: 5px solid var(--accent); }
+.stack-option b, .stack-option small { display: block; }
+.stack-option small { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.delete-confirm {
+  flex: none;
+  padding: 8px 10px;
+  border: 1px solid var(--bad);
+  border-radius: 6px;
+  color: var(--bad);
+  font-size: 11px;
+}
+.project-delete {
+  align-self: flex-start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--bad);
+  font-size: 11px;
+  cursor: pointer;
+}
+.btn-danger {
+  border: 1px solid var(--bad);
+  border-radius: 7px;
+  padding: 8px 12px;
+  background: var(--bad);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* ---------- Screens ---------- */
 .stack { display: grid; gap: 6px; align-content: start; }
 .scroll { flex: 1; min-height: 0; overflow-y: auto; }
@@ -383,98 +431,4 @@ button.scr:hover { border-color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) {
   .spin, .pulse i, .bar i { animation: none; }
-}
-
-/* ---------- Upgrade Modal ---------- */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  width: 680px;
-  max-width: 95%;
-  max-height: 90%;
-  overflow: auto;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-}
-
-.modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.modal-body {
-  padding: 16px;
-}
-
-.plan-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
-}
-
-.plan-card {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.plan-card.current {
-  border-color: var(--accent);
-}
-
-.plan-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.plan-price {
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.plan-feats {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 11px;
-}
-
-.badge {
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 10px;
-  background: var(--accent);
-  color: white;
-}
-
-/* ---------- Plan summary ---------- */
-.plan-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--sunk);
-  font-size: 11px;
 }

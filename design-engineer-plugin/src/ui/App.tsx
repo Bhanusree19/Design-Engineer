@@ -11,9 +11,9 @@ import Account from './screens/Account';
 import SignIn from './screens/SignIn';
 import Github from './screens/Github';
 import Projects from './screens/Projects';
+import StackStep from './screens/Stack';
 import { BranchStep, RepoStep } from './screens/Pickers';
 import { Done, ScreensStep } from './screens/Screens';
-import UpgradeModal from './components/UpgradeModal';
 
 interface ErrorBoundaryState {
   error: Error | null;
@@ -59,11 +59,11 @@ function DesignEngineerApp() {
       {state.step === 'signin' && <SignIn {...props} />}
       {state.step === 'github' && <Github {...props} />}
       {state.step === 'project' && <Projects {...props} />}
+      {state.step === 'stack' && <StackStep {...props} />}
       {state.step === 'repo' && <RepoStep {...props} />}
       {state.step === 'branch' && <BranchStep {...props} />}
       {state.step === 'screens' && <ScreensStep {...props} />}
       {state.step === 'done' && <Done {...props} />}
-      {state.upgradeModal?.open && <UpgradeModal state={state} actions={actions} />}
     </div>
   );
 }

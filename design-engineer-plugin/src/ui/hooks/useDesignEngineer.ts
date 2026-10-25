@@ -9,15 +9,6 @@ import { useEffect, useRef, useState } from 'react';
 
 import { onPluginMessage, sendToPlugin } from '../figmaBridge';
 import * as api from '../../api/client';
-import {
-  getPlans,
-  getBillingUsage,
-  createBillingOrder,
-  verifyBillingPayment,
-  Plan,
-  UsageInfo,
-  Subscription,
-} from '../../api/client';
 
 // -----------------------------------------------------------------------------
 // TYPES
@@ -32,6 +23,7 @@ export type Step =
   | 'repo'
   | 'branch'
   | 'screens'
+  | 'stack'
   | 'done';
 
 export interface SelectionItem {
@@ -54,6 +46,7 @@ export type Waiting =
   | 'github'
   | 'projects'
   | 'create-project'
+  | 'delete-project'
   | 'repos'
   | 'branches'
   | 'extracting'
@@ -78,12 +71,6 @@ export interface DesignEngineerState {
   checkedIds: Set<string>;
   extractingCount: number;
   savedFiles: string[];
-  plans: Plan[];
-  currentPlan: Plan | null;
-  subscription: Subscription | null;
-  usage: UsageInfo | null;
-  billingLoading: boolean;
-  upgradeModal: { open: boolean; reason?: string; limitType?: 'projects' | 'screens'; limit?: number; current?: number } | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -112,12 +99,6 @@ export function useDesignEngineer() {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [extractingCount, setExtractingCount] = useState(0);
   const [savedFiles, setSavedFiles] = useState<string[]>([]);
-  const [plans, setPlans] = useState<Plan[]>([]);
-  const [currentPlan, setCurrentPlan] = useState<Plan | null>(null);
-  const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [usage, setUsage] = useState<UsageInfo | null>(null);
-  const [billingLoading, setBillingLoading] = useState(false);
-  const [upgradeModal, setUpgradeModal] = useState<{ open: boolean; reason?: string; limitType?: 'projects' | 'screens'; limit?: number; current?: number } | null>(null);
 
   // Refs mirror state for use inside the message listener and polling
   // callbacks, which are created once and would otherwise see stale values.
@@ -561,7 +542,8 @@ export function useDesignEngineer() {
     else if (step === 'project') setStep('github');
     else if (step === 'repo') setStep('project');
     else if (step === 'branch') setStep('repo');
-    else if (step === 'screens') setStep('branch');
+    else if (step === 'screens') changeBranch();
+    else if (step === 'stack') setStep('screens');
     else if (step === 'done') setStep('screens');
   }
 
@@ -592,28 +574,8 @@ export function useDesignEngineer() {
       const data = await api.listProjects();
       setProjects(data.projects || []);
       setWaiting(null);
-      loadBilling();
     } catch (err) {
       fail(serverError(err, "Couldn't load projects."), err);
-    }
-  }
-
-
-  async function loadBilling() {
-    setBillingLoading(true);
-    try {
-      const [plansRes, usageRes] = await Promise.all([
-        getPlans().catch(() => ({ plans: [] })),
-        getBillingUsage().catch(() => ({ plan: null, subscription: null, usage: null })),
-      ]);
-      setPlans(plansRes.plans || []);
-      setCurrentPlan(usageRes.plan);
-      setSubscription(usageRes.subscription);
-      setUsage(usageRes.usage);
-    } catch (err) {
-      // ignore
-    } finally {
-      setBillingLoading(false);
     }
   }
 
@@ -625,14 +587,7 @@ export function useDesignEngineer() {
       const result = await api.createProject(name);
       setProjects((previous) => [result.project, ...previous]);
       await activateProject(result.project);
-      loadBilling();
-    } catch (err: any) {
-      if (err?.code === 'PLAN_LIMIT_REACHED') {
-        setWaiting(null);
-        setUpgradeModal({ open: true, reason: err.message, limitType: err.limitType, limit: err.limit, current: err.current });
-        loadBilling();
-        return;
-      }
+    } catch (err) {
       fail(serverError(err, "Couldn't create the project."), err);
     }
   }
@@ -655,7 +610,59 @@ export function useDesignEngineer() {
     setSelectedBranch(project.base_branch);
     selectedBranchRef.current = project.base_branch;
     setBranches([]);
+    setError(null);
+    setWaiting(null);
+    if (project.repository && project.base_branch) {
+      setStep('screens');
+      sendToPlugin({ type: 'get-selection' });
+      return;
+    }
     await loadRepos();
+  }
+
+  async function chooseStack(stack: api.Stack) {
+    const project = selectedProjectRef.current;
+    if (!project) {
+      fail('Choose a project first.');
+      return;
+    }
+
+    setError(null);
+    setWaiting('saving');
+    try {
+      const result = await api.updateProject(project.id, { stack });
+      setSelectedProject(result.project);
+      selectedProjectRef.current = result.project;
+      setProjects((previous) => previous.map((item) => item.id === result.project.id ? result.project : item));
+      setWaiting(null);
+      fetchScreens();
+    } catch (err) {
+      fail(serverError(err, "Couldn't save the project tech stack."), err);
+    }
+  }
+
+  async function deleteProject(projectId: string) {
+    setError(null);
+    setWaiting('delete-project');
+    try {
+      await api.deleteProject(projectId);
+      setProjects((previous) => previous.filter((project) => project.id !== projectId));
+      if (selectedProjectRef.current?.id === projectId) {
+        setSelectedProject(null);
+        selectedProjectRef.current = null;
+        setSelectedRepo(null);
+        selectedRepoRef.current = null;
+        setSelectedBranch(null);
+        selectedBranchRef.current = null;
+        setSelection([]);
+        setCheckedIds(new Set());
+      }
+      setWaiting(null);
+      return true;
+    } catch (err) {
+      fail(serverError(err, "Couldn't delete the project."), err);
+      return false;
+    }
   }
 
   async function loadRepos() {
@@ -785,6 +792,10 @@ export function useDesignEngineer() {
     }
 
     setError(null);
+    if (step !== 'stack') {
+      setStep('stack');
+      return;
+    }
     setExtractingCount(checkedIds.size);
     setWaiting('extracting');
     sendToPlugin({ type: 'extract-screens', nodeIds: Array.from(checkedIds) });
@@ -855,66 +866,7 @@ export function useDesignEngineer() {
     checkedIds,
     extractingCount,
     savedFiles,
-    plans,
-    currentPlan,
-    subscription,
-    usage,
-    billingLoading,
-    upgradeModal,
   };
-
-  async function openUpgrade(reason?: string, limitType?: 'projects' | 'screens', limit?: number, current?: number) {
-    setUpgradeModal({ open: true, reason, limitType, limit, current });
-    loadBilling();
-  }
-
-  function closeUpgrade() {
-    setUpgradeModal({ open: false });
-  }
-
-  async function startUpgrade(planSlug: string) {
-    setBillingLoading(true);
-    try {
-      const order = await createBillingOrder(planSlug);
-      // Try to use Razorpay checkout if available
-      const win: any = window as any;
-      if (win.Razorpay) {
-        const options = {
-          key: order.keyId,
-          amount: order.amount,
-          currency: order.currency,
-          name: 'Design Engineer',
-          description: `${order.plan.name} Plan`,
-          order_id: order.orderId,
-          handler: async function (response: any) {
-            try {
-              await verifyBillingPayment({
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-                planSlug,
-              });
-              setUpgradeModal({ open: false });
-              loadBilling();
-              alert('Payment successful! Plan upgraded.');
-            } catch (e: any) {
-              alert(e?.message || 'Payment verification failed');
-            }
-          },
-          prefill: {},
-          theme: { color: '#111111' },
-        };
-        const rzp = new win.Razorpay(options);
-        rzp.open();
-      } else {
-        alert('Razorpay checkout not loaded. Add Razorpay script to the plugin UI or try again.');
-      }
-    } catch (e: any) {
-      alert(e?.message || 'Could not start payment');
-    } finally {
-      setBillingLoading(false);
-    }
-  }
 
   const actions = {
     signInWithEmail,
@@ -932,7 +884,9 @@ export function useDesignEngineer() {
     loadRepos: () => loadRepos(),
     loadProjects,
     chooseProject,
+    chooseStack,
     createProject,
+    deleteProject,
     chooseRepo,
     chooseBranch,
     changeRepo,
@@ -944,10 +898,6 @@ export function useDesignEngineer() {
     fetchMore,
     retry,
     dismissError: () => setError(null),
-    loadBilling,
-    openUpgrade,
-    closeUpgrade,
-    startUpgrade,
   };
 
   return { state, actions };
