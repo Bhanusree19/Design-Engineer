@@ -323,6 +323,12 @@ The backend must run where `git` is installed (it is, in the Docker image).
   plugin UI is a sandboxed iframe; a separate browser tab can't
   `postMessage` into it directly. Polling the backend endpoints is the
   standard workaround other Figma plugins use for OAuth.
+- **`401` from `/auth/me`**: the backend requires the plugin's Supabase
+  access token. Render logs identify whether the request had no bearer token,
+  the token was rejected/expired, or Supabase could not validate it. Token
+  values are never written to logs. If the response is `503`, check the logged
+  Supabase validation error and the Render service's Supabase URL and
+  publishable/anon key instead of signing in again.
 - **Email confirmation**: if signup returns `confirmationRequired`, the
   plugin shows the sign-in screen with a note. Disable "Confirm email" in
   Supabase (Authentication → Providers → Email) for instant signups.

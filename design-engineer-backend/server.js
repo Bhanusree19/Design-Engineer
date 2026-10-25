@@ -245,13 +245,68 @@ async function requireUser(req, res) {
   const token = header.startsWith('Bearer ') ? header.slice(7).trim() : null;
 
   if (!token) {
+    console.warn('[Design Engineer] Authentication rejected:', {
+      method: req.method,
+      path: req.path,
+      reason: 'missing_bearer_token',
+    });
     res.status(401).json({ error: 'Missing access token' });
     return null;
   }
 
-  const { data, error } = await supabase.auth.getUser(token);
+  let result;
+  try {
+    result = await supabase.auth.getUser(token);
+  } catch (error) {
+    console.error('[Design Engineer] Access token validation failed:', {
+      method: req.method,
+      path: req.path,
+      reason: 'supabase_auth_request_failed',
+      message: error.message,
+    });
+    res.status(503).json({
+      error: 'Could not validate your session right now. Please try again.',
+      code: 'AUTH_VALIDATION_UNAVAILABLE',
+    });
+    return null;
+  }
 
-  if (error || !data || !data.user) {
+  const { data, error } = result;
+
+  if (error) {
+    const status = Number(error.status) || 0;
+    const authRejected = status > 0 && status < 500 && status !== 429;
+
+    console.warn('[Design Engineer] Authentication rejected:', {
+      method: req.method,
+      path: req.path,
+      reason: authRejected ? 'invalid_or_expired_token' : 'supabase_auth_unavailable',
+      status: status || null,
+      code: error.code || null,
+      message: error.message || null,
+    });
+
+    if (!authRejected) {
+      res.status(503).json({
+        error: 'Could not validate your session right now. Please try again.',
+        code: 'AUTH_VALIDATION_UNAVAILABLE',
+      });
+      return null;
+    }
+
+    res.status(401).json({
+      error: 'Invalid or expired access token',
+      code: 'AUTH_EXPIRED',
+    });
+    return null;
+  }
+
+  if (!data || !data.user) {
+    console.warn('[Design Engineer] Authentication rejected:', {
+      method: req.method,
+      path: req.path,
+      reason: 'no_user_for_access_token',
+    });
     res.status(401).json({
       error: 'Invalid or expired access token',
       code: 'AUTH_EXPIRED',
