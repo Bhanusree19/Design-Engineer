@@ -18,6 +18,9 @@ export default function SignIn({ state, actions }: Props) {
             continues automatically after you approve.
           </p>
           <p className="device-code">{state.codexDeviceAuth.userCode}</p>
+          <p className="device-auth-note" role="note">
+            Device-code authentication must be enabled in your OpenAI account settings for this code to work.
+          </p>
           <div className="grow" />
           <WaitRow label="Waiting for Codex sign-in" />
         </Body>
@@ -72,7 +75,7 @@ export default function SignIn({ state, actions }: Props) {
         <p className="lede">
           {state.codexUser
             ? 'Your Codex account is connected. Continue to GitHub or switch to another Codex account.'
-            : 'Codex turns the screens you select into Design Context for your repo. You only sign in once. The plugin remembers it.'}
+            : 'Codex turns the screens you select into Design Context for your repo. You only sign in once. Designova AI remembers it.'}
         </p>
         {!state.codexUser && <div className="points">
           <div><Check className="ico" /><span>Sign-in happens in your browser on OpenAI's page.</span></div>

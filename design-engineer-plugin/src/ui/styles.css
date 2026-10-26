@@ -1,4 +1,4 @@
-/* Design Engineer plugin UI
+/* Designova AI plugin UI
  *
  * Layout: fixed 380 × 640 plugin window. Header, step rail, scrolling body,
  * pinned footer with one primary action.
@@ -81,6 +81,15 @@ button { font: inherit; color: inherit; }
   background: var(--sunk);
   text-align: center;
   flex: none;
+}
+.device-auth-note {
+  margin: -4px 0 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--sunk);
+  color: var(--muted);
+  font-size: 11.5px;
 }
 
 /* ---------- Logo mark ---------- */
@@ -390,6 +399,14 @@ button.scr:hover { border-color: var(--muted); }
 .files div { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; background: var(--sunk); min-width: 0; }
 .files span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .files .ico { color: var(--ok); }
+.plan-meta { display: grid; gap: 6px; padding: 10px; border-radius: 8px; background: var(--sunk); }
+.plan-meta span { display: flex; justify-content: space-between; gap: 10px; min-width: 0; font: 11px var(--f-mono); }
+.plan-meta b { font: 600 11px var(--f-body); color: var(--muted); }
+.plan-copy { min-height: 100px; flex: 1; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.55 var(--f-mono); }
+.plan-prompt { flex: none; }
+.plan-prompt summary { color: var(--accent); cursor: pointer; font-weight: 600; }
+.plan-prompt .plan-copy { max-height: 120px; margin-top: 8px; }
+.pr-link { text-decoration: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .spin, .pulse i, .bar i { animation: none; }

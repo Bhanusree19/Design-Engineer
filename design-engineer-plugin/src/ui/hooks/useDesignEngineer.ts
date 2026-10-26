@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { onPluginMessage, sendToPlugin } from '../figmaBridge';
 import * as api from '../../api/client';
+import type { DesignContext } from '../../figma/parser';
 
 // -----------------------------------------------------------------------------
 // TYPES
@@ -23,7 +24,11 @@ export type Step =
   | 'repo'
   | 'branch'
   | 'screens'
-  | 'done';
+  | 'done'
+  | 'planning'
+  | 'plan'
+  | 'implementing'
+  | 'complete';
 
 export interface SelectionItem {
   id: string;
@@ -53,7 +58,9 @@ export type Waiting =
   | 'repos'
   | 'branches'
   | 'extracting'
-  | 'saving';
+  | 'saving'
+  | 'planning'
+  | 'implementing';
 
 export interface DesignEngineerState {
   step: Step;
@@ -75,6 +82,9 @@ export interface DesignEngineerState {
   checkedIds: Set<string>;
   extractingCount: number;
   savedFiles: string[];
+  implementationScreens: DesignContext[];
+  screenPlan: api.ScreenPlan | null;
+  implementation: api.ImplementationResult | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -104,6 +114,9 @@ export function useDesignEngineer() {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [extractingCount, setExtractingCount] = useState(0);
   const [savedFiles, setSavedFiles] = useState<string[]>([]);
+  const [implementationScreens, setImplementationScreens] = useState<DesignContext[]>([]);
+  const [screenPlan, setScreenPlan] = useState<api.ScreenPlan | null>(null);
+  const [implementation, setImplementation] = useState<api.ImplementationResult | null>(null);
 
   // Refs mirror state for use inside the message listener and polling
   // callbacks, which are created once and would otherwise see stale values.
@@ -111,6 +124,7 @@ export function useDesignEngineer() {
   const selectedProjectRef = useRef<api.Project | null>(null);
   const selectedRepoRef = useRef<string | null>(null);
   const selectedBranchRef = useRef<string | null>(null);
+  const implementationScreensRef = useRef<DesignContext[]>([]);
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
@@ -359,7 +373,7 @@ export function useDesignEngineer() {
     setNotice(null);
     if (!api.getAccessToken()) {
       setStep('account');
-      fail('Sign in to your Design Engineer account before connecting Codex.');
+      fail('Sign in to your Designova AI account before connecting Codex.');
       return;
     }
     setWaiting('codex');
@@ -561,7 +575,9 @@ export function useDesignEngineer() {
     else if (step === 'repo') setStep('project');
     else if (step === 'branch') setStep('repo');
     else if (step === 'screens') setStep('branch');
-    else if (step === 'done') setStep('screens');
+    else if (step === 'done' || step === 'planning') setStep('screens');
+    else if (step === 'plan') setStep('done');
+    else if (step === 'complete') setStep('plan');
   }
 
   function continueToGithub() {
@@ -622,6 +638,10 @@ export function useDesignEngineer() {
   async function activateProject(project: api.Project) {
     setSelectedProject(project);
     selectedProjectRef.current = project;
+    implementationScreensRef.current = [];
+    setImplementationScreens([]);
+    setScreenPlan(null);
+    setImplementation(null);
     setSelectedRepo(project.repository);
     selectedRepoRef.current = project.repository;
     setSelectedBranch(project.base_branch);
@@ -664,6 +684,10 @@ export function useDesignEngineer() {
     if (!keepBranch) {
       setSelectedBranch(null);
       selectedBranchRef.current = null;
+      implementationScreensRef.current = [];
+      setImplementationScreens([]);
+      setScreenPlan(null);
+      setImplementation(null);
     }
     setBranches([]);
     setError(null);
@@ -704,6 +728,10 @@ export function useDesignEngineer() {
 
     setSelectedBranch(name);
     selectedBranchRef.current = name;
+    implementationScreensRef.current = [];
+    setImplementationScreens([]);
+    setScreenPlan(null);
+    setImplementation(null);
     setWaiting(null);
     setError(null);
     setStep('screens');
@@ -762,7 +790,7 @@ export function useDesignEngineer() {
     sendToPlugin({ type: 'extract-screens', nodeIds: Array.from(checkedIds) });
   }
 
-  async function handleExtracted(results: any[]) {
+  async function handleExtracted(results: DesignContext[]) {
     const currentSessionId = sessionIdRef.current;
     const currentRepo = selectedRepoRef.current;
     const currentBranch = selectedBranchRef.current;
@@ -781,18 +809,80 @@ export function useDesignEngineer() {
 
     try {
       const result = await api.submitScreens(currentProject.id, currentRepo, currentBranch, results);
+      const mergedScreens = new Map<string, DesignContext>();
+      for (const screen of [...implementationScreensRef.current, ...results]) {
+        if (screen.screen) mergedScreens.set(screen.screen, screen);
+      }
+      const nextScreens = Array.from(mergedScreens.values());
+      implementationScreensRef.current = nextScreens;
+      setImplementationScreens(nextScreens);
       setSavedFiles(result.saved || []);
       setCheckedIds(new Set());
-      setWaiting(null);
-      setStep('done');
+      setScreenPlan(null);
+      setImplementation(null);
+      await planImplementation(nextScreens);
     } catch (err) {
       fail(serverError(err, "Couldn't save the Design Context."), err);
     }
   }
 
+  async function planImplementation(screens = implementationScreensRef.current) {
+    const project = selectedProjectRef.current;
+    if (!project || screens.length === 0) {
+      fail('Fetch at least one screen before planning implementation.');
+      setStep('done');
+      return;
+    }
+
+    setError(null);
+    setWaiting('planning');
+    setStep('planning');
+    try {
+      const plan = await api.planScreens(
+        project.id,
+        screens.map(({ screen }) => ({ screen }))
+      );
+      setScreenPlan(plan);
+      setWaiting(null);
+      setStep('plan');
+    } catch (err) {
+      fail(serverError(err, "Couldn't generate the implementation plan."), err);
+    }
+  }
+
+  async function startImplementation() {
+    const project = selectedProjectRef.current;
+    const screens = implementationScreensRef.current;
+    if (!project || !screenPlan || screens.length === 0) {
+      fail('Generate an implementation plan before starting Codex.');
+      return;
+    }
+
+    setError(null);
+    setWaiting('implementing');
+    setStep('implementing');
+    try {
+      const result = await api.implementScreens(
+        project.id,
+        screens.map(({ screen }) => ({ screen }))
+      );
+      const completed = result.implementations?.[0];
+      if (!completed?.pullRequestUrl) {
+        throw new Error('Codex finished without returning a pull request URL.');
+      }
+      setImplementation(completed);
+      setWaiting(null);
+      setStep('complete');
+    } catch (err) {
+      fail(serverError(err, "Codex couldn't complete the implementation."), err);
+      setStep('plan');
+    }
+  }
+
   function fetchMore() {
     setError(null);
-    setSavedFiles([]);
+    setScreenPlan(null);
+    setImplementation(null);
     setStep('screens');
     sendToPlugin({ type: 'get-selection' });
   }
@@ -806,6 +896,8 @@ export function useDesignEngineer() {
     else if (step === 'account') connectGoogle();
     else if (step === 'signin') signIn();
     else if (step === 'github') connectGithub();
+    else if (step === 'planning') void planImplementation();
+    else if (step === 'plan') void startImplementation();
   }
 
   const state: DesignEngineerState = {
@@ -828,6 +920,9 @@ export function useDesignEngineer() {
     checkedIds,
     extractingCount,
     savedFiles,
+    implementationScreens,
+    screenPlan,
+    implementation,
   };
 
   const actions = {
@@ -856,6 +951,8 @@ export function useDesignEngineer() {
     clearChecked,
     fetchScreens,
     fetchMore,
+    planImplementation,
+    startImplementation,
     retry,
     dismissError: () => setError(null),
   };
@@ -873,7 +970,7 @@ export type DesignEngineerActions = ReturnType<typeof useDesignEngineer>['action
 function serverError(err: any, prefix = 'Something went wrong.'): string {
   const message = String(err?.message || '');
   if (/failed to fetch|networkerror|load failed/i.test(message)) {
-    return `${prefix} The Design Engineer server at ${api.getBaseUrl()} isn't responding. Check that it's running, then try again.`;
+    return `${prefix} The Designova AI server at ${api.getBaseUrl()} isn't responding. Check that it's running, then try again.`;
   }
   return message ? `${prefix} ${message}` : prefix;
 }

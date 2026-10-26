@@ -6,8 +6,8 @@ export default function Restoring() {
     <div className="splash" role="status">
       <div>
         <Mark size={52} />
-        <h1>Design Engineer</h1>
-        <p>Loading Design Engineer…</p>
+        <h1>Designova AI</h1>
+        <p>Loading Designova AI…</p>
         <div className="pulse" aria-hidden="true"><i /><i /><i /></div>
       </div>
     </div>

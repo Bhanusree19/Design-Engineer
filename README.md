@@ -228,11 +228,12 @@ screen, e.g. name a frame `Product Details`.
 8. Click **Fetch (N)**. You'll see progress messages ("Reading layers for...",
    "Capturing screenshot of..."), then *"Uploading design context to
    backend..."*, then a confirmation.
-9. Click **Plan implementation** → the backend builds a read-only plan from
-    the saved Design Contexts: a per-screen breakdown (size, page, node/text/
-    image/component counts), the exact step-by-step of how Codex will write the
-    code (branch, structure, navigation, tests), and the exact prompt that will
-    be sent. **No code is written and no PR is raised at this step.**
+9. After the Design Context is saved, the plugin automatically asks the backend
+   to build a read-only plan from the saved Design Contexts: a per-screen
+   breakdown (size, page, node/text/image/component counts), the exact
+   step-by-step of how Codex will write the code (branch, structure, navigation,
+   tests), and the exact prompt that will be sent. **No code is written and no
+   PR is raised at this step.**
 10. Review the plan, then click **Start implement** (appears only after the
     plan is generated) → the backend clones the repo/branch into a temporary
     worktree, runs the authenticated Codex CLI (instructed to follow the chosen

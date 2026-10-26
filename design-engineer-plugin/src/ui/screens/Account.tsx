@@ -21,7 +21,7 @@ export default function Account({ state, actions }: Props) {
       <Header state={state} actions={actions} />
       <Rail step="account" />
       <Body>
-        <h1>{mode === 'signin' ? 'Sign in to Design Engineer' : 'Create your account'}</h1>
+        <h1>{mode === 'signin' ? 'Sign in to Designova AI' : 'Create your account'}</h1>
         {state.error && <ErrorBanner message={state.error} />}
         {state.notice && <SuccessBanner>{state.notice}</SuccessBanner>}
         <p className="lede">Sign in first to securely save your Codex and GitHub connections.</p>

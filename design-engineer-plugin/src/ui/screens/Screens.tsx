@@ -153,8 +153,9 @@ export function Done({ state, actions }: Props) {
       <Body>
         <span className="big-ok" aria-hidden="true"><Check /></span>
         <h1>{files.length > 0 ? `Design Context saved for ${plural(files.length, 'screen')}` : 'Design Context saved'}</h1>
+        {state.error && <ErrorBanner message={state.error} />}
         <p className="lede">
-          Saved on the Design Engineer server for <span className="mono">{state.selectedBranch}</span>.
+          Saved on the Designova AI server for <span className="mono">{state.selectedBranch}</span>.
         </p>
         {files.length > 0 && (
           <div className="files scroll">
@@ -168,12 +169,143 @@ export function Done({ state, actions }: Props) {
         )}
       </Body>
       <Footer>
+        <button className="btn btn-primary" type="button" onClick={() => void actions.planImplementation()}>
+          Plan implementation
+        </button>
         <button className="btn btn-primary" type="button" onClick={actions.fetchMore}>Fetch more screens</button>
         <div className="btn-row">
           <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to screens</button>
           <button className="btn btn-ghost" type="button" onClick={actions.changeBranch}>Change branch</button>
           <button className="btn btn-ghost" type="button" onClick={actions.changeRepo}>Change repo</button>
         </div>
+      </Footer>
+    </>
+  );
+}
+
+export function Planning({ state, actions }: Props) {
+  return (
+    <>
+      <ScreensHeader state={state} actions={actions} />
+      <Rail step="done" />
+      <Body>
+        {state.waiting === 'planning' ? (
+          <>
+            <h1>Building your implementation plan</h1>
+            <p className="lede">Review comes first. Codex will not write code or open a PR until you approve.</p>
+            <div className="wait"><Spinner /><span className="wait-label">Analyzing {plural(state.implementationScreens.length, 'screen')}</span></div>
+            <div className="bar" role="progressbar" aria-label="Generating implementation plan"><i /></div>
+          </>
+        ) : (
+          <>
+            <h1>Could not generate the plan</h1>
+            {state.error && <ErrorBanner message={state.error} />}
+            <p className="lede">Your Design Context is saved. Retry planning or fetch additional screens.</p>
+          </>
+        )}
+      </Body>
+      <Footer>
+        {state.waiting === 'planning' ? (
+          <button className="btn btn-primary" type="button" disabled>Planning…</button>
+        ) : (
+          <>
+            <button className="btn btn-primary" type="button" onClick={() => void actions.planImplementation()}>Try planning again</button>
+            <button className="btn btn-ghost" type="button" onClick={actions.fetchMore}>Fetch more screens</button>
+          </>
+        )}
+      </Footer>
+    </>
+  );
+}
+
+export function PlanReview({ state, actions }: Props) {
+  const plan = state.screenPlan;
+
+  return (
+    <>
+      <ScreensHeader state={state} actions={actions} />
+      <Rail step="done" />
+      <Body>
+        <h1>Review implementation plan</h1>
+        {state.error && <ErrorBanner message={state.error} />}
+        {plan ? (
+          <>
+            <div className="plan-meta">
+              <span><b>Repository</b>{plan.repository}</span>
+              <span><b>Target branch</b>{plan.proposedBranch}</span>
+              <span><b>Stack</b>{plan.stack === 'react-js' ? 'React' : 'React Native'}</span>
+            </div>
+            <p className="lede">{plural(plan.screens.length, 'screen')} included. Nothing is changed until you approve below.</p>
+            <div className="plan-copy scroll">{plan.plan}</div>
+            <details className="plan-prompt">
+              <summary>View the exact Codex prompt</summary>
+              <pre className="plan-copy scroll">{plan.prompt}</pre>
+            </details>
+          </>
+        ) : (
+          <ErrorBanner message="The implementation plan is unavailable. Generate it again to continue." />
+        )}
+      </Body>
+      <Footer>
+        <button
+          className="btn btn-primary"
+          type="button"
+          onClick={actions.startImplementation}
+          disabled={!plan}
+        >
+          Start implement
+        </button>
+        <div className="btn-row">
+          <button className="btn btn-ghost" type="button" onClick={actions.fetchMore}>Fetch more screens</button>
+          <button className="btn btn-ghost" type="button" onClick={() => void actions.planImplementation()}>Regenerate plan</button>
+        </div>
+      </Footer>
+    </>
+  );
+}
+
+export function Implementing({ state, actions }: Props) {
+  return (
+    <>
+      <ScreensHeader state={state} actions={actions} />
+      <Rail step="done" />
+      <Body>
+        <h1>Codex is implementing your screens</h1>
+        <p className="lede">Codex is working on a branch, then it will commit, push, and open your pull request.</p>
+        {state.error && <ErrorBanner message={state.error} />}
+        <div className="bar" role="progressbar" aria-label="Codex implementation in progress"><i /></div>
+        <div className="wait"><Spinner /><span className="wait-label">Running Codex and creating pull request</span></div>
+      </Body>
+      <Footer>
+        <button className="btn btn-primary" type="button" disabled>Implementing…</button>
+      </Footer>
+    </>
+  );
+}
+
+export function Complete({ state, actions }: Props) {
+  const result = state.implementation;
+
+  return (
+    <>
+      <ScreensHeader state={state} actions={actions} />
+      <Rail step="done" />
+      <Body>
+        <span className="big-ok" aria-hidden="true"><Check /></span>
+        <h1>Implementation complete</h1>
+        <p className="lede">
+          Codex implemented {plural(result?.screens.length || 0, 'screen')} on branch{' '}
+          <span className="mono">{result?.branch}</span>.
+        </p>
+        {result?.pullRequestUrl && (
+          <a className="btn btn-primary pr-link" href={result.pullRequestUrl} target="_blank" rel="noreferrer">
+            Open pull request
+          </a>
+        )}
+      </Body>
+      <Footer>
+        <button className="btn btn-primary" type="button" onClick={actions.fetchMore}>Fetch more screens</button>
+        <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Review the plan</button>
       </Footer>
     </>
   );

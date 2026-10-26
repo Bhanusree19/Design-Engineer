@@ -12,7 +12,14 @@ import SignIn from './screens/SignIn';
 import Github from './screens/Github';
 import Projects from './screens/Projects';
 import { BranchStep, RepoStep } from './screens/Pickers';
-import { Done, ScreensStep } from './screens/Screens';
+import {
+  Complete,
+  Done,
+  Implementing,
+  PlanReview,
+  Planning,
+  ScreensStep,
+} from './screens/Screens';
 
 interface ErrorBoundaryState {
   error: Error | null;
@@ -33,7 +40,7 @@ class AppErrorBoundary extends React.Component<React.PropsWithChildren, ErrorBou
     if (this.state.error) {
       return (
         <div className="app">
-          <header className="head"><span className="head-name">Design Engineer</span></header>
+          <header className="head"><span className="head-name">Designova AI</span></header>
           <main className="body">
             <h1>Something went wrong</h1>
             <p className="lede">The plugin could not render the next screen. Reload the plugin to continue.</p>
@@ -62,6 +69,10 @@ function DesignEngineerApp() {
       {state.step === 'branch' && <BranchStep {...props} />}
       {state.step === 'screens' && <ScreensStep {...props} />}
       {state.step === 'done' && <Done {...props} />}
+      {state.step === 'planning' && <Planning {...props} />}
+      {state.step === 'plan' && <PlanReview {...props} />}
+      {state.step === 'implementing' && <Implementing {...props} />}
+      {state.step === 'complete' && <Complete {...props} />}
     </div>
   );
 }
