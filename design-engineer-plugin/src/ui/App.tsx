@@ -11,7 +11,7 @@ import Account from './screens/Account';
 import SignIn from './screens/SignIn';
 import Github from './screens/Github';
 import Projects from './screens/Projects';
-import { BranchStep, RepoStep } from './screens/Pickers';
+import { BranchStep } from './screens/Pickers';
 import StackStep from './screens/Stack';
 import {
   Complete,
@@ -66,7 +66,6 @@ function DesignEngineerApp() {
       {state.step === 'signin' && <SignIn {...props} />}
       {state.step === 'github' && <Github {...props} />}
       {state.step === 'project' && <Projects {...props} />}
-      {state.step === 'repo' && <RepoStep {...props} />}
       {state.step === 'branch' && <BranchStep {...props} />}
       {state.step === 'stack' && <StackStep {...props} />}
       {state.step === 'screens' && <ScreensStep {...props} />}

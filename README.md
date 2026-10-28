@@ -338,9 +338,11 @@ The backend must run where `git` is installed (it is, in the Docker image).
   Google** button on the account screen; the resulting session is stored like
   the email/password session. **Log out** in the dashboard revokes the
   Supabase session server-side so a different Google account can sign in.
+- **Project and repository selection**: create or choose a project and select
+  its GitHub repository on the same screen, then choose a branch.
 - **Project stack**: every project stores a `stack` column (`react-native` or
-  `react-js`). Choose it after selecting the repo + branch; the backend passes
-  it to Codex so generated code follows the matching folder structure.
+  `react-js`). Choose it after selecting the branch; the backend passes it to
+  Codex so generated code follows the matching folder structure.
 - **RLS**: all backend DB access uses your access token as the PostgREST
   JWT, so users can only read/write their own rows (`profiles` is keyed to
   `auth.uid()`, other tables to `user_id`). The `design_contexts` table is

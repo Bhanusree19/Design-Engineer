@@ -239,7 +239,8 @@ button { font: inherit; color: inherit; }
 .auth-divider::before, .auth-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
 .auth-form { display: grid; gap: 10px; }
 .auth-field { display: grid; gap: 5px; color: var(--muted); font-size: 11px; }
-.auth-field input {
+.auth-field input,
+.auth-field select {
   height: 36px;
   padding: 0 10px;
   border: 1px solid var(--line);
@@ -248,7 +249,12 @@ button { font: inherit; color: inherit; }
   color: var(--ink);
   font: inherit;
 }
-.auth-field input:focus { border-color: var(--accent); outline: none; }
+.auth-field input:focus,
+.auth-field select:focus { border-color: var(--accent); outline: none; }
+.project-fields { display: grid; gap: 8px; flex: none; }
+.new-project-form { display: grid; grid-template-columns: minmax(0, 1fr) 126px; align-items: end; gap: 8px; }
+.repo-picker { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.repo-picker h2 { margin: 0; font-size: 12px; font-weight: 600; }
 .runtime-error {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

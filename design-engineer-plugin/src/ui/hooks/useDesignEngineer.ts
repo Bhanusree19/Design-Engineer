@@ -21,7 +21,6 @@ export type Step =
   | 'signin'
   | 'github'
   | 'project'
-  | 'repo'
   | 'branch'
   | 'stack'
   | 'screens'
@@ -573,8 +572,7 @@ export function useDesignEngineer() {
     setError(null);
     if (step === 'github') setStep('signin');
     else if (step === 'project') setStep('github');
-    else if (step === 'repo') setStep('project');
-    else if (step === 'branch') setStep('repo');
+    else if (step === 'branch') setStep('project');
     else if (step === 'stack') setStep('branch');
     else if (step === 'screens') setStep('stack');
     else if (step === 'done' || step === 'planning') setStep('screens');
@@ -606,38 +604,46 @@ export function useDesignEngineer() {
     setStep('project');
 
     try {
-      const data = await api.listProjects();
-      setProjects(data.projects || []);
+      const [projectData, repoData] = await Promise.all([
+        api.listProjects(),
+        api.listRepos(),
+      ]);
+      setProjects(projectData.projects || []);
+      setRepos(repoData.repos || []);
       setWaiting(null);
     } catch (err) {
-      fail(serverError(err, "Couldn't load projects."), err);
+      fail(serverError(err, "Couldn't load projects and repositories."), err);
     }
   }
 
-  async function createProject(name: string) {
+  async function createProject(name: string): Promise<api.Project | null> {
     setError(null);
     setWaiting('create-project');
 
     try {
       const result = await api.createProject(name);
       setProjects((previous) => [result.project, ...previous]);
-      await activateProject(result.project);
+      activateProject(result.project);
+      setWaiting(null);
+      return result.project;
     } catch (err) {
       fail(serverError(err, "Couldn't create the project."), err);
+      return null;
     }
   }
 
-  async function chooseProject(projectId: string) {
+  function chooseProject(projectId: string): api.Project | null {
     const project = projects.find((item) => item.id === projectId);
     if (!project) {
       fail('Choose a valid project.');
-      return;
+      return null;
     }
 
-    await activateProject(project);
+    activateProject(project);
+    return project;
   }
 
-  async function activateProject(project: api.Project) {
+  function activateProject(project: api.Project) {
     setSelectedProject(project);
     selectedProjectRef.current = project;
     implementationScreensRef.current = [];
@@ -649,7 +655,7 @@ export function useDesignEngineer() {
     setSelectedBranch(project.base_branch);
     selectedBranchRef.current = project.base_branch;
     setBranches([]);
-    await loadRepos();
+    setError(null);
   }
 
   async function loadRepos() {
@@ -661,7 +667,6 @@ export function useDesignEngineer() {
 
     setError(null);
     setWaiting('repos');
-    setStep('repo');
 
     try {
       const data = await api.listRepos();
@@ -674,9 +679,9 @@ export function useDesignEngineer() {
 
   async function chooseRepo(fullName: string) {
     const currentSessionId = sessionIdRef.current;
-    if (!currentSessionId) {
-      fail('Your session ended. Sign in to Codex again.');
-      setStep('signin');
+    if (!currentSessionId || !selectedProjectRef.current) {
+      fail('Choose a project and make sure your session is active before selecting a repository.');
+      if (!currentSessionId) setStep('signin');
       return;
     }
 
@@ -765,7 +770,7 @@ export function useDesignEngineer() {
 
   function changeRepo() {
     setError(null);
-    setStep('repo');
+    setStep('project');
     if (repos.length === 0) void loadRepos();
   }
 
@@ -915,7 +920,6 @@ export function useDesignEngineer() {
   function retry() {
     setError(null);
     if (step === 'project') loadProjects();
-    else if (step === 'repo') loadRepos();
     else if (step === 'branch') changeBranch();
     else if (step === 'screens') fetchScreens();
     else if (step === 'account') connectGoogle();

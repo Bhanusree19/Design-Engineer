@@ -61,7 +61,6 @@ const RAIL: { key: Step; label: string }[] = [
   { key: 'signin', label: 'Codex' },
   { key: 'github', label: 'GitHub' },
   { key: 'project', label: 'Project' },
-  { key: 'repo', label: 'Repo' },
   { key: 'branch', label: 'Branch' },
   { key: 'stack', label: 'Stack' },
   { key: 'screens', label: 'Screens' },
