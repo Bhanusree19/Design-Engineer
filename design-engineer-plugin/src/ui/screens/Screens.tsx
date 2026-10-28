@@ -96,7 +96,7 @@ export function ScreensStep({ state, actions }: Props) {
         )}
       </Body>
       <Footer>
-        <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to branch</button>
+        <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to stack</button>
         <button className="btn btn-primary" type="button" disabled={checked === 0} onClick={actions.fetchScreens}>
           {checked === 0 ? 'Select screens to fetch' : `Fetch ${plural(checked, 'screen')}`}
         </button>

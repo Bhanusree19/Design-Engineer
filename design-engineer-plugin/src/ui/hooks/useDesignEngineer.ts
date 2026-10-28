@@ -23,6 +23,7 @@ export type Step =
   | 'project'
   | 'repo'
   | 'branch'
+  | 'stack'
   | 'screens'
   | 'done'
   | 'planning'
@@ -574,7 +575,8 @@ export function useDesignEngineer() {
     else if (step === 'project') setStep('github');
     else if (step === 'repo') setStep('project');
     else if (step === 'branch') setStep('repo');
-    else if (step === 'screens') setStep('branch');
+    else if (step === 'stack') setStep('branch');
+    else if (step === 'screens') setStep('stack');
     else if (step === 'done' || step === 'planning') setStep('screens');
     else if (step === 'plan') setStep('done');
     else if (step === 'complete') setStep('plan');
@@ -732,6 +734,29 @@ export function useDesignEngineer() {
     setImplementationScreens([]);
     setScreenPlan(null);
     setImplementation(null);
+    setWaiting(null);
+    setError(null);
+    setStep('stack');
+  }
+
+  async function chooseStack(stack: api.Stack) {
+    const project = selectedProjectRef.current;
+    if (!project) {
+      fail('Choose a project before selecting a technology stack.');
+      return;
+    }
+
+    setError(null);
+    setWaiting('saving');
+    try {
+      const result = await api.updateProject(project.id, { stack });
+      setSelectedProject(result.project);
+      selectedProjectRef.current = result.project;
+    } catch (err) {
+      fail(serverError(err, "Couldn't save the project's technology stack."), err);
+      return;
+    }
+
     setWaiting(null);
     setError(null);
     setStep('screens');
@@ -944,6 +969,7 @@ export function useDesignEngineer() {
     createProject,
     chooseRepo,
     chooseBranch,
+    chooseStack,
     changeRepo,
     changeBranch,
     toggleChecked,

@@ -2194,7 +2194,10 @@ app.post('/api/screens/plan', async (req, res) => {
 
     const repository = project.repository;
     const baseBranch = project.base_branch;
-    const stack = project.stack === 'react-js' ? 'react-js' : 'react-native';
+    if (project.stack !== 'react-js' && project.stack !== 'react-native') {
+      return res.status(400).json({ error: 'Choose a technology stack for this project before planning.' });
+    }
+    const stack = project.stack;
 
     if (!repository || !baseBranch) {
       return res.status(400).json({
@@ -2305,7 +2308,10 @@ app.post('/api/screens/implement', async (req, res) => {
 
     const repository = project.repository;
     const baseBranch = project.base_branch;
-    const stack = project.stack === 'react-js' ? 'react-js' : 'react-native';
+    if (project.stack !== 'react-js' && project.stack !== 'react-native') {
+      return res.status(400).json({ error: 'Choose a technology stack for this project before implementation.' });
+    }
+    const stack = project.stack;
 
     if (!repository || !baseBranch) {
       return res

@@ -372,6 +372,36 @@ button.scr:hover { border-color: var(--muted); }
 .empty { flex: 1; display: grid; place-items: center; text-align: center; color: var(--muted); }
 .empty p { margin: 0; max-width: 30ch; }
 .project-empty { min-height: 100px; }
+.stack-options { display: grid; gap: 10px; }
+.stack-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.stack-option:hover { border-color: var(--muted); }
+.stack-option.selected { border-color: var(--accent); background: var(--accent-soft); }
+.stack-radio {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border: 1.5px solid var(--muted);
+  border-radius: 50%;
+}
+.stack-option.selected .stack-radio {
+  border: 5px solid var(--accent);
+  background: var(--bg);
+}
+.stack-option-copy { display: grid; gap: 4px; }
+.stack-option-copy b { font-size: 13px; }
+.stack-option-copy span { color: var(--muted); font-size: 11px; line-height: 1.45; }
 .canvas-hint {
   width: 180px;
   height: 120px;
