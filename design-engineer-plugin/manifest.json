@@ -1,6 +1,6 @@
 {
-  "name": "Designova AI",
-  "id": "1696620541768614287",
+  "name": "Design Engineer",
+  "id": "1684991609411337628",
   "api": "1.0.0",
   "main": "dist/code.js",
   "ui": "dist/ui.html",
@@ -12,6 +12,6 @@
       "https://fonts.googleapis.com",
       "https://fonts.gstatic.com"
     ],
-    "reasoning": "Talks to the Designova AI backend for Codex/GitHub auth, repo + branch listing, and sending extracted Figma design context for storage. Loads the UI typefaces from Google Fonts."
+    "reasoning": "Talks to the Design Engineer backend for Codex/GitHub auth, repo + branch listing, and sending extracted Figma design context for storage. Loads the UI typefaces from Google Fonts."
   }
 }

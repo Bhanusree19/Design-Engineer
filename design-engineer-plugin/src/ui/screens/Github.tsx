@@ -15,7 +15,7 @@ export default function Github({ state, actions }: Props) {
         <Rail step="github" />
         <Body>
           <h1>Finish in your browser</h1>
-          <p className="lede">Authorize Designova AI on GitHub, then come back here. This screen moves on by itself.</p>
+          <p className="lede">Authorize Design Engineer on GitHub, then come back here. This screen moves on by itself.</p>
           <div className="grow" />
           <WaitRow label="Waiting for GitHub" />
         </Body>
@@ -47,7 +47,7 @@ export default function Github({ state, actions }: Props) {
         {state.error && <ErrorBanner message={state.error} />}
         <p className="lede">Connect the GitHub account that contains the repository for your project.</p>
         <div className="points">
-          <div><Shield className="ico" /><span>Your GitHub token stays on the Designova AI server. The plugin never sees it.</span></div>
+          <div><Shield className="ico" /><span>Your GitHub token stays on the Design Engineer server. The plugin never sees it.</span></div>
           <div><Lock className="ico" /><span>Private repos show up if you grant access.</span></div>
         </div>
       </Body>

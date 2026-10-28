@@ -75,7 +75,7 @@ export default function SignIn({ state, actions }: Props) {
         <p className="lede">
           {state.codexUser
             ? 'Your Codex account is connected. Continue to GitHub or switch to another Codex account.'
-            : 'Codex turns the screens you select into Design Context for your repo. You only sign in once. Designova AI remembers it.'}
+            : 'Codex turns the screens you select into Design Context for your repo. You only sign in once. Design Engineer remembers it.'}
         </p>
         {!state.codexUser && <div className="points">
           <div><Check className="ico" /><span>Sign-in happens in your browser on OpenAI's page.</span></div>

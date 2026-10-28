@@ -40,7 +40,7 @@ class AppErrorBoundary extends React.Component<React.PropsWithChildren, ErrorBou
     if (this.state.error) {
       return (
         <div className="app">
-          <header className="head"><span className="head-name">Designova AI</span></header>
+          <header className="head"><span className="head-name">Design Engineer</span></header>
           <main className="body">
             <h1>Something went wrong</h1>
             <p className="lede">The plugin could not render the next screen. Reload the plugin to continue.</p>

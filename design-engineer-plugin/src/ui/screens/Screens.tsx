@@ -155,7 +155,7 @@ export function Done({ state, actions }: Props) {
         <h1>{files.length > 0 ? `Design Context saved for ${plural(files.length, 'screen')}` : 'Design Context saved'}</h1>
         {state.error && <ErrorBanner message={state.error} />}
         <p className="lede">
-          Saved on the Designova AI server for <span className="mono">{state.selectedBranch}</span>.
+          Saved on the Design Engineer server for <span className="mono">{state.selectedBranch}</span>.
         </p>
         {files.length > 0 && (
           <div className="files scroll">

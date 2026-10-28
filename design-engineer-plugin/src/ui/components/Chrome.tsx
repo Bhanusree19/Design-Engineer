@@ -20,7 +20,7 @@ export function Header({
   return (
     <header className="head">
       <Mark />
-      <span className="head-name">Designova AI</span>
+      <span className="head-name">Design Engineer</span>
       {children}
       {state?.accountSignedIn && actions && (
         <details className="account-menu">

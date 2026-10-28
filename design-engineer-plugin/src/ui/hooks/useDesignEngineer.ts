@@ -373,7 +373,7 @@ export function useDesignEngineer() {
     setNotice(null);
     if (!api.getAccessToken()) {
       setStep('account');
-      fail('Sign in to your Designova AI account before connecting Codex.');
+      fail('Sign in to your Design Engineer account before connecting Codex.');
       return;
     }
     setWaiting('codex');
@@ -970,7 +970,7 @@ export type DesignEngineerActions = ReturnType<typeof useDesignEngineer>['action
 function serverError(err: any, prefix = 'Something went wrong.'): string {
   const message = String(err?.message || '');
   if (/failed to fetch|networkerror|load failed/i.test(message)) {
-    return `${prefix} The Designova AI server at ${api.getBaseUrl()} isn't responding. Check that it's running, then try again.`;
+    return `${prefix} The Design Engineer server at ${api.getBaseUrl()} isn't responding. Check that it's running, then try again.`;
   }
   return message ? `${prefix} ${message}` : prefix;
 }
