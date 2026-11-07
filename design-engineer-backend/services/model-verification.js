@@ -61,7 +61,7 @@ async function verifyModelAccess({agent,provider,model,apiKey,run=execute,fetchI
   const root=await fs.promises.mkdtemp(path.join(os.tmpdir(),'design-engineer-model-test-'));
   try {
     const env=apiKey?{[keyEnvByProvider[selection.provider]]:apiKey}:{};
-    await run({
+    const result=await run({
       selection,
       workspace:root,
       home:path.join(root,'auth'),
@@ -70,6 +70,8 @@ async function verifyModelAccess({agent,provider,model,apiKey,run=execute,fetchI
       probe:true,
       prompt:'Connectivity check only. Reply exactly READY. Do not use tools, run commands, read files or modify files.'
     });
+    if(!/\\bREADY\\b/i.test(String(result?.output||'')))
+      throw new ModelAccessError('The provider returned no expected verification response. Please check the model and account.','UNEXPECTED_MODEL_RESPONSE',503);
     return {selection,verified:true,method:selection.agent+'-cli-model-test',billingVerified:true};
   }catch(error) {throw sanitizedError(error)}
   finally{await fs.promises.rm(root,{recursive:true,force:true})}
