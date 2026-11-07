@@ -1796,6 +1796,25 @@ app.get('/api/agents',async(req,res)=>{
   const auth=await requireUser(req,res);if(!auth)return;
   res.json({agents:CODING_AGENTS,providers:MODEL_PROVIDERS});
 });
+app.get('/api/models',async(req,res)=>{
+  const auth=await requireUser(req,res);if(!auth)return;
+  const provider=String(req.query.provider||'opencode');
+  if(!MODEL_PROVIDERS.includes(provider))
+    return res.status(400).json({error:'Unsupported model provider'});
+  const isolated=await fs.promises.mkdtemp(path.join(os.tmpdir(),'design-engineer-catalog-'));
+  try{
+    const cli=process.env.OPENCODE_BIN||'opencode';
+    const result=await runProcess(cli,['models',provider],{
+      cwd:isolated,env:{PATH:process.env.PATH||'/usr/local/bin:/usr/bin:/bin',
+        HOME:isolated,XDG_CONFIG_HOME:path.join(isolated,'.config')}
+    });
+    const models=Array.from(new Set(result.stdout.split(/\r?\n/).map(s=>s.trim())
+      .filter(s=>s.startsWith(provider+'/')&&/^[a-zA-Z0-9][\w.\/:+@-]+$/.test(s)))).slice(0,150);
+    return res.json({provider,models,source:'opencode-cli'});
+  }catch(error){
+    return res.status(503).json({error:'Model catalog is unavailable. Check OpenCode CLI installation.'});
+  }finally{await fs.promises.rm(isolated,{recursive:true,force:true});}
+});
 app.post('/api/models/connections',async(req,res)=>{
   const auth=await requireUser(req,res);if(!auth)return;
   const {provider,apiKey}=req.body||{};
