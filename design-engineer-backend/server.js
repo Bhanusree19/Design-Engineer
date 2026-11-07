@@ -1114,12 +1114,8 @@ app.get('/auth/me', async (req, res) => {
         : null
     );
 
-    let codexConnected = codexSaved;
-    if (codexSaved) {
-      codexConnected = await ensureCodexCredential(auth.user.id, auth.token);
-    } else {
-      codexConnected = (await getCodexLoginStatus()) === 'connected';
-    }
+    // Never restore a user's credentials into a shared server directory.
+    const codexConnected=codexSaved;
 
     res.json({
       user: {
@@ -1160,7 +1156,7 @@ function newId() {
   return crypto.randomBytes(16).toString('hex');
 }
 
-function getCodexLoginStatus() {
+function getCodexLoginStatus(home = CODEX_HOME) {
   return new Promise((resolve) => {
     if (!fs.existsSync(CODEX_CLI_BIN)) {
       console.error('[Design Engineer] Codex CLI not found:', CODEX_CLI_BIN);
@@ -1173,7 +1169,7 @@ function getCodexLoginStatus() {
       [CODEX_CLI_BIN, 'login', 'status'],
       {
         cwd: __dirname,
-        env: { ...process.env, CODEX_HOME, HOME: CODEX_HOME },
+        env: { ...process.env, CODEX_HOME:home, HOME:home },
         stdio: ['ignore', 'pipe', 'pipe'],
       }
     );
@@ -1197,7 +1193,7 @@ function getCodexLoginStatus() {
         (/logged in/i.test(combined) ||
           /authenticated/i.test(combined) ||
           /signed in/i.test(combined) ||
-          !!readCodexAuthFile());
+          !!readCodexAuthFile(home));
 
       resolve(loggedIn ? 'connected' : 'pending');
     });
@@ -1206,8 +1202,8 @@ function getCodexLoginStatus() {
   });
 }
 
-function readCodexAuthFile() {
-  const authPath = path.join(CODEX_HOME, 'auth.json');
+function readCodexAuthFile(home = CODEX_HOME) {
+  const authPath = path.join(home, 'auth.json');
   if (!fs.existsSync(authPath)) return null;
   try {
     return fs.readFileSync(authPath, 'utf8');
@@ -1250,11 +1246,11 @@ function parseCodexUser(authJson) {
   }
 }
 
-async function persistCodexCredentials(userId, token) {
-  const authJson = readCodexAuthFile();
+async function persistCodexCredentials(userId, token, home = CODEX_HOME) {
+  const authJson = readCodexAuthFile(home);
   if (!authJson) return;
 
-  const configTomlPath = path.join(CODEX_HOME, 'config.toml');
+  const configTomlPath = path.join(home, 'config.toml');
   let configToml = null;
   if (fs.existsSync(configTomlPath)) {
     try {
@@ -1301,48 +1297,9 @@ async function findCodexAccount(userId, token) {
 // not already hold them. Returns true when the CLI is authenticated for this
 // user afterwards.
 async function ensureCodexCredential(userId, token) {
-  const acc = await findCodexAccount(userId, token);
-
-  if (!acc || !acc.credential_reference) {
-    return (await getCodexLoginStatus()) === 'connected';
-  }
-
-  let stored;
-  try {
-    stored = JSON.parse(decryptText(acc.credential_reference));
-  } catch (error) {
-    console.error('[Design Engineer] Failed to decrypt Codex credentials:', error);
-    return false;
-  }
-
-  const currentAuthJson = readCodexAuthFile();
-
-  if (
-    currentAuthJson &&
-    stored.authJson &&
-    currentAuthJson.trim() === stored.authJson.trim()
-  ) {
-    // CODEX_HOME already holds this user's credentials.
-    if ((await getCodexLoginStatus()) === 'connected') {
-      return true;
-    }
-  }
-
-  // Restore this user's credentials into CODEX_HOME.
-  try {
-    fs.mkdirSync(CODEX_HOME, { recursive: true });
-    if (stored.authJson) {
-      fs.writeFileSync(path.join(CODEX_HOME, 'auth.json'), stored.authJson, 'utf8');
-    }
-    if (stored.configToml) {
-      fs.writeFileSync(path.join(CODEX_HOME, 'config.toml'), stored.configToml, 'utf8');
-    }
-  } catch (error) {
-    console.error('[Design Engineer] Failed to restore Codex credentials:', error);
-    return false;
-  }
-
-  return (await getCodexLoginStatus()) === 'connected';
+  // Stored auth is restored only in a per-job isolated home at execution time.
+  const row=await findCodexAccount(userId,token);
+  return !!row?.credential_reference;
 }
 
 function markCodexConnected() {
@@ -1358,7 +1315,6 @@ app.get('/auth/codex/status', async (req, res) => {
     const connected = await ensureCodexCredential(auth.user.id, auth.token);
 
     if (connected) {
-      await persistCodexCredentials(auth.user.id, auth.token).catch(() => {});
       return res.json({ connected: true, codexUser: 'Codex CLI user' });
     }
 
@@ -1425,7 +1381,7 @@ function startCodexAuth(deviceCode, userId, accessToken) {
 
     const child = spawn(process.execPath, args, {
       cwd: __dirname,
-      env: { ...process.env, CODEX_HOME, HOME: CODEX_HOME },
+      env: { ...process.env, CODEX_HOME:entry.home, HOME:entry.home },
       stdio: useDeviceAuth ? ['ignore', 'pipe', 'pipe'] : 'ignore',
     });
 
@@ -1454,10 +1410,10 @@ function startCodexAuth(deviceCode, userId, accessToken) {
       if (entry.status === 'approved') return;
 
       try {
-        if (code === 0 && (await getCodexLoginStatus()) === 'connected') {
+        if (code === 0 && (await getCodexLoginStatus(entry.home)) === 'connected') {
           entry.status = 'approved';
           entry.codexUser = 'Codex CLI user';
-          await persistCodexCredentials(userId, accessToken);
+          await persistCodexCredentials(userId, accessToken, entry.home);
           return;
         }
       } catch (error) {
@@ -1521,7 +1477,6 @@ app.post('/auth/codex/device', async (req, res) => {
     const alreadyConnected = await ensureCodexCredential(auth.user.id, auth.token);
 
     if (alreadyConnected) {
-      await persistCodexCredentials(auth.user.id, auth.token).catch(() => {});
       console.log(`[Design Engineer] Codex already authenticated for user ${auth.user.id}`);
 
       return res.json({
@@ -1544,6 +1499,7 @@ app.post('/auth/codex/device', async (req, res) => {
       process: null,
       error: null,
       expiresAt: Date.now() + 15 * 60 * 1000,
+      home: fs.mkdtempSync(path.join(os.tmpdir(),'design-engineer-codex-login-')),
     };
 
     deviceSessions.set(deviceCode, entry);
@@ -1581,10 +1537,10 @@ app.get('/auth/codex/device/:deviceCode/status', async (req, res) => {
   }
 
   if (entry.status === 'pending') {
-    const loginStatus = await getCodexLoginStatus();
+    const loginStatus = await getCodexLoginStatus(entry.home);
     if (loginStatus === 'connected') {
       try {
-        await persistCodexCredentials(entry.userId, entry.accessToken);
+        await persistCodexCredentials(entry.userId, entry.accessToken, entry.home);
         entry.status = 'approved';
         entry.codexUser = 'Codex CLI user';
       } catch (error) {
