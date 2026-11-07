@@ -1799,7 +1799,7 @@ app.get('/api/agents',async(req,res)=>{
 app.post('/api/models/connections',async(req,res)=>{
   const auth=await requireUser(req,res);if(!auth)return;
   const {provider,apiKey}=req.body||{};
-  if(!['anthropic','openai','ollama','deepseek','moonshotai'].includes(provider) ||
+  if(!['anthropic','openai','ollama-cloud','deepseek','moonshotai'].includes(provider) ||
     typeof apiKey!=='string'||apiKey.length<8||apiKey.length>4096)
     return res.status(400).json({error:'Valid supported provider and API key required'});
   try{
@@ -2032,7 +2032,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       const provider=selection.agent==='claude'?'anthropic':selection.provider;
       const connection=await getModelConnection(auth.user.id,provider);
       if(!connection)throw new Error('Connect the model provider before implementation.');
-      const names={anthropic:'ANTHROPIC_API_KEY',openai:'OPENAI_API_KEY',ollama:'OLLAMA_API_KEY',
+      const names={anthropic:'ANTHROPIC_API_KEY',openai:'OPENAI_API_KEY','ollama-cloud':'OLLAMA_API_KEY',
         deepseek:'DEEPSEEK_API_KEY',moonshotai:'MOONSHOT_API_KEY'};
       if(!names[provider])throw new Error('Unsupported model connection.');
       agentEnv[names[provider]]=decryptText(connection.encrypted_credential);
