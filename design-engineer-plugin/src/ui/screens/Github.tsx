@@ -38,11 +38,7 @@ export default function Github({ state, actions }: Props) {
       {header}
       <Rail step="github" />
       <Body>
-        {state.codexUser ? (
-          <SuccessBanner>Signed in to Codex as <b>{state.codexUser}</b></SuccessBanner>
-        ) : (
-          <SuccessBanner>Signed in to Codex</SuccessBanner>
-        )}
+        <SuccessBanner>Design Engineer account connected</SuccessBanner>
         <h1>Connect GitHub</h1>
         {state.error && <ErrorBanner message={state.error} />}
         <p className="lede">Connect the GitHub account that contains the repository for your project.</p>
