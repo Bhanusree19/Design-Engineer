@@ -11,6 +11,11 @@ class ModelAccessError extends Error {
 }
 function sanitizedError(error) {
   if(error instanceof ModelAccessError)return error;
+  const code=error?.code;
+  if(code==='INVALID_API_KEY')return new ModelAccessError('Authentication failed. Check or reconnect your API key or OpenCode account.','INVALID_API_KEY',401);
+  if(code==='BILLING_UNAVAILABLE')return new ModelAccessError('The provider reports insufficient credits or billing access.','BILLING_UNAVAILABLE',402);
+  if(code==='PROVIDER_RATE_LIMIT')return new ModelAccessError('The provider rate limit has been reached.','PROVIDER_RATE_LIMIT',429);
+  if(code==='MODEL_UNAVAILABLE')return new ModelAccessError('That model is not available for the selected provider.','MODEL_UNAVAILABLE',400);
   const message=String(error?.message||'').toLowerCase();
   if(/timed out|timeout/.test(message))return new ModelAccessError('The model connection timed out. Try again.','PROBE_TIMEOUT',504);
   if(/enoent|not found|spawn.*error/.test(message))return new ModelAccessError('The coding CLI is not installed in the backend.','CLI_UNAVAILABLE',503);
@@ -47,10 +52,10 @@ async function verifyModelAccess({agent,provider,model,apiKey,run=execute,fetchI
   if(apiKey)assertProviderKey(selection.provider,apiKey);
   if(selection.agent==='opencode'&&selection.provider!=='opencode'&&!apiKey)
     throw new ModelAccessError('Connect your provider API key first.','CONNECTION_REQUIRED',401);
-  // Anthropic key check avoids charge. A later agent run is still required to
-  // prove the subscription/billing and code-generation endpoint are usable.
+  // Validate Anthropic credentials first without incurring model usage.
+  // Then run a tiny CLI completion to also check billing and actual execution.
   if(selection.agent==='claude')
-    return {selection,...await checkAnthropicKey(apiKey,{fetchImpl}),readyForTest:true};
+    await checkAnthropicKey(apiKey,{fetchImpl});
   // Probe a single response with the exact model. This may incur a very small
   // provider charge; the user explicitly initiates it from Connect/Continue.
   const root=await fs.promises.mkdtemp(path.join(os.tmpdir(),'design-engineer-model-test-'));
@@ -62,9 +67,10 @@ async function verifyModelAccess({agent,provider,model,apiKey,run=execute,fetchI
       home:path.join(root,'auth'),
       env,
       timeoutMs,
+      probe:true,
       prompt:'Connectivity check only. Reply exactly READY. Do not use tools, run commands, read files or modify files.'
     });
-    return {selection,verified:true,method:'opencode-cli-model-test',billingVerified:false};
+    return {selection,verified:true,method:selection.agent+'-cli-model-test',billingVerified:true};
   }catch(error) {throw sanitizedError(error)}
   finally{await fs.promises.rm(root,{recursive:true,force:true})}
 }
