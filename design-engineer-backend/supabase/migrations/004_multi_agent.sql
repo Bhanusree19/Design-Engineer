@@ -5,12 +5,12 @@ alter table public.projects add column if not exists model_id text;
 alter table public.projects drop constraint if exists projects_coding_agent_check;
 alter table public.projects add constraint projects_coding_agent_check check (coding_agent in ('codex','claude','opencode'));
 alter table public.projects drop constraint if exists projects_model_provider_check;
-alter table public.projects add constraint projects_model_provider_check check (model_provider in ('openai','anthropic','opencode','ollama','deepseek','moonshotai'));
+alter table public.projects add constraint projects_model_provider_check check (model_provider in ('openai','anthropic','opencode','ollama-cloud','deepseek','moonshotai'));
 
 create table if not exists public.model_connections (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  provider text not null check (provider in ('anthropic','opencode','ollama','deepseek','moonshotai','openai')),
+  provider text not null check (provider in ('anthropic','opencode','ollama-cloud','deepseek','moonshotai','openai')),
   auth_type text not null default 'api_key',
   encrypted_credential text not null,
   status text not null default 'saved',
