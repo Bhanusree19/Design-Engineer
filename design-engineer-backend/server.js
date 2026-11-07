@@ -2024,11 +2024,19 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
   const worktree = path.join(tempRoot, 'repository');
   const contextDir = path.join(worktree, '.design-engineer', 'context');
 
-  const encodedToken = encodeURIComponent(conn.githubToken);
-  const cloneUrl = `https://x-access-token:${encodedToken}@github.com/${repository}.git`;
-
+  // Never store GitHub tokens in clone URLs or .git/config, which coding agents can read.
+  const cloneUrl = `https://github.com/${repository}.git`;
+  const askpass=path.join(tempRoot,'git-askpass.sh');
+  const askpassBody = '#!/bin/sh\ncase "$1" in\n  *Username*) printf "x-access-token\\n" ;;\n  *Password*) printf "%s\\n" "$DESIGN_ENGINEER_GITHUB_TOKEN" ;;\nesac\n';
+  await fs.promises.writeFile(askpass,askpassBody,{mode:0o700});
+  const gitAuthEnv = {
+    ...process.env,
+    GIT_ASKPASS:askpass, GIT_TERMINAL_PROMPT:'0',
+    DESIGN_ENGINEER_GITHUB_TOKEN:conn.githubToken
+  };
   try {
-    await runProcess('git', ['clone', '--depth=1', '--branch', baseBranch, cloneUrl, worktree]);
+    await runProcess('git', ['clone', '--depth=1', '--branch', baseBranch, cloneUrl, worktree],
+      {env:gitAuthEnv});
 
     await runProcess('git', ['checkout', '-b', branchName], { cwd: worktree });
 
@@ -2088,7 +2096,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
     await runProcess('git', ['config', 'user.email', 'design-engineer[bot]@users.noreply.github.com'], { cwd: worktree });
     await runProcess('git', ['add', '-A'], { cwd: worktree });
     await runProcess('git', ['commit', '-m', `Implement ${screenNames.join(', ')}`], { cwd: worktree });
-    await runProcess('git', ['push', 'origin', branchName], { cwd: worktree });
+    await runProcess('git', ['push', 'origin', branchName], { cwd: worktree, env: gitAuthEnv });
 
     const [owner, repo] = getRepositoryParts(repository);
 
