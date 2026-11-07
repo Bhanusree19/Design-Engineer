@@ -168,7 +168,7 @@ export interface CodexStatusInfo {
 
 export type Stack = 'react-native' | 'react-js';
 export type Agent = 'codex' | 'claude' | 'opencode';
-export type ModelProvider = 'opencode' | 'ollama' | 'deepseek' | 'moonshotai' | 'openai' | 'anthropic';
+export type ModelProvider = 'opencode' | 'ollama-cloud' | 'deepseek' | 'moonshotai' | 'openai' | 'anthropic';
 export function saveProviderKey(provider: ModelProvider, apiKey: string): Promise<{connected:boolean}> {
   return request('/api/models/connections', {method:'POST', body:JSON.stringify({provider,apiKey})});
 }
