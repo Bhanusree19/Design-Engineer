@@ -1825,7 +1825,7 @@ async function modelVerifyRequest(req,res,saveConnection) {
       const existing=await getModelConnection(auth.user.id,selection.provider);
       if(existing?.encrypted_credential)key=decryptText(existing.encrypted_credential);
     }
-    if(saveConnection&&(!apiKey||selection.provider==='opencode'))
+    if(saveConnection&&!apiKey)
       throw new ModelAccessError('A new API key is required to create this connection.','KEY_REQUIRED',400);
     const verified=await verifyModelAccess({
       agent:selection.agent,provider:selection.provider,model:selection.model,apiKey:key
