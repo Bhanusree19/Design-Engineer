@@ -27,6 +27,7 @@ const os = require('os');
 const { createClient } = require('@supabase/supabase-js');
 const { spawn } = require('child_process');
 const {agents:CODING_AGENTS,providers:MODEL_PROVIDERS,validateSelection,execute:executeCodingAgent} = require('./adapters');
+const {verifyModelAccess,ModelAccessError}=require('./services/model-verification');
 
 const app = express();
 
@@ -1812,21 +1813,41 @@ app.get('/api/models',async(req,res)=>{
     return res.status(503).json({error:'Model catalog is unavailable. Check OpenCode CLI installation.'});
   }finally{await fs.promises.rm(isolated,{recursive:true,force:true});}
 });
-app.post('/api/models/connections',async(req,res)=>{
+// A verification response must be based on a real provider request, not merely
+// successful encryption or a model appearing in the catalog.
+async function modelVerifyRequest(req,res,saveConnection) {
   const auth=await requireUser(req,res);if(!auth)return;
-  const {provider,apiKey}=req.body||{};
-  if(!['anthropic','openai','ollama-cloud','deepseek','moonshotai'].includes(provider) ||
-    typeof apiKey!=='string'||apiKey.length<8||apiKey.length>4096)
-    return res.status(400).json({error:'Valid supported provider and API key required'});
-  try{
-    await modelConnectionDb('on_conflict=user_id,provider','POST',{
-      user_id:auth.user.id,provider,auth_type:'api_key',status:'saved',
-      encrypted_credential:encryptText(apiKey)
+  const {agent='opencode',provider,model=null,apiKey}=req.body||{};
+  try {
+    const selection=validateSelection({agent,provider,model});
+    let key=apiKey;
+    if(key===undefined||key==='') {
+      const existing=await getModelConnection(auth.user.id,selection.provider);
+      if(existing?.encrypted_credential)key=decryptText(existing.encrypted_credential);
+    }
+    if(saveConnection&&(!apiKey||selection.provider==='opencode'))
+      throw new ModelAccessError('A new API key is required to create this connection.','KEY_REQUIRED',400);
+    const verified=await verifyModelAccess({
+      agent:selection.agent,provider:selection.provider,model:selection.model,apiKey:key
     });
-    res.json({provider,connected:true});
-  }catch(error){console.error('[Model connection]',error.message);
-    res.status(503).json({error:'Could not save provider connection'});}
-});
+    if(saveConnection) {
+      await modelConnectionDb('on_conflict=user_id,provider','POST',{
+        user_id:auth.user.id,provider:selection.provider,auth_type:'api_key',
+        status:'verified',encrypted_credential:encryptText(apiKey),
+        updated_at:new Date().toISOString()
+      });
+    }
+    // Never send API keys or decrypted credential values in an API response.
+    return res.json({connected:true,...verified});
+  }catch(error){
+    if(error instanceof ModelAccessError)
+      return res.status(error.status).json({error:error.message,code:error.code});
+    console.error('[Design Engineer] Model verification failed:',String(error?.message||'').slice(0,160));
+    return res.status(503).json({error:'Connection verification is unavailable.',code:'VERIFICATION_UNAVAILABLE'});
+  }
+}
+app.post('/api/models/verify',async(req,res)=>modelVerifyRequest(req,res,false));
+app.post('/api/models/connections',async(req,res)=>modelVerifyRequest(req,res,true));
 
 // -----------------------------------------------------------------------------
 // // IMPLEMENT SCREENS WITH CODEX + PR
