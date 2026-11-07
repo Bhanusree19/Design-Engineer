@@ -21,7 +21,7 @@ test('Claude Code verifies both key and model generation before success',async()
   const result=await verifyModelAccess({
     agent:'claude',provider:'anthropic',apiKey:validKey,
     fetchImpl:async()=>({status:200,ok:true}),
-    run:async args=>{called++;assert.equal(args.selection.agent,'claude');assert.equal(args.probe,true)}
+    run:async args=>{called++;assert.equal(args.selection.agent,'claude');assert.equal(args.probe,true);return {output:'READY'}}
   });
   assert.equal(called,1);
   assert.equal(result.verified,true);
@@ -41,6 +41,7 @@ test('OpenCode free model can be probed without an API key',async()=>{
     assert.deepEqual(args.env,{});
     assert.equal(args.probe,true);
     assert.equal(args.selection.model,'opencode/big-pickle');
+    return {output:'READY'};
   }});
   assert.equal(result.verified,true);
 });
@@ -63,6 +64,7 @@ test('OpenCode paid provider passes key only to isolated process environment',as
     apiKey:'example-secret-key',run:async args=>{
       assert.deepEqual(args.env,{DEEPSEEK_API_KEY:'example-secret-key'});
       assert.equal(args.probe,true);
+      return {output:'READY'};
     }
   });
   assert.equal(result.verified,true);
