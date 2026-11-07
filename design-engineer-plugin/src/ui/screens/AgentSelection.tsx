@@ -30,11 +30,11 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
    <h1>Choose AI coding agent</h1>
    {state.error&&<ErrorBanner message={state.error}/>}
    <p className="lede">Select an agent to implement your Figma screens. Model providers and authentication differ by agent.</p>
-   <div className="stack-options">{choices.map(choice=><button type="button" key={choice.id} disabled={saving} className={'stack-option '+(agent===choice.id?'selected':'')} onClick={()=>{setAgent(choice.id);setModel('')}}>
+   <div className="stack-options">{choices.map(choice=><button type="button" key={choice.id} disabled={saving} className={'stack-option '+(agent===choice.id?'selected':'')} onClick={()=>{setAgent(choice.id);setModel('');setApiKey('')}}>
     <span className="stack-radio" aria-hidden="true"/><span className="stack-option-copy"><b>{choice.title}</b><span>{choice.detail}</span></span>
    </button>)}</div>
    {agent==='opencode'&&<>
-    <label className="auth-field"><span>Model provider</span><select value={provider} onChange={e=>{setProvider(e.target.value as ModelProvider);setModel('')}}>
+    <label className="auth-field"><span>Model provider</span><select value={provider} onChange={e=>{setProvider(e.target.value as ModelProvider);setModel('');setApiKey('')}}>
       <option value="opencode">OpenCode models (free models where available)</option>
       <option value="ollama-cloud">Ollama Cloud</option><option value="deepseek">DeepSeek</option>
       <option value="moonshotai">Kimi / Moonshot</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option>
