@@ -13,6 +13,7 @@ import Github from './screens/Github';
 import Projects from './screens/Projects';
 import { BranchStep } from './screens/Pickers';
 import StackStep from './screens/Stack';
+import AgentSelection from './screens/AgentSelection';
 import {
   Complete,
   Done,
@@ -68,6 +69,7 @@ function DesignEngineerApp() {
       {state.step === 'project' && <Projects {...props} />}
       {state.step === 'branch' && <BranchStep {...props} />}
       {state.step === 'stack' && <StackStep {...props} />}
+      {state.step === 'agent' && <AgentSelection {...props} />}
       {state.step === 'screens' && <ScreensStep {...props} />}
       {state.step === 'done' && <Done {...props} />}
       {state.step === 'planning' && <Planning {...props} />}
