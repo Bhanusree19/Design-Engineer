@@ -4,6 +4,17 @@
 **Working branch:** `design-engineer-deployment-04-cloudflare-agents`.
 **Status:** Developer preview. Backend and Figma plugin build in CI. Not deployed.
 
+## Authentication verification update (Deployment 04)
+- The Agent Selection Continue button now verifies access before saving a provider key or updating project settings.
+- Anthropic API credentials are checked against the official model-list endpoint and then Claude Code is asked for a tiny actual response.
+- OpenCode models are tested via a short, explicit model invocation with an isolated process HOME.
+- The provider API key is encrypted only after successful verification; existing saved keys are rechecked when reused.
+- OpenCode account keys can be entered for free-tier models that require sign-in.
+- Error codes distinguish invalid key, billing unavailable, provider rate limit, unknown model, timeout and missing CLI.
+- Each verification is initiated by the user and may incur a small provider charge. Provider credits and free-model terms can change.
+
+**Validation limitation:** GitHub CI tests the logic with mocked provider requests and checks the plugin build. It does not have paid Anthropic/DeepSeek/Ollama Cloud credentials and does not prove that those providers work live. Production agent probing requires proper execution isolation and rate limiting.
+
 ## Changes already committed
 
 - Codex, Claude Code, and OpenCode adapter dispatch with validated agent/model selection.
