@@ -26,6 +26,7 @@ const path = require('path');
 const os = require('os');
 const { createClient } = require('@supabase/supabase-js');
 const { spawn } = require('child_process');
+const {agents:CODING_AGENTS,providers:MODEL_PROVIDERS,validateSelection,execute:executeCodingAgent} = require('./adapters');
 
 const app = express();
 
@@ -1020,12 +1021,28 @@ app.patch('/api/projects/:id', async (req, res) => {
   const auth = await requireUser(req, res);
   if (!auth) return;
 
-  const allowed = ['name', 'description', 'status', 'repository', 'base_branch', 'stack'];
+  const allowed = ['name', 'description', 'status', 'repository', 'base_branch', 'stack', 'coding_agent', 'model_provider', 'model_id'];
   const body = req.body || {};
   const patch = {};
 
   for (const key of allowed) {
     if (body[key] !== undefined) patch[key] = body[key];
+  }
+  if (['coding_agent','model_provider','model_id'].some(k => k in patch)) {
+    try {
+      const rows = await pgQuery('projects',{token:auth.token,query:
+        `id=eq.${req.params.id}&select=coding_agent,model_provider,model_id&limit=1`});
+      const prior = rows?.[0];
+      if (!prior) return res.status(404).json({error:'Project not found'});
+      const selection = validateSelection({
+        agent:patch.coding_agent ?? prior.coding_agent,
+        provider:patch.model_provider ?? prior.model_provider,
+        model:patch.model_id === undefined ? prior.model_id : patch.model_id
+      });
+      patch.coding_agent=selection.agent;
+      patch.model_provider=selection.provider;
+      patch.model_id=selection.model;
+    } catch(error) { return res.status(400).json({error:error.message}); }
   }
 
   if (Object.keys(patch).length === 0) {
@@ -1956,7 +1973,7 @@ async function appendTestInstructions(
   await fs.promises.writeFile(readmePath, `${current.trimEnd()}${section}`, 'utf8');
 }
 
-async function implementScreensInBranch(conn, repository, baseBranch, screens, stack) {
+async function implementScreensInBranch(conn, repository, baseBranch, screens, stack, selection, auth) {
   const screenNames = screens.map((screen) => screen.name);
   const firstScreenName = screenNames[0] || 'screens';
   const safeScreenName = sanitizeFileName(firstScreenName).toLowerCase();
@@ -2040,7 +2057,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
           base: baseBranch,
           body: `## Design Engineer implementation\n\nScreens:\n${screenNames
             .map((screenName) => `- ${screenName}`)
-            .join('\n')}\n\nCodex implemented all selected screens together from the saved Figma design contexts, including navigation. See the README test steps in this branch before merging.`,
+            .join('\n')}\n\n${selection.agent} implemented all selected screens together from the saved Figma design contexts, including navigation. See the README test steps in this branch before merging.`,
         }),
       }
     );
@@ -2147,7 +2164,7 @@ function buildImplementationPlan(selectedScreens, repository, baseBranch, stack)
 
 ${screenLines}
 
-## How Codex will write the code
+## How the selected coding agent will write the code
 
 1. **Clone** \`${repository}\` at branch \`${baseBranch}\` and create a working branch \`${proposedBranch}\`.
 2. **Read README.md, package.json, and the existing source** to learn the stack, package manager, and conventions.
@@ -2160,9 +2177,9 @@ ${screenLines}
 9. **Commit, push, and open a pull request** describing the implemented screens and the README test steps.
 
 Generating this plan writes no code and raises no pull request.
-Only when you click "Start implement" will Codex build the screens and open the PR.
+Only when you click "Start implement" will the selected coding agent build the screens and open the PR.
 
-## Codex prompt (exact text that will be sent)
+## Coding agent prompt (exact text that will be sent)
 
 ${prompt}`;
 
@@ -2290,12 +2307,6 @@ app.post('/api/screens/implement', async (req, res) => {
   }
 
   try {
-    // Make sure the CLI is authenticated for THIS user before running Codex.
-    const codexReady = await ensureCodexCredential(auth.user.id, auth.token);
-    if (!codexReady) {
-      return res.status(401).json({ error: 'Codex is not authenticated. Connect Codex in the plugin first.' });
-    }
-
     const projectRows = await pgQuery('projects', {
       token: auth.token,
       query: `id=eq.${projectId}&select=*&limit=1`,
@@ -2312,6 +2323,8 @@ app.post('/api/screens/implement', async (req, res) => {
       return res.status(400).json({ error: 'Choose a technology stack for this project before implementation.' });
     }
     const stack = project.stack;
+    const selection = validateSelection({agent:project.coding_agent,
+      provider:project.model_provider,model:project.model_id});
 
     if (!repository || !baseBranch) {
       return res
@@ -2359,7 +2372,9 @@ app.post('/api/screens/implement', async (req, res) => {
       repository,
       baseBranch,
       selectedScreens,
-      stack
+      stack,
+      selection,
+      auth
     );
 
     res.json({ success: true, implementations: [implementation] });
