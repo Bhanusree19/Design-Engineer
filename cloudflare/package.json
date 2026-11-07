@@ -1,0 +1,8 @@
+{
+  "name":"design-engineer-cloudflare-staging",
+  "private":true,
+  "type":"module",
+  "scripts":{"dev":"wrangler dev","deploy:staging":"wrangler deploy"},
+  "dependencies":{"@cloudflare/containers":"^0.0.28"},
+  "devDependencies":{"wrangler":"^4.0.0","typescript":"^5.0.0"}
+}
