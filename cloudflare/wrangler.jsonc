@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "design-engineer-agents-staging",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-07",
+  "containers": [
+    {"class_name":"DesignEngineerContainer","image":"../Dockerfile.cloudflare","max_instances":1}
+  ],
+  "durable_objects": {
+    "bindings":[{"name":"BACKEND_CONTAINER","class_name":"DesignEngineerContainer"}]
+  },
+  "migrations":[{"tag":"v1","new_sqlite_classes":["DesignEngineerContainer"]}]
+}
