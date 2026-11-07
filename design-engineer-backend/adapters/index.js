@@ -21,22 +21,37 @@ function validateSelection({agent = 'codex', provider, model = null} = {}) {
   if (agent === 'opencode' && model && model.split('/')[0] !== provider) throw new Error('Model provider does not match selection');
   return {agent, provider, model};
 }
+const keyEnvByProvider = Object.freeze({
+  opencode: 'OPENCODE_API_KEY',
+  'ollama-cloud': 'OLLAMA_API_KEY',
+  deepseek: 'DEEPSEEK_API_KEY',
+  moonshotai: 'MOONSHOT_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+});
+async function configureOpenCode({selection,home,env}) {
+  if (selection.agent !== 'opencode') return;
+  const key=keyEnvByProvider[selection.provider];
+  if (selection.provider !== 'opencode' && (!key || !env[key])) {
+    throw new Error('Connect the model provider before using this model.');
+  }
+  // Official OpenCode provider config uses "provider" and "options", not
+  // "providers"/"settings". Only reference env var names, never store key values.
+  const config={ $schema:'https://opencode.ai/config.json' };
+  if (env[key]) {
+    config.provider={ [selection.provider]: { options: { apiKey:'{env:'+key+'}' } } };
+  }
+  const dir=path.join(home,'.config','opencode');
+  await fs.promises.mkdir(dir,{recursive:true,mode:0o700});
+  const file=path.join(dir,'opencode.json');
+  await fs.promises.writeFile(file,JSON.stringify(config),{mode:0o600});
+  return file;
+}
 async function execute({selection, workspace, prompt, home, env = {}, timeoutMs = 900000, onOutput = () => {}}) {
   const {agent, model} = validateSelection(selection);
   if (!path.isAbsolute(workspace) || !path.isAbsolute(home)) throw new Error('Absolute workspace and isolated home required');
   await fs.promises.mkdir(home, {recursive:true, mode:0o700});
-  // OpenCode's provider configuration references the secret environment variable
-  // rather than storing an API key in the worktree or configuration file.
-  if (agent === 'opencode' && selection.provider !== 'opencode') {
-    const keys={'ollama-cloud':'OLLAMA_API_KEY',deepseek:'DEEPSEEK_API_KEY',
-      moonshotai:'MOONSHOT_API_KEY',openai:'OPENAI_API_KEY',anthropic:'ANTHROPIC_API_KEY'};
-    const key=keys[selection.provider];
-    if (!key || !env[key]) throw new Error('Selected provider API key not configured');
-    const dir=path.join(home,'.config','opencode');
-    await fs.promises.mkdir(dir,{recursive:true,mode:0o700});
-    const config={providers:{[selection.provider]:{settings:{apiKey:'{env:'+key+'}'}}}};
-    await fs.promises.writeFile(path.join(dir,'opencode.json'),JSON.stringify(config),{mode:0o600});
-  }
+  await configureOpenCode({selection,home,env});
   const argv = agent === 'codex'
     ? ['exec', '--cd', workspace, ...(model ? ['--model',model] : []), prompt]
     : agent === 'claude'
@@ -60,4 +75,4 @@ async function execute({selection, workspace, prompt, home, env = {}, timeoutMs 
     child.on('close',code=>finish(code===0?null:new Error('Coding agent failed; check sanitized worker logs')));
   });
 }
-module.exports={agents,providers,validateSelection,execute};
+module.exports={agents,providers,keyEnvByProvider,configureOpenCode,validateSelection,execute};
