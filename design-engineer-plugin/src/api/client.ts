@@ -169,8 +169,19 @@ export interface CodexStatusInfo {
 export type Stack = 'react-native' | 'react-js';
 export type Agent = 'codex' | 'claude' | 'opencode';
 export type ModelProvider = 'opencode' | 'ollama-cloud' | 'deepseek' | 'moonshotai' | 'openai' | 'anthropic';
-export function saveProviderKey(provider: ModelProvider, apiKey: string): Promise<{connected:boolean}> {
-  return request('/api/models/connections', {method:'POST', body:JSON.stringify({provider,apiKey})});
+export interface ModelVerification {
+  connected: boolean;
+  verified: boolean;
+  method: string;
+  billingVerified: boolean;
+}
+export function saveProviderKey(agent: Agent, provider: ModelProvider, model: string | null, apiKey: string): Promise<ModelVerification> {
+  return request('/api/models/connections', {method:'POST',
+    body:JSON.stringify({agent,provider,model,apiKey})});
+}
+export function verifyModel(agent: Agent, provider: ModelProvider, model: string | null): Promise<ModelVerification> {
+  return request('/api/models/verify', {method:'POST',
+    body:JSON.stringify({agent,provider,model})});
 }
 export function listAgents(): Promise<{agents:Agent[];providers:ModelProvider[]}> {return request('/api/agents');}
 export function listModels(provider:ModelProvider): Promise<{models:string[]}> {return request('/api/models?provider='+encodeURIComponent(provider));}
