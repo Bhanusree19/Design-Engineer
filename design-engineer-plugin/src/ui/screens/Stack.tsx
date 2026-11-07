@@ -29,7 +29,7 @@ export default function StackStep({ state, actions }: Props) {
       <Body>
         <h1>Choose a technology stack</h1>
         {state.error && <ErrorBanner message={state.error} />}
-        <p className="lede">Choose how Codex should build this project. Your choice is saved with the project.</p>
+        <p className="lede">Choose how the coding agent should build this project. Your choice is saved with the project.</p>
         <div className="stack-options" role="radiogroup" aria-label="Technology stack">
           {STACKS.map((stack) => {
             const selected = selectedStack === stack.value;
