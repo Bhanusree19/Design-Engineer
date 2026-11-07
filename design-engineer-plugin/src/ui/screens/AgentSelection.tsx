@@ -50,13 +50,13 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
    </>}
    {agent==='codex'&&<p className="lede">Uses your existing Codex connection.</p>}
    {agent==='claude'&&<p className="lede">Connect a supported Anthropic API key. Claude account login is not automatically shared with this server.</p>}
-   {(agent==='claude'||(agent==='opencode'&&provider!=='opencode'))&&
-     <label className="auth-field"><span>Provider API key (leave blank to reuse saved connection)</span>
+   {(agent==='claude'||agent==='opencode')&&
+     <label className="auth-field"><span>{agent==='opencode'&&provider==='opencode'?'OpenCode account API key (optional; use when required)':'Provider API key (leave blank to reuse saved connection)'}</span>
        <input type="password" autoComplete="off" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="Secret API key"/></label>}
-   <p className="lede">Free-model access depends on the provider's current rules and limits.</p>
+   <p className="lede">Continue verifies model access using a small test request. This may incur provider usage charges. Free-tier models can still require an account or API key.</p>
   </Body><Footer>
    <button type="button" className="btn btn-ghost" disabled={saving} onClick={actions.goBack}>Back</button>
-   <button type="button" className="btn btn-primary" disabled={saving||(agent==='opencode'&&!model.trim())} onClick={()=>void actions.chooseAgent(agent,effectiveProvider,model||null,apiKey)}>{saving?'Saving…':'Continue'}</button>
+   <button type="button" className="btn btn-primary" disabled={saving||(agent==='opencode'&&!model.trim())} onClick={()=>void actions.chooseAgent(agent,effectiveProvider,model||null,apiKey)}>{saving?'Checking model access…':'Verify connection & Continue'}</button>
   </Footer>
  </>;
 }
