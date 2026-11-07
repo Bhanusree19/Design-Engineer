@@ -47,7 +47,7 @@ async function configureOpenCode({selection,home,env}) {
   await fs.promises.writeFile(file,JSON.stringify(config),{mode:0o600});
   return file;
 }
-async function execute({selection, workspace, prompt, home, env = {}, timeoutMs = 900000, onOutput = () => {}}) {
+async function execute({selection, workspace, prompt, home, env = {}, timeoutMs = 900000, probe = false, onOutput = () => {}}) {
   const {agent, model} = validateSelection(selection);
   if (!path.isAbsolute(workspace) || !path.isAbsolute(home)) throw new Error('Absolute workspace and isolated home required');
   await fs.promises.mkdir(home, {recursive:true, mode:0o700});
@@ -55,8 +55,11 @@ async function execute({selection, workspace, prompt, home, env = {}, timeoutMs 
   const argv = agent === 'codex'
     ? ['exec', '--cd', workspace, ...(model ? ['--model',model] : []), prompt]
     : agent === 'claude'
-      ? ['-p', prompt, '--max-turns', '60', ...(model ? ['--model',model] : [])]
-      : ['run', ...(model ? ['--model',model] : []), prompt];
+      ? ['-p', prompt, '--max-turns', probe ? '1' : '60',
+        ...(probe ? ['--permission-mode','plan'] : []),
+        ...(model ? ['--model',model] : [])]
+      : ['run', ...(probe ? ['--agent','plan'] : []),
+         ...(model ? ['--model',model] : []), prompt];
   const command = agent === 'codex' ? process.execPath : binaries[agent];
   if (agent === 'codex') argv.unshift(binaries.codex);
   // Do not inherit GitHub OAuth, Supabase or other user secrets from the API server.
@@ -72,7 +75,19 @@ async function execute({selection, workspace, prompt, home, env = {}, timeoutMs 
     for (const stream of [child.stdout,child.stderr]) stream.on('data',chunk=>{
       const line=chunk.toString();output=(output+line).slice(-32768);onOutput(line);
     });
-    child.on('close',code=>finish(code===0?null:new Error('Coding agent failed; check sanitized worker logs')));
+    child.on('close',code=>{
+      if(code===0) return finish(null);
+      const failure=new Error('Coding agent failed; check sanitized worker logs');
+      if(/(?:401|403|unauthorized|invalid.api.key|authentication.required|not.authenticated)/i.test(output))
+        failure.code='INVALID_API_KEY';
+      else if(/(?:402|insufficient.credits|insufficient.quota|billing.required|payment.required)/i.test(output))
+        failure.code='BILLING_UNAVAILABLE';
+      else if(/(?:429|rate.limit|too.many.requests)/i.test(output))
+        failure.code='PROVIDER_RATE_LIMIT';
+      else if(/(?:unknown.model|model.not.found|invalid.model)/i.test(output))
+        failure.code='MODEL_UNAVAILABLE';
+      return finish(failure);
+    });
   });
 }
 module.exports={agents,providers,keyEnvByProvider,configureOpenCode,validateSelection,execute};
