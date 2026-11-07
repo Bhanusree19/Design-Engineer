@@ -20,7 +20,7 @@ export default function Github({ state, actions }: Props) {
           <WaitRow label="Waiting for GitHub" />
         </Body>
         <Footer>
-          <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to Codex</button>
+          <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to account</button>
           <div className="btn-row">
             <button className="btn btn-ghost" type="button" onClick={actions.cancelWaiting}>Cancel</button>
             <button className="btn btn-ghost" type="button" onClick={actions.reopenGithub}>
@@ -52,7 +52,7 @@ export default function Github({ state, actions }: Props) {
         </div>
       </Body>
       <Footer hint="Opens github.com in your browser">
-        <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to Codex</button>
+        <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to account</button>
         {state.githubUser ? (
           <>
             <button className="btn btn-primary" type="button" onClick={actions.switchGithubAccount}>Switch GitHub account</button>
