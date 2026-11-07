@@ -26,7 +26,7 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
    {agent==='opencode'&&<>
     <label className="auth-field"><span>Model provider</span><select value={provider} onChange={e=>{setProvider(e.target.value as ModelProvider);setModel('')}}>
       <option value="opencode">OpenCode models (free models where available)</option>
-      <option value="ollama">Ollama Cloud</option><option value="deepseek">DeepSeek</option>
+      <option value="ollama-cloud">Ollama Cloud</option><option value="deepseek">DeepSeek</option>
       <option value="moonshotai">Kimi / Moonshot</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option>
     </select></label>
     <label className="auth-field"><span>Model ID (provider/model, optional for CLI default)</span>
