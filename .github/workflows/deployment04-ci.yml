@@ -1,0 +1,32 @@
+name: Deployment 04 CI
+on:
+  push:
+    branches: [design-engineer-deployment-04-cloudflare-agents]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            design-engineer-backend/package-lock.json
+            design-engineer-plugin/package-lock.json
+      - name: Backend install
+        run: npm ci
+        working-directory: design-engineer-backend
+      - name: Syntax check
+        run: node --check server.js && node --check adapters/index.js
+        working-directory: design-engineer-backend
+      - name: Adapter unit tests
+        run: node --test tests/adapters.test.js
+        working-directory: design-engineer-backend
+      - name: Plugin install
+        run: npm ci
+        working-directory: design-engineer-plugin
+      - name: Plugin build
+        run: npm run build
+        working-directory: design-engineer-plugin
