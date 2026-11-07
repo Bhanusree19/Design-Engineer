@@ -22,7 +22,7 @@ jobs:
         run: node --check server.js && node --check adapters/index.js
         working-directory: design-engineer-backend
       - name: Adapter unit tests
-        run: node --test tests/adapters.test.js
+        run: node --test tests/*.test.js
         working-directory: design-engineer-backend
       - name: Plugin install
         run: npm ci
