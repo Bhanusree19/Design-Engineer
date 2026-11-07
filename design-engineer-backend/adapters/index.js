@@ -25,6 +25,18 @@ async function execute({selection, workspace, prompt, home, env = {}, timeoutMs 
   const {agent, model} = validateSelection(selection);
   if (!path.isAbsolute(workspace) || !path.isAbsolute(home)) throw new Error('Absolute workspace and isolated home required');
   await fs.promises.mkdir(home, {recursive:true, mode:0o700});
+  // OpenCode's provider configuration references the secret environment variable
+  // rather than storing an API key in the worktree or configuration file.
+  if (agent === 'opencode' && selection.provider !== 'opencode') {
+    const keys={'ollama-cloud':'OLLAMA_API_KEY',deepseek:'DEEPSEEK_API_KEY',
+      moonshotai:'MOONSHOT_API_KEY',openai:'OPENAI_API_KEY',anthropic:'ANTHROPIC_API_KEY'};
+    const key=keys[selection.provider];
+    if (!key || !env[key]) throw new Error('Selected provider API key not configured');
+    const dir=path.join(home,'.config','opencode');
+    await fs.promises.mkdir(dir,{recursive:true,mode:0o700});
+    const config={providers:{[selection.provider]:{settings:{apiKey:'{env:'+key+'}'}}}};
+    await fs.promises.writeFile(path.join(dir,'opencode.json'),JSON.stringify(config),{mode:0o600});
+  }
   const argv = agent === 'codex'
     ? ['exec', '--cd', workspace, ...(model ? ['--model',model] : []), prompt]
     : agent === 'claude'
