@@ -23,6 +23,7 @@ export type Step =
   | 'project'
   | 'branch'
   | 'stack'
+  | 'agent'
   | 'screens'
   | 'done'
   | 'planning'
@@ -238,17 +239,13 @@ export function useDesignEngineer() {
 
       rememberSession(me.user.id);
       setCodexUser(me.codex.codexUser);
-      if (me.codex.connected) {
-        if (me.github.connected) {
-          setGithubUser(me.github.githubUser);
-          await loadProjects();
-          return;
-        }
-        setStep('github');
+      if (me.github.connected) {
+        setGithubUser(me.github.githubUser);
+        await loadProjects();
         return;
       }
-
-      setStep('signin');
+      // Model authentication is optional until a coding agent is selected.
+      setStep('github');
     } catch (err) {
       console.error('[Design Engineer] Session restoration failed:', err);
       if (err instanceof api.ApiError && err.status === 401) {
@@ -272,7 +269,7 @@ export function useDesignEngineer() {
     setError(null);
     setNotice(null);
     setWaiting(null);
-    setStep('signin');
+    setStep('github');
   }
 
   async function signInWithEmail(email: string, password: string) {
@@ -347,6 +344,10 @@ export function useDesignEngineer() {
   async function continueAfterCodex(user: string | null) {
     setCodexUser(user);
     setWaiting(null);
+    if (selectedProjectRef.current) {
+      setStep('agent');
+      return;
+    }
     setStep('github');
 
     const currentSessionId = sessionIdRef.current;
@@ -570,11 +571,12 @@ export function useDesignEngineer() {
       setCodexDeviceAuth(null);
     }
     setError(null);
-    if (step === 'github') setStep('signin');
+    if (step === 'github') setStep('account');
     else if (step === 'project') setStep('github');
     else if (step === 'branch') setStep('project');
     else if (step === 'stack') setStep('branch');
-    else if (step === 'screens') setStep('stack');
+    else if (step === 'agent') setStep('stack');
+    else if (step === 'screens') setStep('agent');
     else if (step === 'done' || step === 'planning') setStep('screens');
     else if (step === 'plan') setStep('done');
     else if (step === 'complete') setStep('plan');
@@ -764,8 +766,34 @@ export function useDesignEngineer() {
 
     setWaiting(null);
     setError(null);
-    setStep('screens');
-    sendToPlugin({ type: 'get-selection' });
+    setStep('agent');
+  }
+
+  async function chooseAgent(agent: api.Agent, provider: api.ModelProvider, model: string | null, apiKey = '') {
+    const project = selectedProjectRef.current;
+    if (!project) return fail('Select a project before choosing an agent.');
+    setError(null);
+    setWaiting('saving');
+    try {
+      if (apiKey) await api.saveProviderKey(provider, apiKey);
+      const result = await api.updateProject(project.id, {
+        coding_agent: agent, model_provider: provider, model_id: model
+      });
+      setSelectedProject(result.project);
+      selectedProjectRef.current = result.project;
+      setWaiting(null);
+      if (agent === 'codex') {
+        const codex = await api.codexStatus();
+        if (!codex.connected) {
+          setStep('signin');
+          return;
+        }
+      }
+      setStep('screens');
+      sendToPlugin({type:'get-selection'});
+    } catch (err) {
+      fail(serverError(err, 'Could not configure coding agent.'), err);
+    }
   }
 
   function changeRepo() {
@@ -884,7 +912,7 @@ export function useDesignEngineer() {
     const project = selectedProjectRef.current;
     const screens = implementationScreensRef.current;
     if (!project || !screenPlan || screens.length === 0) {
-      fail('Generate an implementation plan before starting Codex.');
+      fail('Generate an implementation plan before starting the coding agent.');
       return;
     }
 
@@ -898,13 +926,13 @@ export function useDesignEngineer() {
       );
       const completed = result.implementations?.[0];
       if (!completed?.pullRequestUrl) {
-        throw new Error('Codex finished without returning a pull request URL.');
+        throw new Error('Coding agent finished without returning a pull request URL.');
       }
       setImplementation(completed);
       setWaiting(null);
       setStep('complete');
     } catch (err) {
-      fail(serverError(err, "Codex couldn't complete the implementation."), err);
+      fail(serverError(err, "Coding agent couldn't complete the implementation."), err);
       setStep('plan');
     }
   }
@@ -974,6 +1002,7 @@ export function useDesignEngineer() {
     chooseRepo,
     chooseBranch,
     chooseStack,
+    chooseAgent,
     changeRepo,
     changeBranch,
     toggleChecked,
