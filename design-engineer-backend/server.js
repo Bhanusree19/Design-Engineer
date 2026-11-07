@@ -1817,7 +1817,47 @@ app.post('/api/screens/fetch', async (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// IMPLEMENT SCREENS WITH CODEX + PR
+// API-key provider connections are backend-owned: Supabase service-role access
+// is never exposed to the Figma plugin and always scoped to authenticated users.
+async function modelConnectionDb(query,method='GET',payload) {
+  const key=process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if(!key)throw new Error('SUPABASE_SERVICE_ROLE_KEY must be configured');
+  const response=await fetch(SUPABASE_URL+'/rest/v1/model_connections?'+query,{
+    method,headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json',
+      Prefer:'resolution=merge-duplicates,return=representation'},
+    body:payload===undefined?undefined:JSON.stringify(payload)
+  });
+  if(!response.ok)throw new Error('Could not access model connection storage');
+  return response.json();
+}
+async function getModelConnection(userId,provider) {
+  const data=await modelConnectionDb(
+    'user_id=eq.'+encodeURIComponent(userId)+'&provider=eq.'+encodeURIComponent(provider)+
+    '&select=encrypted_credential&limit=1');
+  return data[0]||null;
+}
+app.get('/api/agents',async(req,res)=>{
+  const auth=await requireUser(req,res);if(!auth)return;
+  res.json({agents:CODING_AGENTS,providers:MODEL_PROVIDERS});
+});
+app.post('/api/models/connections',async(req,res)=>{
+  const auth=await requireUser(req,res);if(!auth)return;
+  const {provider,apiKey}=req.body||{};
+  if(!['anthropic','openai','ollama','deepseek','moonshotai'].includes(provider) ||
+    typeof apiKey!=='string'||apiKey.length<8||apiKey.length>4096)
+    return res.status(400).json({error:'Valid supported provider and API key required'});
+  try{
+    await modelConnectionDb('on_conflict=user_id,provider','POST',{
+      user_id:auth.user.id,provider,auth_type:'api_key',status:'saved',
+      encrypted_credential:encryptText(apiKey)
+    });
+    res.json({provider,connected:true});
+  }catch(error){console.error('[Model connection]',error.message);
+    res.status(503).json({error:'Could not save provider connection'});}
+});
+
+// -----------------------------------------------------------------------------
+// // IMPLEMENT SCREENS WITH CODEX + PR
 // -----------------------------------------------------------------------------
 
 function runProcess(command, args, options = {}) {
@@ -2011,25 +2051,32 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       contextScreens.push({ name: screen.name, fileName: screenFileName });
     }
 
-    await runProcess(
-      process.execPath,
-      [
-        CODEX_CLI_BIN,
-        'exec',
-        '--dangerously-bypass-approvals-and-sandbox',
-        '--cd',
-        worktree,
-        buildImplementationPrompt(contextScreens, contextDir, baseBranch, branchName, stack),
-      ],
-      {
-        cwd: worktree,
-        logPrefix: '[Codex]',
-        env: { ...process.env, CODEX_HOME, HOME: CODEX_HOME },
-      }
-    );
-
-    console.log(`[Design Engineer] Codex finished for ${screenNames.join(', ')}`);
-
+    // Restore only this user's credentials into a fresh home, never the shared API home.
+    const home=path.join(tempRoot,'agent-home');
+    await fs.promises.mkdir(home,{recursive:true,mode:0o700});
+    const agentEnv={};
+    if (selection.agent === 'codex') {
+      const legacy=await findCodexAccount(auth.user.id,auth.token);
+      if (!legacy?.credential_reference) throw new Error('Codex account must be connected first.');
+      const data=JSON.parse(decryptText(legacy.credential_reference));
+      const codexDir=path.join(home,'.codex');
+      await fs.promises.mkdir(codexDir,{recursive:true,mode:0o700});
+      if(data.authJson)await fs.promises.writeFile(path.join(codexDir,'auth.json'),data.authJson,{mode:0o600});
+      if(data.configToml)await fs.promises.writeFile(path.join(codexDir,'config.toml'),data.configToml,{mode:0o600});
+    } else if (selection.agent==='claude' ||
+              (selection.agent==='opencode' && selection.provider!=='opencode')) {
+      const provider=selection.agent==='claude'?'anthropic':selection.provider;
+      const connection=await getModelConnection(auth.user.id,provider);
+      if(!connection)throw new Error('Connect the model provider before implementation.');
+      const names={anthropic:'ANTHROPIC_API_KEY',openai:'OPENAI_API_KEY',ollama:'OLLAMA_API_KEY',
+        deepseek:'DEEPSEEK_API_KEY',moonshotai:'MOONSHOT_API_KEY'};
+      if(!names[provider])throw new Error('Unsupported model connection.');
+      agentEnv[names[provider]]=decryptText(connection.encrypted_credential);
+    }
+    await executeCodingAgent({selection,workspace:worktree,home,env:agentEnv,
+      prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack)});
+    console.log('[Design Engineer] '+selection.agent+' completed');
+    
     await fs.promises.rm(path.join(worktree, '.design-engineer'), {
       recursive: true,
       force: true,
