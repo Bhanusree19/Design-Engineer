@@ -1503,6 +1503,12 @@ app.post('/auth/codex/device', async (req, res) => {
     };
 
     deviceSessions.set(deviceCode, entry);
+    const cleanupTimer=setTimeout(()=>{
+      const current=deviceSessions.get(deviceCode);
+      if(current===entry)deviceSessions.delete(deviceCode);
+      fs.promises.rm(entry.home,{recursive:true,force:true}).catch(()=>{});
+    },15*60*1000);
+    cleanupTimer.unref?.();
 
     const started = await startCodexAuth(deviceCode, auth.user.id, auth.token);
 
@@ -1563,17 +1569,8 @@ app.post('/auth/codex/logout', async (req, res) => {
   if (!auth) return;
 
   try {
-    if (fs.existsSync(CODEX_CLI_BIN)) {
-      await runProcess(
-        process.execPath,
-        [CODEX_CLI_BIN, 'logout'],
-        {
-          cwd: __dirname,
-          env: { ...process.env, CODEX_HOME, HOME: CODEX_HOME },
-        }
-      );
-    }
-
+    // Per-user credentials live in Supabase and are restored only for an
+    // isolated job; never log out a shared process-global Codex home.
     // Clear the stored credential so the next sign-in can authenticate a
     // different account instead of silently restoring the old one.
     await pgQuery('codex_accounts', {
