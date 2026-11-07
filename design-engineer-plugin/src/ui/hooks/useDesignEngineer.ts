@@ -775,7 +775,12 @@ export function useDesignEngineer() {
     setError(null);
     setWaiting('saving');
     try {
-      if (apiKey) await api.saveProviderKey(provider, apiKey);
+      // A connection is only usable after a real authentication/model-access
+      // check; saving arbitrary text is not proof the key works.
+      if (agent !== 'codex') {
+        if (apiKey.trim()) await api.saveProviderKey(agent, provider, model, apiKey.trim());
+        else await api.verifyModel(agent, provider, model);
+      }
       const result = await api.updateProject(project.id, {
         coding_agent: agent, model_provider: provider, model_id: model
       });
