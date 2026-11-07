@@ -24,7 +24,7 @@ export default function Account({ state, actions }: Props) {
         <h1>{mode === 'signin' ? 'Sign in to Design Engineer' : 'Create your account'}</h1>
         {state.error && <ErrorBanner message={state.error} />}
         {state.notice && <SuccessBanner>{state.notice}</SuccessBanner>}
-        <p className="lede">Sign in first to securely save your Codex and GitHub connections.</p>
+        <p className="lede">Sign in to save GitHub connections and your choice of coding agents and model providers.</p>
 
         <button className="btn btn-ghost" type="button" onClick={actions.connectGoogle} disabled={busy}>
           {busy ? 'Waiting for sign-in…' : 'Continue with Google'}
