@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 
 const agents = ['codex', 'claude', 'opencode'];
-const providers = ['opencode', 'ollama', 'deepseek', 'moonshotai', 'openai', 'anthropic'];
+const providers = ['opencode', 'ollama-cloud', 'deepseek', 'moonshotai', 'openai', 'anthropic'];
 const binaries = {
   codex: process.env.CODEX_BIN || path.join(__dirname, '..', 'node_modules', '@openai', 'codex', 'bin', 'codex.js'),
   claude: process.env.CLAUDE_BIN || 'claude',
