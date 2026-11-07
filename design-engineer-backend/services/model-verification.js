@@ -70,7 +70,7 @@ async function verifyModelAccess({agent,provider,model,apiKey,run=execute,fetchI
       probe:true,
       prompt:'Connectivity check only. Reply exactly READY. Do not use tools, run commands, read files or modify files.'
     });
-    if(!/\\bREADY\\b/i.test(String(result?.output||'')))
+    if(!String(result?.output||'').toUpperCase().includes('READY'))
       throw new ModelAccessError('The provider returned no expected verification response. Please check the model and account.','UNEXPECTED_MODEL_RESPONSE',503);
     return {selection,verified:true,method:selection.agent+'-cli-model-test',billingVerified:true};
   }catch(error) {throw sanitizedError(error)}
