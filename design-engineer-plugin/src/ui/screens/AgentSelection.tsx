@@ -1,4 +1,5 @@
-import React, {useState} from 'react';
+import React, {useEffect,useState} from 'react';
+import * as api from '../../api/client';
 import {Body,ErrorBanner,Footer,Header,Rail} from '../components/Chrome';
 import type {DesignEngineerState,DesignEngineerActions} from '../hooks/useDesignEngineer';
 import type {Agent,ModelProvider} from '../../api/client';
@@ -13,6 +14,15 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
  const [provider,setProvider]=useState<ModelProvider>(initial?.model_provider||'opencode');
  const [model,setModel]=useState(initial?.model_id||'');
  const [apiKey,setApiKey]=useState('');
+ const [availableModels,setAvailableModels]=useState<string[]>([]);
+ const [catalogError,setCatalogError]=useState(false);
+ useEffect(()=>{
+   if(agent!=='opencode')return;
+   let active=true;setCatalogError(false);setAvailableModels([]);
+   api.listModels(provider).then(data=>{if(active)setAvailableModels(data.models||[])})
+     .catch(()=>{if(active)setCatalogError(true)});
+   return ()=>{active=false};
+ },[agent,provider]);
  const saving=state.waiting==='saving';
  const effectiveProvider=agent==='codex'?'openai':agent==='claude'?'anthropic':provider;
  return <>
@@ -29,7 +39,13 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
       <option value="ollama-cloud">Ollama Cloud</option><option value="deepseek">DeepSeek</option>
       <option value="moonshotai">Kimi / Moonshot</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option>
     </select></label>
-    <label className="auth-field"><span>Model ID (provider/model, optional for CLI default)</span>
+    <label className="auth-field"><span>Model</span>
+      <select value={availableModels.includes(model)?model:''} onChange={e=>setModel(e.target.value)}>
+        <option value="">Select an available model</option>
+        {availableModels.map(id=><option key={id} value={id}>{id}</option>)}
+      </select></label>
+    {catalogError&&<p className="lede">Model discovery unavailable; check that OpenCode is installed in your backend.</p>}
+    <label className="auth-field"><span>Or enter an exact provider/model ID</span>
       <input value={model} onChange={e=>setModel(e.target.value)} placeholder="opencode/big-pickle"/></label>
    </>}
    {agent==='codex'&&<p className="lede">Uses your existing Codex connection.</p>}
@@ -40,7 +56,7 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
    <p className="lede">Free-model access depends on the provider's current rules and limits.</p>
   </Body><Footer>
    <button type="button" className="btn btn-ghost" disabled={saving} onClick={actions.goBack}>Back</button>
-   <button type="button" className="btn btn-primary" disabled={saving} onClick={()=>void actions.chooseAgent(agent,effectiveProvider,model||null,apiKey)}>{saving?'Saving…':'Continue'}</button>
+   <button type="button" className="btn btn-primary" disabled={saving||(agent==='opencode'&&!model.trim())} onClick={()=>void actions.chooseAgent(agent,effectiveProvider,model||null,apiKey)}>{saving?'Saving…':'Continue'}</button>
   </Footer>
  </>;
 }
