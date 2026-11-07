@@ -167,6 +167,13 @@ export interface CodexStatusInfo {
 }
 
 export type Stack = 'react-native' | 'react-js';
+export type Agent = 'codex' | 'claude' | 'opencode';
+export type ModelProvider = 'opencode' | 'ollama' | 'deepseek' | 'moonshotai' | 'openai' | 'anthropic';
+export function saveProviderKey(provider: ModelProvider, apiKey: string): Promise<{connected:boolean}> {
+  return request('/api/models/connections', {method:'POST', body:JSON.stringify({provider,apiKey})});
+}
+export function listAgents(): Promise<{agents:Agent[];providers:ModelProvider[]}> {return request('/api/agents');}
+
 
 export interface Project {
   id: string;
@@ -177,6 +184,9 @@ export interface Project {
   repository: string | null;
   base_branch: string | null;
   stack: Stack | null;
+  coding_agent?: Agent;
+  model_provider?: ModelProvider | null;
+  model_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -230,7 +240,7 @@ export function getProject(id: string): Promise<{ project: Project; fetchedScree
 
 export function updateProject(
   id: string,
-  patch: Partial<Pick<Project, 'name' | 'description' | 'status' | 'repository' | 'base_branch' | 'stack'>>
+  patch: Partial<Pick<Project, 'name' | 'description' | 'status' | 'repository' | 'base_branch' | 'stack' | 'coding_agent' | 'model_provider' | 'model_id'>>
 ): Promise<{ project: Project }> {
   return request(`/api/projects/${encodeURIComponent(id)}`, {
     method: 'PATCH',
