@@ -192,7 +192,7 @@ export function Planning({ state, actions }: Props) {
         {state.waiting === 'planning' ? (
           <>
             <h1>Building your implementation plan</h1>
-            <p className="lede">Review comes first. Codex will not write code or open a PR until you approve.</p>
+            <p className="lede">Review comes first. The selected coding agent will not write code or open a PR until you approve.</p>
             <div className="wait"><Spinner /><span className="wait-label">Analyzing {plural(state.implementationScreens.length, 'screen')}</span></div>
             <div className="bar" role="progressbar" aria-label="Generating implementation plan"><i /></div>
           </>
@@ -238,7 +238,7 @@ export function PlanReview({ state, actions }: Props) {
             <p className="lede">{plural(plan.screens.length, 'screen')} included. Nothing is changed until you approve below.</p>
             <div className="plan-copy scroll">{plan.plan}</div>
             <details className="plan-prompt">
-              <summary>View the exact Codex prompt</summary>
+              <summary>View the exact coding-agent prompt</summary>
               <pre className="plan-copy scroll">{plan.prompt}</pre>
             </details>
           </>
@@ -270,11 +270,11 @@ export function Implementing({ state, actions }: Props) {
       <ScreensHeader state={state} actions={actions} />
       <Rail step="done" />
       <Body>
-        <h1>Codex is implementing your screens</h1>
-        <p className="lede">Codex is working on a branch, then it will commit, push, and open your pull request.</p>
+        <h1>Your coding agent is implementing your screens</h1>
+        <p className="lede">The selected agent is working on a branch, then it will commit, push, and open your pull request.</p>
         {state.error && <ErrorBanner message={state.error} />}
-        <div className="bar" role="progressbar" aria-label="Codex implementation in progress"><i /></div>
-        <div className="wait"><Spinner /><span className="wait-label">Running Codex and creating pull request</span></div>
+        <div className="bar" role="progressbar" aria-label="Coding agent implementation in progress"><i /></div>
+        <div className="wait"><Spinner /><span className="wait-label">Running coding agent and creating pull request</span></div>
       </Body>
       <Footer>
         <button className="btn btn-primary" type="button" disabled>Implementing…</button>
@@ -294,7 +294,7 @@ export function Complete({ state, actions }: Props) {
         <span className="big-ok" aria-hidden="true"><Check /></span>
         <h1>Implementation complete</h1>
         <p className="lede">
-          Codex implemented {plural(result?.screens.length || 0, 'screen')} on branch{' '}
+          The coding agent implemented {plural(result?.screens.length || 0, 'screen')} on branch{' '}
           <span className="mono">{result?.branch}</span>.
         </p>
         {result?.pullRequestUrl && (
