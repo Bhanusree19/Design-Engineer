@@ -173,6 +173,7 @@ export function saveProviderKey(provider: ModelProvider, apiKey: string): Promis
   return request('/api/models/connections', {method:'POST', body:JSON.stringify({provider,apiKey})});
 }
 export function listAgents(): Promise<{agents:Agent[];providers:ModelProvider[]}> {return request('/api/agents');}
+export function listModels(provider:ModelProvider): Promise<{models:string[]}> {return request('/api/models?provider='+encodeURIComponent(provider));}
 
 
 export interface Project {
