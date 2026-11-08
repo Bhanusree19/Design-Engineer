@@ -28,6 +28,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { spawn } = require('child_process');
 const {agents:CODING_AGENTS,providers:MODEL_PROVIDERS,validateSelection,execute:executeCodingAgent} = require('./adapters');
 const {verifyModelAccess,ModelAccessError}=require('./services/model-verification');
+const geminiApi=require('./adapters/gemini-api');
 
 const app = express();
 
@@ -1043,6 +1044,7 @@ app.patch('/api/projects/:id', async (req, res) => {
       patch.coding_agent=selection.agent;
       patch.model_provider=selection.provider;
       patch.model_id=selection.model;
+      patch.execution_mode=selection.agent==='gemini-api'?'direct-api':'cli';
     } catch(error) { return res.status(400).json({error:error.message}); }
   }
 
@@ -1790,6 +1792,24 @@ async function getModelConnection(userId,provider) {
     '&select=encrypted_credential&limit=1');
   return data[0]||null;
 }
+app.post('/api/models/gemini',async(req,res)=>{
+  const auth=await requireUser(req,res);if(!auth)return;
+  try{
+    let key=req.body?.apiKey;
+    if(!key){
+      const existing=await getModelConnection(auth.user.id,'gemini');
+      if(!existing?.encrypted_credential) return res.status(401).json({
+        error:'Enter a Gemini API key to load models.',code:'CONNECTION_REQUIRED'});
+      key=decryptText(existing.encrypted_credential);
+    }
+    const models=await geminiApi.listModels(key);
+    return res.json({provider:'gemini',models});
+  }catch(error){
+    if(error instanceof geminiApi.GeminiError)
+      return res.status(error.status).json({error:error.message,code:error.code});
+    return res.status(503).json({error:'Gemini model catalog unavailable.'});
+  }
+});
 app.get('/api/agents',async(req,res)=>{
   const auth=await requireUser(req,res);if(!auth)return;
   res.json({agents:CODING_AGENTS,providers:MODEL_PROVIDERS});
@@ -1827,9 +1847,11 @@ async function modelVerifyRequest(req,res,saveConnection) {
     }
     if(saveConnection&&!apiKey)
       throw new ModelAccessError('A new API key is required to create this connection.','KEY_REQUIRED',400);
-    const verified=await verifyModelAccess({
-      agent:selection.agent,provider:selection.provider,model:selection.model,apiKey:key
-    });
+    const verified=selection.agent==='gemini-api'
+      ? await geminiApi.verify({apiKey:key,model:selection.model})
+      : await verifyModelAccess({
+          agent:selection.agent,provider:selection.provider,model:selection.model,apiKey:key
+        });
     if(saveConnection) {
       await modelConnectionDb('on_conflict=user_id,provider','POST',{
         user_id:auth.user.id,provider:selection.provider,auth_type:'api_key',
@@ -1840,6 +1862,8 @@ async function modelVerifyRequest(req,res,saveConnection) {
     // Never send API keys or decrypted credential values in an API response.
     return res.json({connected:true,...verified});
   }catch(error){
+    if(error instanceof geminiApi.GeminiError)
+      return res.status(error.status).json({error:error.message,code:error.code});
     if(error instanceof ModelAccessError)
       return res.status(error.status).json({error:error.message,code:error.code});
     console.error('[Design Engineer] Model verification failed:',String(error?.message||'').slice(0,160));
@@ -2064,6 +2088,14 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       await fs.promises.mkdir(codexDir,{recursive:true,mode:0o700});
       if(data.authJson)await fs.promises.writeFile(path.join(codexDir,'auth.json'),data.authJson,{mode:0o600});
       if(data.configToml)await fs.promises.writeFile(path.join(codexDir,'config.toml'),data.configToml,{mode:0o600});
+    } else if (selection.agent==='gemini-api') {
+      const connection=await getModelConnection(auth.user.id,'gemini');
+      if(!connection)throw new Error('Connect Gemini API before implementation.');
+      await geminiApi.execute({
+        workspace:worktree,contextDir,model:selection.model,
+        apiKey:decryptText(connection.encrypted_credential),
+        prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack)
+      });
     } else if (selection.agent==='claude' ||
               (selection.agent==='opencode' && selection.provider!=='opencode')) {
       const provider=selection.agent==='claude'?'anthropic':selection.provider;
@@ -2074,7 +2106,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       if(!names[provider])throw new Error('Unsupported model connection.');
       agentEnv[names[provider]]=decryptText(connection.encrypted_credential);
     }
-    await executeCodingAgent({selection,workspace:worktree,home,env:agentEnv,
+    if(selection.agent!=='gemini-api') await executeCodingAgent({selection,workspace:worktree,home,env:agentEnv,
       prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack)});
     console.log('[Design Engineer] '+selection.agent+' completed');
     
