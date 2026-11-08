@@ -15,6 +15,46 @@
 
 **Validation limitation:** GitHub CI tests the logic with mocked provider requests and checks the plugin build. It does not have paid Anthropic/DeepSeek/Ollama Cloud credentials and does not prove that those providers work live. Production agent probing requires proper execution isolation and rate limiting.
 
+## Gemini Direct API (added to Deployment 04)
+
+**User flow:** select **Gemini Direct API** at the agent step, paste a Google AI Studio
+Gemini API key (or reuse an existing saved one), click **Load available Gemini models**,
+pick a model, then click **Verify connection & Continue**. The backend uses the
+official Gemini HTTP API to check available models and request a short verification
+response. Only after successful verification is a new key encrypted and stored
+in Supabase `model_connections`. The project saves `coding_agent=gemini-api`,
+`model_provider=gemini`, `model_id=<selected model>`, and
+`execution_mode=direct-api`.
+
+**Implementation flow:** Select Figma frames → Fetch context → Review implementation
+plan → Start Implementation → server clones the selected repo → Gemini REST API
+receives a bounded snapshot of repository files, Figma context and implementation
+prompt → returns structured file edits → server validates paths, rejects symlinks
+and secret paths, and applies files → existing GitHub commit/push/PR path executes.
+
+Gemini has no CLI dependency in this mode. Node's built-in `fetch` is used; no
+Gemini SDK install or Dockerfile change is required. The existing backend still
+needs a writable filesystem and Git to clone/commit/push. This is not an autonomous
+multi-step agent; direct API mode uses a single structured edit pass and DOES NOT
+run or automatically fix builds/tests. Review the PR and run your project tests.
+
+**Development Supabase migration sequence:**
+1. Fresh development Supabase: apply `supabase/schema.sql` first.
+2. Apply `supabase/migrations/004_multi_agent.sql`.
+3. Apply `supabase/migrations/005_gemini_direct_api.sql`.
+
+Migration 005 is additive: adds `projects.execution_mode` defaulting to `cli`,
+extends allowed agents/providers, and adds `implementation_jobs.execution_mode`.
+The existing `model_connections` encrypted-credential table is reused for Gemini;
+no raw API keys are stored on `projects` and existing Codex/Claude/OpenCode
+projects retain `cli` execution mode. Do NOT apply migrations to your production
+Supabase database before separate staging validation and a backup.
+
+**Verification limitations:** GitHub CI checks mocked Gemini model API responses,
+project TypeScript build and safe file application. Live Google API billing,
+model availability, real repo PRs, Cloudflare isolation and production security
+are not verified. Do not cut over the published Figma plugin yet.
+
 ## Changes already committed
 
 - Codex, Claude Code, and OpenCode adapter dispatch with validated agent/model selection.
