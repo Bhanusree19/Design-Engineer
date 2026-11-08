@@ -3,7 +3,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 
-const agents = ['codex', 'claude', 'opencode', 'gemini-api'];
+const agents = ['codex', 'claude', 'opencode', 'gemini-api', 'direct-api'];
 const providers = ['opencode', 'ollama-cloud', 'deepseek', 'moonshotai', 'openai', 'anthropic', 'gemini'];
 const binaries = {
   codex: process.env.CODEX_BIN || path.join(__dirname, '..', 'node_modules', '@openai', 'codex', 'bin', 'codex.js'),
@@ -12,11 +12,15 @@ const binaries = {
 };
 function validateSelection({agent = 'codex', provider, model = null} = {}) {
   if (!agents.includes(agent)) throw new Error('Unsupported coding agent');
-  provider ||= agent === 'codex' ? 'openai' : agent === 'claude' ? 'anthropic' : agent === 'gemini-api' ? 'gemini' : 'opencode';
+  provider ||= agent === 'codex' ? 'openai' : agent === 'claude' ? 'anthropic' : agent === 'gemini-api' ? 'gemini' : agent === 'direct-api' ? undefined : 'opencode';
   if (agent === 'codex' && provider !== 'openai') throw new Error('Codex requires OpenAI');
   if (agent === 'claude' && provider !== 'anthropic') throw new Error('Claude Code requires Anthropic');
   if (agent === 'gemini-api' && provider !== 'gemini') throw new Error('Gemini Direct API requires Gemini provider');
   if (agent === 'gemini-api' && (!model || !/^gemini-[a-z0-9][a-z0-9._-]{1,90}$/i.test(model))) throw new Error('Select a valid Gemini model');
+  if (agent === 'direct-api' && !['gemini','deepseek','openai','anthropic'].includes(provider))
+    throw new Error('Direct API supports only Gemini, DeepSeek, OpenAI and Anthropic');
+  if (agent === 'direct-api' && (!model || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,140}$/.test(model)))
+    throw new Error('Choose a valid Direct API model');
   if (agent === 'opencode' && !providers.includes(provider)) throw new Error('Unsupported OpenCode model provider');
   if (model != null && (typeof model !== 'string' || !/^[a-zA-Z0-9][\w./:+@-]{0,150}$/.test(model))) throw new Error('Invalid model identifier');
   if (agent === 'opencode' && model && !model.includes('/')) throw new Error('OpenCode model IDs use provider/model syntax');
