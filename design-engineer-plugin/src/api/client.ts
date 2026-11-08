@@ -167,7 +167,7 @@ export interface CodexStatusInfo {
 }
 
 export type Stack = 'react-native' | 'react-js';
-export type Agent = 'codex' | 'claude' | 'opencode' | 'gemini-api';
+export type Agent = 'codex' | 'claude' | 'opencode' | 'gemini-api' | 'direct-api';
 export type ModelProvider = 'opencode' | 'ollama-cloud' | 'deepseek' | 'moonshotai' | 'openai' | 'anthropic' | 'gemini';
 export interface ModelVerification {
   connected: boolean;
@@ -185,6 +185,10 @@ export function verifyModel(agent: Agent, provider: ModelProvider, model: string
 }
 export function listAgents(): Promise<{agents:Agent[];providers:ModelProvider[]}> {return request('/api/agents');}
 export function listModels(provider:ModelProvider): Promise<{models:string[]}> {return request('/api/models?provider='+encodeURIComponent(provider));}
+export type DirectProvider = 'gemini' | 'deepseek' | 'openai' | 'anthropic';
+export function listDirectModels(provider: DirectProvider, apiKey?: string): Promise<{models:string[]}> {
+  return request('/api/models/direct',{method:'POST',body:JSON.stringify({provider,apiKey:apiKey||undefined})});
+}
 export function listGeminiModels(apiKey?:string): Promise<{models:string[]}> {
   return request('/api/models/gemini',{method:'POST',body:JSON.stringify({apiKey:apiKey||undefined})});
 }
