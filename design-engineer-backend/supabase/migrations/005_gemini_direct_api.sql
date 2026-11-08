@@ -29,6 +29,8 @@ ALTER TABLE public.projects
   );
 
 -- Credential records stay encrypted and scoped to user_id; no new plaintext fields.
+-- Expand the existing provider allowlist. If your staging database has a
+-- custom provider CHECK constraint, review that constraint before applying.
 ALTER TABLE public.model_connections
   DROP CONSTRAINT IF EXISTS model_connections_provider_check;
 ALTER TABLE public.model_connections
