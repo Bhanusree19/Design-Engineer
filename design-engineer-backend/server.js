@@ -29,6 +29,7 @@ const { spawn } = require('child_process');
 const {agents:CODING_AGENTS,providers:MODEL_PROVIDERS,validateSelection,execute:executeCodingAgent} = require('./adapters');
 const {verifyModelAccess,ModelAccessError}=require('./services/model-verification');
 const geminiApi=require('./adapters/gemini-api');
+const directApi=require('./adapters/direct-api');
 
 const app = express();
 
@@ -1044,7 +1045,7 @@ app.patch('/api/projects/:id', async (req, res) => {
       patch.coding_agent=selection.agent;
       patch.model_provider=selection.provider;
       patch.model_id=selection.model;
-      patch.execution_mode=selection.agent==='gemini-api'?'direct-api':'cli';
+      patch.execution_mode=['gemini-api','direct-api'].includes(selection.agent)?'direct-api':'cli';
     } catch(error) { return res.status(400).json({error:error.message}); }
   }
 
@@ -1792,6 +1793,28 @@ async function getModelConnection(userId,provider) {
     '&select=encrypted_credential&limit=1');
   return data[0]||null;
 }
+// Four supported Direct API providers; allowlisted destinations only.
+app.post('/api/models/direct',async(req,res)=>{
+  const auth=await requireUser(req,res);if(!auth)return;
+  const provider=req.body?.provider;
+  try{
+    directApi.validProvider(provider);
+    let key=req.body?.apiKey;
+    if(!key){
+      const account=await getModelConnection(auth.user.id,provider);
+      if(!account?.encrypted_credential)
+        return res.status(401).json({error:'Enter a provider API key to list models.',code:'CONNECTION_REQUIRED'});
+      key=decryptText(account.encrypted_credential);
+    }
+    const models=await directApi.listModels({provider,apiKey:key});
+    return res.json({provider,models});
+  }catch(error){
+    if(error instanceof directApi.DirectApiError||error instanceof geminiApi.GeminiError)
+      return res.status(error.status).json({error:error.message,code:error.code});
+    console.error('[Design Engineer] Direct model discovery failed:',error?.code||'unknown');
+    return res.status(503).json({error:'Could not list models for this provider.',code:'PROVIDER_UNAVAILABLE'});
+  }
+});
 app.post('/api/models/gemini',async(req,res)=>{
   const auth=await requireUser(req,res);if(!auth)return;
   try{
@@ -1847,8 +1870,8 @@ async function modelVerifyRequest(req,res,saveConnection) {
     }
     if(saveConnection&&!apiKey)
       throw new ModelAccessError('A new API key is required to create this connection.','KEY_REQUIRED',400);
-    const verified=selection.agent==='gemini-api'
-      ? await geminiApi.verify({apiKey:key,model:selection.model})
+    const verified=['gemini-api','direct-api'].includes(selection.agent)
+      ? await directApi.verify({provider:selection.provider,apiKey:key,model:selection.model})
       : await verifyModelAccess({
           agent:selection.agent,provider:selection.provider,model:selection.model,apiKey:key
         });
@@ -1862,7 +1885,7 @@ async function modelVerifyRequest(req,res,saveConnection) {
     // Never send API keys or decrypted credential values in an API response.
     return res.json({connected:true,...verified});
   }catch(error){
-    if(error instanceof geminiApi.GeminiError)
+    if(error instanceof directApi.DirectApiError || error instanceof geminiApi.GeminiError)
       return res.status(error.status).json({error:error.message,code:error.code});
     if(error instanceof ModelAccessError)
       return res.status(error.status).json({error:error.message,code:error.code});
@@ -2088,11 +2111,12 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       await fs.promises.mkdir(codexDir,{recursive:true,mode:0o700});
       if(data.authJson)await fs.promises.writeFile(path.join(codexDir,'auth.json'),data.authJson,{mode:0o600});
       if(data.configToml)await fs.promises.writeFile(path.join(codexDir,'config.toml'),data.configToml,{mode:0o600});
-    } else if (selection.agent==='gemini-api') {
-      const connection=await getModelConnection(auth.user.id,'gemini');
-      if(!connection)throw new Error('Connect Gemini API before implementation.');
-      await geminiApi.execute({
-        workspace:worktree,contextDir,model:selection.model,
+    } else if (selection.agent==='gemini-api'||selection.agent==='direct-api') {
+      const provider=selection.agent==='gemini-api'?'gemini':selection.provider;
+      const connection=await getModelConnection(auth.user.id,provider);
+      if(!connection)throw new Error('Connect the selected Direct API provider before implementation.');
+      await directApi.execute({
+        provider,workspace:worktree,contextDir,model:selection.model,
         apiKey:decryptText(connection.encrypted_credential),
         prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack)
       });
@@ -2106,7 +2130,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       if(!names[provider])throw new Error('Unsupported model connection.');
       agentEnv[names[provider]]=decryptText(connection.encrypted_credential);
     }
-    if(selection.agent!=='gemini-api') await executeCodingAgent({selection,workspace:worktree,home,env:agentEnv,
+    if(!['gemini-api','direct-api'].includes(selection.agent)) await executeCodingAgent({selection,workspace:worktree,home,env:agentEnv,
       prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack)});
     console.log('[Design Engineer] '+selection.agent+' completed');
     
