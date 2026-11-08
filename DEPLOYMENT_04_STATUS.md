@@ -15,6 +15,49 @@
 
 **Validation limitation:** GitHub CI tests the logic with mocked provider requests and checks the plugin build. It does not have paid Anthropic/DeepSeek/Ollama Cloud credentials and does not prove that those providers work live. Production agent probing requires proper execution isolation and rate limiting.
 
+## Four Direct API providers (current Deployment 04 feature)
+
+The Figma agent-selection page offers two **separate execution paths**:
+
+- **Coding CLI agents:** Codex CLI, Claude Code CLI, OpenCode CLI.
+- **Direct Model API:** Gemini, DeepSeek, OpenAI, Anthropic only.
+
+Direct API user flow: choose Direct Model API → choose one of four providers →
+enter that provider's key (or reuse a saved connection) → load models from the
+provider's own API → select a model → Verify Connection & Continue → select
+Figma frames → review implementation plan → generate files → GitHub PR.
+
+All four providers share backend adapter \`adapters/direct-api.js\`, which has
+an explicit four-provider registry, allowlisted HTTPS hosts, per-provider
+authentication headers/response parsing and connection probes.
+\`adapters/gemini-api.js\` retains the common bounded repository context,
+structured edit generation and protected-file validation for every direct
+provider (the module name is historical).
+Direct API requests use Node 22 \`fetch\`, not any coding CLI binary.
+Implementation still runs in the existing repository workspace and reuses
+GitHub clone/commit/push/PR code. It does **not** run tests or perform
+multi-turn repair; review PRs before merging.
+
+**Development Supabase migrations (in this exact order):**
+1. \`supabase/schema.sql\` only for a fresh development database.
+2. \`supabase/migrations/004_multi_agent.sql\`
+3. \`supabase/migrations/005_gemini_direct_api.sql\`
+4. \`supabase/migrations/006_four_direct_api_providers.sql\`
+
+Projects store \`coding_agent='direct-api'\`, \`execution_mode='direct-api'\`,
+\`model_provider\` equal to one of \`gemini/deepseek/openai/anthropic\`, and
+the chosen \`model_id\`. Existing CLI projects still have
+\`execution_mode='cli'\`; legacy \`gemini-api\` projects also remain supported.
+Encrypted credentials are stored in \`model_connections\` keyed by user/provider,
+not in projects. The backend verifies keys and models before updating the
+project and never sends provider keys back to Figma.
+
+Do not apply this migration to production before backup and staging testing.
+CI checks adapter logic with mocks and compiles the Figma plugin; real API
+billing/access, Docker staging and GitHub-generated PRs still need local
+end-to-end verification. Generated repository code is untrusted; keep it
+out of privileged build environments.
+
 ## Gemini Direct API (added to Deployment 04)
 
 **User flow:** select **Gemini Direct API** at the agent step, paste a Google AI Studio
