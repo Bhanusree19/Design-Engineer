@@ -54,26 +54,41 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
  }
  return <>
   <Header state={state} actions={actions}/><Rail step="agent"/><Body>
-   <h1>Choose AI coding agent</h1>
+   <div className="step-heading">
+    <span className="step-heading-icon" aria-hidden="true">✦</span>
+    <span><h1>Choose AI coding agent</h1>
+      <p>Choose a CLI coding agent or connect a model directly through its API.</p>
+    </span>
+   </div>
    {state.error&&<ErrorBanner message={state.error}/>}
-   <p className="lede">Select an agent to implement your Figma screens. Model providers and authentication differ by agent.</p>
-   <p className="lede"><b>Coding CLI agents</b> — run a coding-agent CLI to implement your designs.</p>
-   <div className="stack-options">{cliChoices.map(choice=><button type="button" key={choice.id}
-     disabled={saving} className={'stack-option '+(agent===choice.id?'selected':'')}
-     onClick={()=>switchAgent(choice.id)}>
-    <span className="stack-radio" aria-hidden="true"/><span className="stack-option-copy">
-    <b>{choice.title}</b><span>{choice.detail}</span></span>
+   <div className="agent-category-title"><b>Coding CLI agents</b><span>Run through a supported coding-agent CLI.</span></div>
+   <div className="agent-choice-grid" role="radiogroup" aria-label="Coding CLI agents">{cliChoices.map(choice=><button type="button"
+     key={choice.id} role="radio" aria-checked={agent===choice.id} disabled={saving}
+     className={'agent-tile '+(agent===choice.id?'selected':'')} onClick={()=>switchAgent(choice.id)}>
+     <span className="agent-tile-icon" aria-hidden="true">{choice.id==='codex'?'⌘':choice.id==='claude'?'✳':'▱'}</span>
+     <span className="agent-tile-radio" aria-hidden="true"/>
+     <b>{choice.title}</b>
+     <small>{choice.id==='codex'?'OpenAI coding agent':choice.id==='claude'?'Anthropic coding agent':'Multi-provider CLI'}</small>
    </button>)}</div>
-   <p className="lede"><b>Direct Model API</b> — call the selected model provider using an API key, without a coding CLI.</p>
-   <div className="stack-options"><button type="button"
-     disabled={saving} className={'stack-option '+(agent==='direct-api'?'selected':'')}
-     onClick={()=>switchAgent('direct-api')}>
-     <span className="stack-radio" aria-hidden="true"/><span className="stack-option-copy">
-       <b>Direct API (Gemini / DeepSeek / OpenAI / Anthropic)</b>
-       <span>Choose a provider, enter its API key and verify the model</span>
-     </span></button></div>
+   <div className="agent-category-title"><b>Direct Model API</b><span>Use your provider API key without a coding CLI.</span></div>
+   <div className="direct-choice-grid" role="radiogroup" aria-label="Direct API providers">{directProviders.map(choice=><button
+     key={choice.id} type="button" role="radio"
+     aria-checked={agent==='direct-api'&&effectiveProvider===choice.id}
+     className={'agent-tile direct-tile '+(agent==='direct-api'&&effectiveProvider===choice.id?'selected':'')}
+     disabled={saving} onClick={()=>{
+       if(agent!=='direct-api')switchAgent('direct-api');
+       setProvider(choice.id);setModel('');setApiKey('');setAvailableModels([]);setCatalogError(false);
+     }}>
+     <span className="agent-tile-icon" aria-hidden="true">{choice.id==='gemini'?'✦':choice.id==='deepseek'?'◈':choice.id==='openai'?'◎':'✳'}</span>
+     <span className="agent-tile-radio" aria-hidden="true"/>
+     <b>{choice.label.replace('Google ','').replace(' API','')}</b>
+   </button>)}</div>
    <section ref={configRef} className="agent-config" aria-label="Selected coding agent configuration">
-     <p className="lede"><b>Selected:</b> {agent==='direct-api'?'Direct Model API':agent==='codex'?'Codex CLI':agent==='claude'?'Claude Code CLI':'OpenCode CLI'}</p>
+     <div className="agent-config-title">
+       <span className="agent-config-symbol" aria-hidden="true">⚙</span>
+       <div><strong>{agent==='direct-api'?effectiveProvider.charAt(0).toUpperCase()+effectiveProvider.slice(1)+' API':agent==='codex'?'Codex CLI':agent==='claude'?'Claude Code CLI':'OpenCode CLI'} configuration</strong>
+       <small>Configure your connection and choose the model when required.</small></div>
+     </div>
    {agent==='opencode'&&<>
     <label className="auth-field"><span>Model provider</span><select value={provider} onChange={e=>{setProvider(e.target.value as ModelProvider);setModel('');setApiKey('')}}>
       <option value="opencode">OpenCode models (free models where available)</option>
@@ -116,9 +131,9 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
      <label className="auth-field"><span>{agent==='opencode'&&provider==='opencode'?'OpenCode account API key (optional; use when required)':'Provider API key (leave blank to reuse saved connection)'}</span>
        <input type="password" autoComplete="off" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="Secret API key"/></label>}
    </section>
-   <p className="lede">Continue verifies model access using a small test request. This may incur provider usage charges. Free-tier models can still require an account or API key.</p>
+   <p className="agent-help">Verification checks the selected connection with a small model request. Provider usage charges or free-tier limits may apply.</p>
   </Body><Footer>
-   <button type="button" className="btn btn-ghost" disabled={saving} onClick={actions.goBack}>Back</button>
+   <button type="button" className="btn btn-ghost" disabled={saving} onClick={actions.goBack}>← Back</button>
    <button type="button" className="btn btn-primary"
      title={(agent==='opencode'||agent==='direct-api')&&!model.trim()?'Choose a model above to continue':'Verify the selected agent connection'}
      disabled={saving||catalogLoading||((agent==='opencode'||agent==='direct-api')&&!model.trim())} onClick={()=>void actions.chooseAgent(agent,effectiveProvider,model||null,apiKey)}>{saving?'Checking model access…':'Verify connection & Continue'}</button>
