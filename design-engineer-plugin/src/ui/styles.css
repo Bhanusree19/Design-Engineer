@@ -194,8 +194,20 @@ button { font: inherit; color: inherit; }
   flex-direction: column;
   gap: 14px;
   padding: 20px 16px 12px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
+/* Agent selection can exceed the compact Figma dialog height. Only the body
+   scrolls; the header and action footer stay visible. */
+.app[data-step="agent"] .body {
+  scrollbar-gutter: stable;
+  scroll-behavior: smooth;
+}
+.app[data-step="agent"] .body > * { flex-shrink: 0; }
+.app[data-step="agent"] .auth-field { flex-shrink: 0; }
+
 .body h1 {
   font-family: var(--f-display);
   font-weight: 700;
