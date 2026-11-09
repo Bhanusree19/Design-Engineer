@@ -17,6 +17,7 @@ export default function Projects({ state, actions }: Props) {
   const creatingProject = state.waiting === 'create-project';
   const loading = loadingProjects || loadingRepos || creatingProject;
   const failed = !!state.error && state.repos.length === 0 && !loading;
+  const projectReady = !!selectedId && selectedId !== NEW_PROJECT;
 
   useEffect(() => {
     setSelectedId(state.selectedProject?.id || null);
@@ -63,11 +64,16 @@ export default function Projects({ state, actions }: Props) {
       </Header>
       <Rail step="project" />
       <Body>
-        <h1>Project &amp; repository</h1>
+        <div className="step-heading">
+          <span className="step-heading-icon" aria-hidden="true">▣</span>
+          <span><h1>Project &amp; repository</h1>
+            <p>Choose a project first, then select the GitHub repository for it.</p>
+          </span>
+        </div>
         {state.error && <ErrorBanner message={state.error} />}
         <div className="project-fields">
           <label className="auth-field" htmlFor="project-choice">
-            Project
+            Project <span aria-hidden="true">*</span>
             <select
               id="project-choice"
               value={selectedId || ''}
@@ -75,11 +81,8 @@ export default function Projects({ state, actions }: Props) {
               onChange={(event) => {
                 const id = event.target.value;
                 setSelectedId(id || null);
-                if (id === NEW_PROJECT) {
-                  setSelectedRepo(null);
-                } else if (id) {
-                  actions.chooseProject(id);
-                }
+                setSelectedRepo(null);
+                if (id && id !== NEW_PROJECT) actions.chooseProject(id);
               }}
             >
               <option value="">Choose a project</option>
@@ -111,6 +114,12 @@ export default function Projects({ state, actions }: Props) {
 
         <div className="repo-picker">
           <h2>GitHub repository</h2>
+          {!projectReady ? (
+            <div className="repo-locked" role="note" aria-live="polite">
+              <span aria-hidden="true">⌕</span> Select a project first to choose a repository
+            </div>
+          ) : (
+          <>
           {loadingProjects && <WaitRow label="Loading projects and repositories" />}
           {loadingRepos && <WaitRow label="Loading repositories" />}
           {!loadingProjects && !loadingRepos && failed ? (
@@ -132,11 +141,13 @@ export default function Projects({ state, actions }: Props) {
               emptyLabel="No repositories match that search."
             />
           ) : null}
+          </>
+          )}
         </div>
       </Body>
       <Footer>
         <button className="btn btn-ghost" type="button" onClick={actions.goBack} disabled={loading}>
-          Back to GitHub
+          ← Back
         </button>
         <button
           className="btn btn-primary"
@@ -144,7 +155,7 @@ export default function Projects({ state, actions }: Props) {
           onClick={() => void continueToBranches()}
           disabled={!selectedId || selectedId === NEW_PROJECT || !selectedRepo || loading}
         >
-          {selectedRepo ? `Use ${selectedRepo.split('/').pop()}` : 'Choose a project and repository'}
+          {selectedRepo ? 'Continue →' : 'Choose project & repository'}
         </button>
       </Footer>
     </>
