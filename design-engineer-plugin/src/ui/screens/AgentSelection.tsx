@@ -1,4 +1,4 @@
-import React, {useEffect,useState} from 'react';
+import React, {useEffect,useRef,useState} from 'react';
 import * as api from '../../api/client';
 import {Body,ErrorBanner,Footer,Header,Rail} from '../components/Chrome';
 import type {DesignEngineerState,DesignEngineerActions} from '../hooks/useDesignEngineer';
@@ -23,6 +23,12 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
  const [availableModels,setAvailableModels]=useState<string[]>([]);
  const [catalogLoading,setCatalogLoading]=useState(false);
  const [catalogError,setCatalogError]=useState(false);
+ const configRef=useRef<HTMLElement|null>(null);
+ const didMount=useRef(false);
+ useEffect(()=>{
+   if(!didMount.current){didMount.current=true;return}
+   configRef.current?.scrollIntoView({behavior:'smooth',block:'start'});
+ },[agent]);
  useEffect(()=>{
    if(agent!=='opencode')return;
    let active=true;setCatalogError(false);setAvailableModels([]);
@@ -51,7 +57,22 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
    <h1>Choose AI coding agent</h1>
    {state.error&&<ErrorBanner message={state.error}/>}
    <p className="lede">Select an agent to implement your Figma screens. Model providers and authentication differ by agent.</p>
-   <section className="agent-config" aria-label="Selected coding agent configuration">
+   <p className="lede"><b>Coding CLI agents</b> — run a coding-agent CLI to implement your designs.</p>
+   <div className="stack-options">{cliChoices.map(choice=><button type="button" key={choice.id}
+     disabled={saving} className={'stack-option '+(agent===choice.id?'selected':'')}
+     onClick={()=>switchAgent(choice.id)}>
+    <span className="stack-radio" aria-hidden="true"/><span className="stack-option-copy">
+    <b>{choice.title}</b><span>{choice.detail}</span></span>
+   </button>)}</div>
+   <p className="lede"><b>Direct Model API</b> — call the selected model provider using an API key, without a coding CLI.</p>
+   <div className="stack-options"><button type="button"
+     disabled={saving} className={'stack-option '+(agent==='direct-api'?'selected':'')}
+     onClick={()=>switchAgent('direct-api')}>
+     <span className="stack-radio" aria-hidden="true"/><span className="stack-option-copy">
+       <b>Direct API (Gemini / DeepSeek / OpenAI / Anthropic)</b>
+       <span>Choose a provider, enter its API key and verify the model</span>
+     </span></button></div>
+   <section ref={configRef} className="agent-config" aria-label="Selected coding agent configuration">
      <p className="lede"><b>Selected:</b> {agent==='direct-api'?'Direct Model API':agent==='codex'?'Codex CLI':agent==='claude'?'Claude Code CLI':'OpenCode CLI'}</p>
    {agent==='opencode'&&<>
     <label className="auth-field"><span>Model provider</span><select value={provider} onChange={e=>{setProvider(e.target.value as ModelProvider);setModel('');setApiKey('')}}>
@@ -89,27 +110,12 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
        {availableModels.map(id=><option key={id} value={id}>{id}</option>)}
      </select></label>
    </>}
-   </section>
-   <p className="lede"><b>Coding CLI agents</b> — run a coding-agent CLI to implement your designs.</p>
-   <div className="stack-options">{cliChoices.map(choice=><button type="button" key={choice.id}
-     disabled={saving} className={'stack-option '+(agent===choice.id?'selected':'')}
-     onClick={()=>switchAgent(choice.id)}>
-    <span className="stack-radio" aria-hidden="true"/><span className="stack-option-copy">
-    <b>{choice.title}</b><span>{choice.detail}</span></span>
-   </button>)}</div>
-   <p className="lede"><b>Direct Model API</b> — call the selected model provider using an API key, without a coding CLI.</p>
-   <div className="stack-options"><button type="button"
-     disabled={saving} className={'stack-option '+(agent==='direct-api'?'selected':'')}
-     onClick={()=>switchAgent('direct-api')}>
-     <span className="stack-radio" aria-hidden="true"/><span className="stack-option-copy">
-       <b>Direct API (Gemini / DeepSeek / OpenAI / Anthropic)</b>
-       <span>Choose a provider, enter its API key and verify the model</span>
-     </span></button></div>
    {agent==='codex'&&<p className="lede">Uses your existing Codex connection.</p>}
    {agent==='claude'&&<p className="lede">Connect a supported Anthropic API key. Claude account login is not automatically shared with this server.</p>}
    {(agent==='claude'||agent==='opencode')&&
      <label className="auth-field"><span>{agent==='opencode'&&provider==='opencode'?'OpenCode account API key (optional; use when required)':'Provider API key (leave blank to reuse saved connection)'}</span>
        <input type="password" autoComplete="off" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="Secret API key"/></label>}
+   </section>
    <p className="lede">Continue verifies model access using a small test request. This may incur provider usage charges. Free-tier models can still require an account or API key.</p>
   </Body><Footer>
    <button type="button" className="btn btn-ghost" disabled={saving} onClick={actions.goBack}>Back</button>
