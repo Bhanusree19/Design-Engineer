@@ -3,3 +3,5 @@ node_modules/
 .env*
 .wrangler/
 dist/
+build/
+dist-check/
