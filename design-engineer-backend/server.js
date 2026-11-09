@@ -2455,7 +2455,8 @@ async function adminJobQuery(query,method='GET',body,prefer='return=representati
     body:body===undefined?undefined:JSON.stringify(body)
   });
   if(!response.ok)throw new Error('Could not update implementation job state.');
-  return response.status===204?[]:response.json();
+  const payload=await response.text();
+  return payload?JSON.parse(payload):[];
 }
 function validJobId(id) {
   return typeof id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
