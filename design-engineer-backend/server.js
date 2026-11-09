@@ -2486,16 +2486,16 @@ app.post('/api/jobs',async(req,res)=>{
     const available=new Set((contexts||[]).map(c=>c.screen_name));
     if(!names.every(name=>available.has(sanitizeFileName(name))))
       return res.status(400).json({error:'Fetch and save all selected Figma screens before implementation.'});
-    const jobs=await pgQuery('implementation_jobs',{
+    const jobId=crypto.randomUUID();
+    await pgQuery('implementation_jobs',{
       token:auth.token,method:'POST',
-      body:{user_id:auth.user.id,project_id:projectId,
+      body:{id:jobId,user_id:auth.user.id,project_id:projectId,
         screens:names.map(screen=>({screen})),encrypted_access_token:encryptText(auth.token),
         status:'queued'},
-      prefer:'return=representation'
+      // Never return or expose the encrypted access token to the client.
+      prefer:'return=minimal'
     });
-    const job=jobs?.[0];
-    if(!job?.id)throw new Error('Could not create implementation job.');
-    return res.status(201).json({jobId:job.id,status:'queued'});
+    return res.status(201).json({jobId,status:'queued'});
   }catch(error){
     console.error('[Design Engineer] Job submission failed:',error?.code||'database');
     return res.status(503).json({error:'Unable to queue implementation. Retry shortly.'});
