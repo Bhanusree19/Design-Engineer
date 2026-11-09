@@ -2466,6 +2466,12 @@ function publicJob(job) {
     startedAt:job.started_at||null,finishedAt:job.finished_at||null};
 }
 app.post('/api/jobs',async(req,res)=>{
+  const supplied=req.get('x-design-engineer-job-submit')||'';
+  const expected=process.env.GATEWAY_SHARED_SECRET||'';
+  if(!expected||!crypto.timingSafeEqual(
+    crypto.createHash('sha256').update(supplied).digest(),
+    crypto.createHash('sha256').update(expected).digest()))
+    return res.status(403).json({error:'Submit jobs through the approved implementation endpoint.'});
   const auth=await requireUser(req,res);if(!auth)return;
   const {projectId,screens}=req.body||{};
   if(!validJobId(projectId)||!Array.isArray(screens)||!screens.length||screens.length>15)
