@@ -137,7 +137,33 @@ export async function consume(batch,env,jobContainer=(binding,id)=>getContainer(
     }
   }
 }
+// Periodic safety net: never leave aborted jobs permanently "running" or
+// keep an expired queued user's encrypted access token indefinitely.
+// We mark stale work failed rather than blindly replaying GitHub side effects.
+export async function reconcileStaleJobs(env,fetchImpl=fetch){
+  if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return;
+  const key=env.SUPABASE_SERVICE_ROLE_KEY;
+  const base=env.SUPABASE_URL.replace(/\\/+$/,'')+'/rest/v1/implementation_jobs';
+  const headers={apikey:key,Authorization:'Bearer '+key,
+    'Content-Type':'application/json',Prefer:'return=minimal'};
+  for(const [status,field,ageMinutes] of [
+    ['running','started_at',35],
+    ['queued','created_at',50]
+  ]){
+    const cutoff=new Date(Date.now()-ageMinutes*60000).toISOString();
+    const url=base+'?status=eq.'+status+'&'+field+'=lt.'+
+      encodeURIComponent(cutoff);
+    const response=await fetchImpl(url,{method:'PATCH',headers,
+      body:JSON.stringify({status:'failed',encrypted_access_token:null,
+        finished_at:new Date().toISOString(),
+        error:status==='queued'?
+          'Job expired while waiting for capacity. Approve the plan again to retry.':
+          'Job stopped unexpectedly. Approve the plan again after checking the service.'})});
+    if(!response.ok)console.warn('[Design Engineer] Could not reconcile stale jobs',status,response.status);
+  }
+}
 export default {
   fetch(request,env){return route(request,env)},
-  queue(batch,env){return consume(batch,env)}
+  queue(batch,env){return consume(batch,env)},
+  scheduled(controller,env,ctx){ctx.waitUntil(reconcileStaleJobs(env))}
 };
