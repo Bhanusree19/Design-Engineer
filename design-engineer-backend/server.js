@@ -2423,6 +2423,10 @@ app.post('/api/screens/plan', async (req, res) => {
   }
 });
 
+// Paid staging uses one shared API container. Serialize expensive implementation
+// executions to avoid accidental concurrent CLI/model resource exhaustion.
+// This is an in-memory admission guard, not a durable queue.
+let activeImplementation=false;
 app.post('/api/screens/implement', async (req, res) => {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -2438,6 +2442,12 @@ app.post('/api/screens/implement', async (req, res) => {
       .json({ error: 'projectId, repository and screens[] are required' });
   }
 
+  if(activeImplementation)
+    return res.status(429).json({
+      error:'Another implementation is already running. Please retry after it completes.',
+      code:'IMPLEMENTATION_BUSY'
+    });
+  activeImplementation=true;
   try {
     const projectRows = await pgQuery('projects', {
       token: auth.token,
@@ -2513,6 +2523,8 @@ app.post('/api/screens/implement', async (req, res) => {
   } catch (error) {
     console.error('[Design Engineer] Failed to implement screens:', error);
     res.status(500).json({ error: error.message || 'Failed to implement screens.' });
+  } finally {
+    activeImplementation=false;
   }
 });
 
