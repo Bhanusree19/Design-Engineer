@@ -58,7 +58,6 @@ export function Route({ repo, branch }: { repo: string; branch: string }) {
 
 const RAIL: { key: Step; label: string }[] = [
   { key: 'account', label: 'Account' },
-  { key: 'signin', label: 'Codex' },
   { key: 'github', label: 'GitHub' },
   { key: 'project', label: 'Project' },
   { key: 'branch', label: 'Branch' },
@@ -68,7 +67,11 @@ const RAIL: { key: Step; label: string }[] = [
 ];
 
 export function Rail({ step }: { step: Step }) {
-  const current = step === 'done' ? RAIL.length : RAIL.findIndex((r) => r.key === step);
+  // Codex login remains an internal auth screen, but belongs visually under AI Agent.
+  // Planning, approval, implementation and results remain inside Screens.
+  const visibleStep: Step = step === 'signin' ? 'agent' :
+    ['done','planning','plan','implementing','complete'].includes(step) ? 'screens' : step;
+  const current = RAIL.findIndex((r) => r.key === visibleStep);
   return (
     <ol className="rail" aria-label="Setup progress">
       {RAIL.map((r, i) => {
