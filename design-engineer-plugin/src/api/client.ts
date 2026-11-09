@@ -6,8 +6,10 @@
 // was returned by signup / signin / refresh. All account, project, GitHub and
 // Codex state lives in Supabase via the backend; nothing here touches Docker.
 
-// const DEFAULT_BASE_URL = 'https://design-engineer.onrender.com';
-const DEFAULT_BASE_URL = 'http://localhost:4000';
+// Injected by webpack at build time. This is a public URL, not a secret.
+// The default retains the previous local-development experience.
+declare const __DESIGN_ENGINEER_API_URL__: string;
+const DEFAULT_BASE_URL = __DESIGN_ENGINEER_API_URL__;
 export function getBaseUrl(): string {
   return (
     (window as any).__DESIGN_ENGINEER_API__ ||
