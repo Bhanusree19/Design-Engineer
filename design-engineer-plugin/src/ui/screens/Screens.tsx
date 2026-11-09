@@ -245,7 +245,7 @@ export function PlanReview({ state, actions }: Props) {
             </div>
             <div className="plan-review-screens">
               <strong>Selected Figma screens ({plan.screens.length})</strong>
-              <div>{plan.screens.map((name,index)=><span className="plan-screen-pill" key={index}>✓ {name}</span>)}</div>
+              <div>{plan.screens.map((name,index)=><span className="plan-screen-pill" key={index}>✓ {name.name}{name.size ? ` · ${name.size}` : ''}</span>)}</div>
             </div>
             <p className="lede">Implementation plan · Nothing will be changed until you approve.</p>
             <div className="plan-copy scroll">{plan.plan}</div>
