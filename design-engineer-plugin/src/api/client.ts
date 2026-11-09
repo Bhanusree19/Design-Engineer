@@ -415,10 +415,22 @@ export function planScreens(
   });
 }
 
+export interface ImplementationJob {
+  id: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  result: ImplementationResult | null;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+export function getImplementationJob(jobId: string): Promise<ImplementationJob> {
+  return request('/api/jobs/' + encodeURIComponent(jobId));
+}
 export function implementScreens(
   projectId: string,
   screens: unknown[]
-): Promise<{ implementations: ImplementationResult[] }> {
+): Promise<{ jobId: string; status: 'queued' } | { implementations: ImplementationResult[] }> {
   return request('/api/screens/implement', {
     method: 'POST',
     body: JSON.stringify({ projectId, screens }),
