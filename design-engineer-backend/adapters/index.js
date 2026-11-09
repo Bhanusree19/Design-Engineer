@@ -2,6 +2,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
+const osIsolation = require('./os-isolation');
 
 const agents = ['codex', 'claude', 'opencode', 'gemini-api', 'direct-api'];
 const providers = ['opencode', 'ollama-cloud', 'deepseek', 'moonshotai', 'openai', 'anthropic', 'gemini'];
@@ -58,6 +59,7 @@ async function execute({selection, workspace, prompt, home, env = {}, timeoutMs 
   if (!path.isAbsolute(workspace) || !path.isAbsolute(home)) throw new Error('Absolute workspace and isolated home required');
   await fs.promises.mkdir(home, {recursive:true, mode:0o700});
   await configureOpenCode({selection,home,env});
+  const identity=await osIsolation.prepare({workspace,home});
   const argv = agent === 'codex'
     ? ['exec', '--cd', workspace, ...(model ? ['--model',model] : []), prompt]
     : agent === 'claude'
@@ -73,10 +75,14 @@ async function execute({selection, workspace, prompt, home, env = {}, timeoutMs 
     CODEX_HOME:path.join(home,'.codex'), XDG_CONFIG_HOME:path.join(home,'.config'),
     XDG_DATA_HOME:path.join(home,'.local','share'), ...env };
   return await new Promise((resolve,reject)=>{
-    const child = spawn(command, argv, {cwd:workspace, env:safeEnv, stdio:['ignore','pipe','pipe']});
+    const child = spawn(command, argv, {cwd:workspace, env:safeEnv,
+      ...identity, detached:process.platform==='linux', stdio:['ignore','pipe','pipe']});
     let done=false, output='';
-    const finish=(err)=>{if(done)return;done=true;clearTimeout(timer);err?reject(err):resolve({agent,model,output});};
-    const timer=setTimeout(()=>{child.kill('SIGKILL');finish(new Error('Coding agent timed out'));},timeoutMs);
+    const finish=(err)=>{if(done)return;done=true;clearTimeout(timer);
+      // Terminate leftover background children in this job's process group.
+      if(process.platform==='linux' && child.pid)try{process.kill(-child.pid,'SIGKILL')}catch{}
+      err?reject(err):resolve({agent,model,output});};
+    const timer=setTimeout(()=>{finish(new Error('Coding agent timed out'));},timeoutMs);
     child.on('error',finish);
     for (const stream of [child.stdout,child.stderr]) stream.on('data',chunk=>{
       const line=chunk.toString();output=(output+line).slice(-32768);onOutput(line);
