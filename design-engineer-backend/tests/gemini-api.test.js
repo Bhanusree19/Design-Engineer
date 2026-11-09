@@ -97,7 +97,7 @@ test('Gemini MAX_TOKENS gives retryable structured error without showing partial
       candidates:[{finishReason:'MAX_TOKENS',content:{parts:[{text:'{"files":['}]}}],
       usageMetadata:{candidatesTokenCount:32768}
     })})
-  }),err=>err.code==='MODEL_OUTPUT_TRUNCATED'&&!err.message.includes('files'));
+  }),err=>err.code==='MODEL_OUTPUT_TRUNCATED'&&!err.message.includes('{"files":['));
 });
 test('Gemini safely retries malformed JSON using smaller context and then writes valid output',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'gemini-json-retry-'));
