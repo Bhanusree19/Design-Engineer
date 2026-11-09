@@ -1,13 +1,8 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "design-engineer-agents-staging",
-  "main": "src/index.ts",
+  "name": "design-engineer-free-gateway",
+  "main": "src/free-gateway.js",
   "compatibility_date": "2026-11-07",
-  "containers": [
-    {"class_name":"DesignEngineerContainer","image":"../Dockerfile.cloudflare","max_instances":1}
-  ],
-  "durable_objects": {
-    "bindings":[{"name":"BACKEND_CONTAINER","class_name":"DesignEngineerContainer"}]
-  },
-  "exports":{"DesignEngineerContainer":{"type":"durable-object","storage":"sqlite"}}
+  "workers_dev": true,
+  "observability": {"enabled": true}
 }
