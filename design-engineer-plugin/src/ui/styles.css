@@ -408,6 +408,43 @@ button { font: inherit; color: inherit; }
   color: var(--bad);
 }
 
+/* Compact screenshots and approval context; no change to plan or execution flow. */
+.plan-review-screens {
+  display: grid;
+  gap: 8px;
+  flex: none;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+}
+.plan-review-screens strong { font-size: 12px; }
+.plan-review-screens > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.plan-screen-pill {
+  max-width: 100%;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  font-size: 10.5px;
+}
+.app[data-step="plan"] .foot .link {
+  font-size: 11px;
+  justify-self: center;
+}
+.app[data-step="screens"] .body,
+.app[data-step="plan"] .body,
+.app[data-step="project"] .body { padding-top: 16px; }
+.app[data-step="project"] .repo-picker { flex: none; min-height: 140px; }
+.app[data-step="project"] .list { max-height: 260px; }
+.app[data-step="plan"] .plan-copy { flex: none; min-height: 120px; max-height: 230px; }
+
 /* ---------- Banners and status ---------- */
 .banner { display: flex; gap: 8px; align-items: flex-start; padding: 9px 11px; border-radius: 8px; font-size: 12px; }
 .banner p { margin: 0; color: var(--ink); }
