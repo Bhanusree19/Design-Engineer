@@ -1,0 +1,36 @@
+name: Cloudflare Free Gateway CI
+on:
+  push:
+    branches:
+      - design-engineer-cloudflare-deployment-05
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            design-engineer-backend/package-lock.json
+            design-engineer-plugin/package-lock.json
+      - name: Check backend syntax
+        run: node --check server.js
+        working-directory: design-engineer-backend
+      - name: Test Workers Free gateway (no Cloudflare account required)
+        run: node --test tests/*.test.js
+        working-directory: cloudflare
+      - name: Backend dependency install
+        run: npm ci
+        working-directory: design-engineer-backend
+      - name: Backend adapter tests
+        run: node --test tests/*.test.js
+        working-directory: design-engineer-backend
+      - name: Plugin dependency install
+        run: npm ci
+        working-directory: design-engineer-plugin
+      - name: Plugin build
+        run: npm run build
+        working-directory: design-engineer-plugin
