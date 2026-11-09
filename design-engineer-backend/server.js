@@ -2493,14 +2493,12 @@ app.post('/api/jobs',async(req,res)=>{
     if(!names.every(name=>available.has(sanitizeFileName(name))))
       return res.status(400).json({error:'Fetch and save all selected Figma screens before implementation.'});
     const jobId=crypto.randomUUID();
-    await pgQuery('implementation_jobs',{
-      token:auth.token,method:'POST',
-      body:{id:jobId,user_id:auth.user.id,project_id:projectId,
+    // Only the backend service role can create jobs. Even an authenticated
+    // Supabase client cannot insert arbitrary encrypted credentials directly.
+    await adminJobQuery('', 'POST',
+      {id:jobId,user_id:auth.user.id,project_id:projectId,
         screens:names.map(screen=>({screen})),encrypted_access_token:encryptText(auth.token),
-        status:'queued'},
-      // Never return or expose the encrypted access token to the client.
-      prefer:'return=minimal'
-    });
+        status:'queued'}, 'return=minimal');
     return res.status(201).json({jobId,status:'queued'});
   }catch(error){
     console.error('[Design Engineer] Job submission failed:',error?.code||'database');
