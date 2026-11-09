@@ -1,3 +1,36 @@
+## Gemini JSON generation resilience (local test fix)
+
+Local Gemini testing previously failed after cloning with
+`INVALID_CODE_RESPONSE: Gemini returned invalid JSON for file edits`.
+The Direct API workspace editor now retries malformed or truncated responses up
+to **three total generation requests**, with progressively smaller repository
+context. Only complete JSON responses with valid file paths are ever written.
+Each retry may consume API quota.
+
+Gemini generation now includes a structured `responseJsonSchema`, a larger
+response token allowance, Gemini 3 low-thinking configuration, and safe
+`finishReason` handling (including `MAX_TOKENS` vs safety blocks).
+Docker logs show only the provider, model, failure category and attempt number;
+they do **not** include raw model output, source code, prompts, or API keys.
+
+**Local retest (Windows PowerShell, repository root):**
+
+```powershell
+git switch design-engineer-deployment-04-cloudflare-agents
+git pull origin design-engineer-deployment-04-cloudflare-agents
+docker build -f Dockerfile.cloudflare -t design-engineer-v04 .
+docker stop design-engineer-v04
+docker rm design-engineer-v04
+docker run --rm --name design-engineer-v04 -p 4000:4000 --env-file design-engineer-backend/.env design-engineer-v04
+```
+
+If `docker rm` reports the container no longer exists after stop, ignore that
+line. Test a single small Figma frame first, then inspect the generated GitHub
+PR. Retry exhaustion returns a clear message recommending a smaller Figma
+selection or a model with more output capacity. This is not a guarantee that
+every large Figma screen can be generated in one request; later work should
+generate bounded individual file batches and run builds/tests in isolated jobs.
+
 # Deployment 04 — multi-agent development branch
 
 **Source:** `design-engineer-deployment-03` (unchanged).
