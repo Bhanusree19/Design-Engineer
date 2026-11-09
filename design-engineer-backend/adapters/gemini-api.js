@@ -191,9 +191,8 @@ async function execute({workspace,contextDir,apiKey,model,prompt,generateImpl=ge
   // Retry only malformed/truncated responses. Never retry provider auth, quota,
   // safety blocks or invalid file paths. Requests can consume API quota.
   let response;
-  let lastError;
   for(let attempt=0;attempt<MAX_GENERATION_ATTEMPTS;attempt++){
-    const repoLimit=[115000,33000,12000][attempt];
+    const repoLimit=[115000,12000,4000][attempt];
     const designLimit=[115000,42000,16000][attempt];
     const repoContext=existing.map(({path:filename,content})=>({
       path:filename,content:content.slice(0,Math.max(800,Math.floor(repoLimit/Math.max(existing.length,1))))
@@ -230,7 +229,6 @@ async function execute({workspace,contextDir,apiKey,model,prompt,generateImpl=ge
       break;
     }catch(error){
       if(!['INVALID_CODE_RESPONSE','MODEL_OUTPUT_TRUNCATED','GEMINI_EMPTY_RESPONSE'].includes(error?.code))throw error;
-      lastError=error;
       diagnostic(model,'retryable_response',{attempt:attempt+1,maxAttempts:MAX_GENERATION_ATTEMPTS,
         code:error.code});
       if(attempt===MAX_GENERATION_ATTEMPTS-1)throw new GeminiError(
