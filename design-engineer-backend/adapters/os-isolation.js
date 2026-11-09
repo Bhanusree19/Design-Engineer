@@ -6,6 +6,7 @@
 const crypto=require('node:crypto');
 const fs=require('node:fs/promises');
 const path=require('node:path');
+const os=require('node:os');
 async function grantTree(root,uid,gid,{skipGit=false}={}){
   const st=await fs.lstat(root);
   if(st.isSymbolicLink())return; // Never follow repository symlinks.
@@ -29,7 +30,7 @@ async function prepare({workspace,home}){
   const parent=path.dirname(workspacePath);
   // Allow traversal into a child's owned worktree without allowing reads
   // of sibling temporary folders, root-only GitHub askpass, or parent files.
-  if(homePath.startsWith(parent+path.sep)){
+  if(parent!==path.resolve(os.tmpdir())&&homePath.startsWith(parent+path.sep)){
     await fs.chmod(parent,0o711);
   }
   if(workspacePath===parent)throw new Error('Invalid coding-agent workspace');
