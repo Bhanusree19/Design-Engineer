@@ -2443,10 +2443,133 @@ app.post('/api/screens/plan', async (req, res) => {
   }
 });
 
-// Paid staging uses one shared API container. Serialize expensive implementation
-// executions to avoid accidental concurrent CLI/model resource exhaustion.
-// This is an in-memory admission guard, not a durable queue.
-let activeImplementation=false;
+// Durable job records use RLS for submission/status and service-role for
+// atomic claims. Never send encrypted credentials or screen context to Queues.
+async function adminJobQuery(query,method='GET',body,prefer='return=representation') {
+  const key=process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if(!key)throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY for job orchestration.');
+  const response=await fetch(SUPABASE_URL+'/rest/v1/implementation_jobs?'+query,{
+    method,
+    headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json',
+      Accept:'application/json',Prefer:prefer},
+    body:body===undefined?undefined:JSON.stringify(body)
+  });
+  if(!response.ok)throw new Error('Could not update implementation job state.');
+  return response.status===204?[]:response.json();
+}
+function validJobId(id) {
+  return typeof id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+function publicJob(job) {
+  return {id:job.id,status:job.status,result:job.result||null,
+    error:job.error||null,createdAt:job.created_at,
+    startedAt:job.started_at||null,finishedAt:job.finished_at||null};
+}
+app.post('/api/jobs',async(req,res)=>{
+  const auth=await requireUser(req,res);if(!auth)return;
+  const {projectId,screens}=req.body||{};
+  if(!validJobId(projectId)||!Array.isArray(screens)||!screens.length||screens.length>15)
+    return res.status(400).json({error:'Select a project and 1 to 15 screens.'});
+  const names=screens.map(item=>typeof item?.screen==='string'?item.screen:
+    typeof item?.name==='string'?item.name:'').filter(Boolean);
+  if(names.length!==screens.length||names.some(name=>name.length>180))
+    return res.status(400).json({error:'Every screen must have a valid name.'});
+  try{
+    // Explicit ownership check: no job is created for an unrelated project.
+    const projects=await pgQuery('projects',{token:auth.token,
+      query:'id=eq.'+encodeURIComponent(projectId)+'&select=id,repository,base_branch,stack,coding_agent&limit=1'});
+    if(!projects?.length||!projects[0].repository||!projects[0].base_branch||
+       !['react-js','react-native'].includes(projects[0].stack))
+      return res.status(400).json({error:'Choose a valid project, repository, branch and stack first.'});
+    const contexts=await pgQuery('design_contexts',{token:auth.token,
+      query:'project_id=eq.'+encodeURIComponent(projectId)+'&select=screen_name'});
+    const available=new Set((contexts||[]).map(c=>c.screen_name));
+    if(!names.every(name=>available.has(sanitizeFileName(name))))
+      return res.status(400).json({error:'Fetch and save all selected Figma screens before implementation.'});
+    const jobs=await pgQuery('implementation_jobs',{
+      token:auth.token,method:'POST',
+      body:{user_id:auth.user.id,project_id:projectId,
+        screens:names.map(screen=>({screen})),encrypted_access_token:encryptText(auth.token),
+        status:'queued'},
+      prefer:'return=representation'
+    });
+    const job=jobs?.[0];
+    if(!job?.id)throw new Error('Could not create implementation job.');
+    return res.status(201).json({jobId:job.id,status:'queued'});
+  }catch(error){
+    console.error('[Design Engineer] Job submission failed:',error?.code||'database');
+    return res.status(503).json({error:'Unable to queue implementation. Retry shortly.'});
+  }
+});
+app.get('/api/jobs/:jobId',async(req,res)=>{
+  const auth=await requireUser(req,res);if(!auth)return;
+  if(!validJobId(req.params.jobId))return res.status(400).json({error:'Invalid job ID.'});
+  try{
+    const jobs=await pgQuery('implementation_jobs',{token:auth.token,
+      query:'id=eq.'+encodeURIComponent(req.params.jobId)+
+        '&select=id,status,result,error,created_at,started_at,finished_at&limit=1'});
+    if(!jobs?.length)return res.status(404).json({error:'Implementation job not found.'});
+    return res.json(publicJob(jobs[0]));
+  }catch{return res.status(503).json({error:'Cannot read job status. Retry shortly.'})}
+});
+
+// Internal endpoint is unreachable from the public Worker and enabled only
+// inside a Cloudflare per-job Container. No user JWT or provider key is passed
+// through the Queue or public API response.
+app.post('/internal/jobs/execute',async(req,res)=>{
+  if(process.env.DESIGN_ENGINEER_ROLE!=='job')
+    return res.status(404).json({error:'Not found.'});
+  const expected=process.env.GATEWAY_SHARED_SECRET||'';
+  const received=req.get('x-design-engineer-internal-job')||'';
+  const left=crypto.createHash('sha256').update(expected).digest();
+  const right=crypto.createHash('sha256').update(received).digest();
+  if(!expected||!crypto.timingSafeEqual(left,right))
+    return res.status(403).json({error:'Forbidden.'});
+  const jobId=req.body?.jobId;
+  if(!validJobId(jobId))return res.status(400).json({error:'Invalid job.'});
+  try{
+    const now=new Date().toISOString();
+    // Atomic state transition ensures re-delivered Queue messages do not
+    // execute the same job twice. The query uses the service-role key.
+    const claimed=await adminJobQuery('id=eq.'+encodeURIComponent(jobId)+'&status=eq.queued',
+      'PATCH',{status:'running',started_at:now,updated_at:now});
+    if(!claimed?.length)return res.status(200).json({accepted:false});
+    const job=claimed[0];
+    res.status(202).json({accepted:true,jobId});
+    // Deliberately keep job execution asynchronous inside its OWN Container.
+    // Status is durable in Supabase; no long-lived Worker request is required.
+    void (async()=>{
+      try {
+        const token=decryptText(job.encrypted_access_token);
+        const result=await fetch('http://127.0.0.1:'+PORT+'/api/screens/implement',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,
+            'x-design-engineer-gateway':expected},
+          body:JSON.stringify({projectId:job.project_id,screens:job.screens}),
+          signal:AbortSignal.timeout(17*60*1000)
+        });
+        const body=await result.json().catch(()=>({}));
+        if(!result.ok||!body.implementations?.[0]?.pullRequestUrl)
+          throw new Error('Implementation failed. See server logs for details.');
+        await adminJobQuery('id=eq.'+encodeURIComponent(jobId),'PATCH',
+          {status:'completed',result:body.implementations[0],
+            encrypted_access_token:null,finished_at:new Date().toISOString()});
+      }catch(error){
+        console.error('[Design Engineer] Isolated job failed',jobId,error?.name||'error');
+        await adminJobQuery('id=eq.'+encodeURIComponent(jobId),'PATCH',
+          {status:'failed',error:'Implementation could not finish. Retry after checking the service logs.',
+            encrypted_access_token:null,finished_at:new Date().toISOString()})
+          .catch(()=>{});
+      }
+    })();
+  }catch(error){
+    console.error('[Design Engineer] Could not claim job:',error?.name||'error');
+    if(!res.headersSent)res.status(503).json({error:'Job dispatcher unavailable.'});
+  }
+});
+
+// Deployment 05 dispatches implementations through a durable queue to
+// dedicated job containers. No global cross-user implementation lock.
 app.post('/api/screens/implement', async (req, res) => {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -2462,12 +2585,6 @@ app.post('/api/screens/implement', async (req, res) => {
       .json({ error: 'projectId, repository and screens[] are required' });
   }
 
-  if(activeImplementation)
-    return res.status(429).json({
-      error:'Another implementation is already running. Please retry after it completes.',
-      code:'IMPLEMENTATION_BUSY'
-    });
-  activeImplementation=true;
   try {
     const projectRows = await pgQuery('projects', {
       token: auth.token,
@@ -2543,8 +2660,6 @@ app.post('/api/screens/implement', async (req, res) => {
   } catch (error) {
     console.error('[Design Engineer] Failed to implement screens:', error);
     res.status(500).json({ error: error.message || 'Failed to implement screens.' });
-  } finally {
-    activeImplementation=false;
   }
 });
 
