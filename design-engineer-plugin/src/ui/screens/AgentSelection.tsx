@@ -1,4 +1,4 @@
-import React, {useEffect,useState} from 'react';
+import React, {useEffect,useRef,useState} from 'react';
 import * as api from '../../api/client';
 import {Body,ErrorBanner,Footer,Header,Rail} from '../components/Chrome';
 import type {DesignEngineerState,DesignEngineerActions} from '../hooks/useDesignEngineer';
@@ -23,6 +23,12 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
  const [availableModels,setAvailableModels]=useState<string[]>([]);
  const [catalogLoading,setCatalogLoading]=useState(false);
  const [catalogError,setCatalogError]=useState(false);
+ const configRef=useRef<HTMLElement|null>(null);
+ const didMount=useRef(false);
+ useEffect(()=>{
+   if(!didMount.current){didMount.current=true;return}
+   configRef.current?.scrollIntoView({behavior:'smooth',block:'start'});
+ },[agent]);
  useEffect(()=>{
    if(agent!=='opencode')return;
    let active=true;setCatalogError(false);setAvailableModels([]);
@@ -44,6 +50,7 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
  function switchAgent(next:Agent){
    setAgent(next);setModel('');setApiKey('');setCatalogError(false);setAvailableModels([]);
    setProvider(next==='direct-api'?'gemini':'opencode');
+   actions.dismissError();
  }
  return <>
   <Header state={state} actions={actions}/><Rail step="agent"/><Body>
@@ -65,6 +72,8 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
        <b>Direct API (Gemini / DeepSeek / OpenAI / Anthropic)</b>
        <span>Choose a provider, enter its API key and verify the model</span>
      </span></button></div>
+   <section ref={configRef} className="agent-config" aria-label="Selected coding agent configuration">
+     <p className="lede"><b>Selected:</b> {agent==='direct-api'?'Direct Model API':agent==='codex'?'Codex CLI':agent==='claude'?'Claude Code CLI':'OpenCode CLI'}</p>
    {agent==='opencode'&&<>
     <label className="auth-field"><span>Model provider</span><select value={provider} onChange={e=>{setProvider(e.target.value as ModelProvider);setModel('');setApiKey('')}}>
       <option value="opencode">OpenCode models (free models where available)</option>
@@ -106,10 +115,13 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
    {(agent==='claude'||agent==='opencode')&&
      <label className="auth-field"><span>{agent==='opencode'&&provider==='opencode'?'OpenCode account API key (optional; use when required)':'Provider API key (leave blank to reuse saved connection)'}</span>
        <input type="password" autoComplete="off" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="Secret API key"/></label>}
+   </section>
    <p className="lede">Continue verifies model access using a small test request. This may incur provider usage charges. Free-tier models can still require an account or API key.</p>
   </Body><Footer>
    <button type="button" className="btn btn-ghost" disabled={saving} onClick={actions.goBack}>Back</button>
-   <button type="button" className="btn btn-primary" disabled={saving||catalogLoading||((agent==='opencode'||agent==='direct-api')&&!model.trim())} onClick={()=>void actions.chooseAgent(agent,effectiveProvider,model||null,apiKey)}>{saving?'Checking model access…':'Verify connection & Continue'}</button>
+   <button type="button" className="btn btn-primary"
+     title={(agent==='opencode'||agent==='direct-api')&&!model.trim()?'Choose a model above to continue':'Verify the selected agent connection'}
+     disabled={saving||catalogLoading||((agent==='opencode'||agent==='direct-api')&&!model.trim())} onClick={()=>void actions.chooseAgent(agent,effectiveProvider,model||null,apiKey)}>{saving?'Checking model access…':'Verify connection & Continue'}</button>
   </Footer>
  </>;
 }
