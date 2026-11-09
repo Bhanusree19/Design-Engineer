@@ -50,7 +50,11 @@ export function ScreensStep({ state, actions }: Props) {
       <ScreensHeader state={state} actions={actions} />
       <Rail step="screens" />
       <Body>
-        <h1>{total === 0 ? 'Select screens' : `${checked} of ${plural(total, 'screen')} selected`}</h1>
+        <div className="step-heading">
+          <span className="step-heading-icon" aria-hidden="true">▤</span>
+          <span><h1>{total === 0 ? 'Select Figma screens' : `${checked} of ${plural(total, 'screen')} selected`}</h1>
+          <p>Select the frames to extract, then review the implementation plan before generating code.</p></span>
+        </div>
         {state.error && <ErrorBanner message={state.error} />}
 
         {total === 0 ? (
@@ -96,7 +100,7 @@ export function ScreensStep({ state, actions }: Props) {
         )}
       </Body>
       <Footer>
-        <button className="btn btn-ghost" type="button" onClick={actions.goBack}>Back to stack</button>
+        <button className="btn btn-ghost" type="button" onClick={actions.goBack}>← Back to AI Agent</button>
         <button className="btn btn-primary" type="button" disabled={checked === 0} onClick={actions.fetchScreens}>
           {checked === 0 ? 'Select screens to fetch' : `Fetch ${plural(checked, 'screen')}`}
         </button>
@@ -226,7 +230,11 @@ export function PlanReview({ state, actions }: Props) {
       <ScreensHeader state={state} actions={actions} />
       <Rail step="done" />
       <Body>
-        <h1>Review implementation plan</h1>
+        <div className="step-heading">
+          <span className="step-heading-icon" aria-hidden="true">▤</span>
+          <span><h1>Selected screens &amp; implementation plan</h1>
+            <p>Review the proposed changes before approving code generation.</p></span>
+        </div>
         {state.error && <ErrorBanner message={state.error} />}
         {plan ? (
           <>
@@ -235,7 +243,11 @@ export function PlanReview({ state, actions }: Props) {
               <span><b>Target branch</b>{plan.proposedBranch}</span>
               <span><b>Stack</b>{plan.stack === 'react-js' ? 'React' : 'React Native'}</span>
             </div>
-            <p className="lede">{plural(plan.screens.length, 'screen')} included. Nothing is changed until you approve below.</p>
+            <div className="plan-review-screens">
+              <strong>Selected Figma screens ({plan.screens.length})</strong>
+              <div>{plan.screens.map((name,index)=><span className="plan-screen-pill" key={index}>✓ {name}</span>)}</div>
+            </div>
+            <p className="lede">Implementation plan · Nothing will be changed until you approve.</p>
             <div className="plan-copy scroll">{plan.plan}</div>
             <details className="plan-prompt">
               <summary>View the exact coding-agent prompt</summary>
@@ -253,12 +265,13 @@ export function PlanReview({ state, actions }: Props) {
           onClick={actions.startImplementation}
           disabled={!plan}
         >
-          Start implement
+          ✓ Approve plan &amp; start implementation
         </button>
         <div className="btn-row">
-          <button className="btn btn-ghost" type="button" onClick={actions.fetchMore}>Fetch more screens</button>
+          <button className="btn btn-ghost" type="button" onClick={actions.goBack}>← Back</button>
           <button className="btn btn-ghost" type="button" onClick={() => void actions.planImplementation()}>Regenerate plan</button>
         </div>
+        <button className="link" type="button" onClick={actions.fetchMore}>Select additional screens</button>
       </Footer>
     </>
   );
