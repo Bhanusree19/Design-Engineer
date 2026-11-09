@@ -1,318 +1,233 @@
-# Design Engineer — Cloudflare Workers Paid + Containers (Deployment 05)
+# Design Engineer — Deployment 05 (Cloudflare Workers Paid, per-job Containers)
 
-Branch: `design-engineer-cloudflare-deployment-05`
+This is the **new scalable Cloudflare architecture**, separate from Deployment 04.
+Only branch `design-engineer-cloudflare-deployment-05` is changed.
+**OpenCode free models and user-owned provider/API key options are unchanged.**
 
-**This is a deployable Cloudflare Containers staging configuration**, not a
-certified multi-tenant production system. Deployment 04 is unchanged.
-The previous Workers Free + Quick Tunnel instructions have been replaced.
-With Workers Paid ($5/month base subscription), you do **not** need to run
-Docker or cloudflared continuously on your PC. Cloudflare starts the backend
-container when requests arrive.
+## What runs where
 
-## Important cost and security notes
+- **API Container (one named instance):** existing Express API, Supabase login, Google/GitHub OAuth, project/repository selection, model verification, screen extraction and planning. One instance is deliberate because legacy OAuth state is process-local.
+- **Cloudflare Queue:** stores job IDs only, never Figma context, GitHub tokens, Codex credentials or provider API keys.
+- **Execution Container (unique instance per implementation job):** starts a separate Node/Git/coding-agent environment for each approved implementation, using `getContainer(JOB_CONTAINER, 'job-'+jobId)`. It loads only the job's authenticated account context from staging Supabase, clones the repo, runs the existing selected agent, commits, and creates the PR. The instance exits on completion.
+- **Supabase:** stores owner-scoped job records and encrypted short-lived Supabase access tokens while a job runs, clears those encrypted tokens on success/failure, and stores status/result.
+- **Figma plugin:** accepts a job ID immediately and polls `/api/jobs/:id` until PR creation or error. Closing Figma does not cancel the running container, but this first version does not yet resume the progress UI automatically after reopening.
 
-- Workers Paid unlocks Cloudflare Containers. Containers also have **usage-based
-  CPU, RAM, disk, network, Durable Object, and logs billing**; your total bill
-  can exceed $5. This configuration starts with **one standard-1 instance**
-  (1/2 vCPU, 4 GiB RAM, 8 GB disk). It sleeps after 20 minutes of inactivity.
-  Adjust sleepAfter/instance type after measuring load and costs.
-- This is a single named API instance for compatibility with the existing
-  in-memory GitHub/Google OAuth state and Codex device auth state. A restart
-  during OAuth, planning or a long implementation may interrupt the operation.
-  There is **no durable work queue** or resume/cancel API yet.
-- CLI jobs get a fresh Unix UID, home and repository workspace with restricted
-  access; Codex device login no longer inherits server environment secrets.
-  Supabase credentials are stored encrypted per user/provider and retrieved
-  using authenticated user IDs. This is useful defense in depth but **not a
-  substitute for running each untrusted coding job in its own hardened
-  container/VM**. Do not publish to untrusted users until per-job isolation,
-  sandbox network boundaries and a security review are complete.
-- A single implementation may run at a time; other implementation attempts
-  return HTTP 429 `IMPLEMENTATION_BUSY`. This is NOT per-user rate metering.
-- OpenCode free models have **provider-defined** quotas (which can change);
-  free does not mean unlimited or guaranteed anonymous access. Design Engineer
-  does not implement a provider billing ledger or per-user usage allowance.
-  OpenCode and its model provider determine available capacity. At a shared
-  Cloudflare egress IP, some upstream limits may be shared. You should not
-  represent the $5 Workers fee as paying for OpenCode or other model APIs.
-- Direct API providers (Gemini, DeepSeek, OpenAI, Anthropic) charge/limit
-  usage according to each provider, separate from the Cloudflare bill.
+### Concurrency and billing
 
-## Architecture
+The old process-wide `activeImplementation` lock has been **removed**.
+`cloudflare/wrangler.jsonc` configures a **single API container** and a
+**job container pool of up to 1000 instances**. This is a platform deployment
+capacity ceiling, **not** a $5 monthly spending cap or a per-user quota.
+If enough jobs arrive, Cloudflare Queue and Container capacity determine
+when they run. For more than 1000 concurrent jobs, increase the configured
+`max_instances` (subject to Cloudflare account limits) and redeploy.
+Cloudflare metered usage can cost more than the Workers Paid $5 base fee.
 
-Figma Development Plugin (HTTPS) → Worker
-`design-engineer-containers-v05.YOUR-SUBDOMAIN.workers.dev` →
-sticky Cloudflare `DesignEngineerContainer` instance →
-Node 22 Express + Git + installed Codex/Claude Code/OpenCode →
-development Supabase, GitHub, and model providers.
+The current implementation is a **staging release**, not a certified untrusted
+multi-tenant production service. See the limitations below before inviting users.
 
-The Worker checks the required configuration, overwrites a private gateway
-header, and forwards existing API/OAuth routes to the single named container.
-The container gets its configuration **only** through Workers secrets via
-`envVars` in `cloudflare/src/paid-containers.js`.
-The Figma workflow and API endpoints remain the same as Deployment 04.
-All instance filesystem state is ephemeral; persistent credential records
-live in Supabase, not the container filesystem.
+## End-to-end setup — Windows PowerShell
 
-## Step 1 — Cloudflare Paid plan
+### 1. Create Cloudflare account and enable paid Containers
 
-1. Go to https://dash.cloudflare.com/ and log in.
-2. Switch your Workers plan to **Workers Paid ($5/month base)**.
-3. Confirm the **Containers** feature is available under Workers & Pages.
-4. Monitor the **Billing/Usage** sections and set spending alerts where
-   offered. Additional metered usage can exceed the base fee.
+1. Open https://dash.cloudflare.com/ and upgrade Workers to **Workers Paid ($5/month base)**.
+2. Check your account has Containers and Queues available.
+3. Install Node.js 22+, Git, Docker Desktop (Linux containers), and run Docker Desktop.
+4. Use a separate **staging** Supabase project and GitHub OAuth App. Do not overwrite your production credentials.
 
-Official docs: https://developers.cloudflare.com/containers/get-started/
-and https://developers.cloudflare.com/containers/pricing/
-
-## Step 2 — Prepare local tools
-
-Install:
-- Git + Node.js 22 or later
-- Docker Desktop, with Linux containers enabled and Docker running
-- Windows PowerShell
-- Figma Desktop (for testing the development plugin)
-
-In the repo root:
+### 2. Get the new branch (repository root)
 
 ```powershell
 git fetch origin
 git switch design-engineer-cloudflare-deployment-05
 git pull origin design-engineer-cloudflare-deployment-05
-docker info
 ```
 
-## Step 3 — Log into Cloudflare and deploy the Worker/Container image
+Deployment 04 stays unchanged.
 
-Open a new PowerShell terminal **in the repository root**:
+### 3. Apply the new Supabase migration
+
+Open **staging Supabase → SQL Editor**, paste and run:
+
+`design-engineer-backend/supabase/007_implementation_jobs.sql`
+
+This migration adds `implementation_jobs` with user-level RLS, encrypted
+session credential storage and durable `queued/running/completed/failed` status.
+The backend must be granted a **staging** service-role key, but it must never
+be put in the Figma frontend. Previous staging migrations 004–006 must already
+be applied. Do **not** run this migration against production unless you
+deliberately promote the tested release.
+
+### 4. Create Cloudflare Queue and dead-letter queue
+
+Open PowerShell at the repository root:
 
 ```powershell
 cd cloudflare
 npm install
 npx wrangler login
+npx wrangler queues create design-engineer-v05-jobs
+npx wrangler queues create design-engineer-v05-jobs-dlq
+```
+
+Create each queue only once. If Cloudflare says it already exists, keep it.
+The Queue name is already wired in `wrangler.jsonc`; no need to paste any
+credentials into the queue configuration.
+
+### 5. Deploy Worker and Container image
+
+Keep Docker Desktop running **during deployment**:
+
+```powershell
 npm run deploy
 ```
 
-`npm run deploy` automatically runs `prepare:image`:
-only the backend source/package files are staged into the Docker build context;
-`.env`, Codex auth and node_modules are excluded. Wrangler then builds the
-Docker image, pushes it to Cloudflare's registry, and deploys the Worker.
-**Do not run `docker run` or start cloudflared** for this paid deployment.
+This automatically stages only non-secret backend files, builds the Node 22
+coding-agent Docker image, pushes it to Cloudflare, and deploys the Worker,
+the shared API container class, and the per-job container class.
 
-After Wrangler finishes, note the generated URL, e.g.:
+Record the displayed HTTPS URL, for example:
 
-```text
-https://design-engineer-containers-v05.YOUR-SUBDOMAIN.workers.dev
-```
+`https://design-engineer-containers-v05.YOUR-SUBDOMAIN.workers.dev`
 
-The Worker can be deployed before secrets are set; normal API routes will
-show 503 `CLOUDFLARE_CONFIG_MISSING` until Step 5.
+No persistent local Docker or Cloudflare Tunnel is required after deployment.
 
-Validate container deployment status:
+### 6. Prepare the **staging** backend .env (on your PC)
 
-```powershell
-npx wrangler containers list
-```
-
-An initial container rollout may take a few minutes. Cloudflare requires
-Docker on the **deployment computer** to build/push the image, but your
-computer does **not** need to remain running after successful deployment.
-
-## Step 4 — Prepare production-like staging credentials locally
-
-**Use a separate staging Supabase project** and a separate staging GitHub
-OAuth App, not your existing production service accounts. For a fresh
-staging Supabase database, run `design-engineer-backend/supabase/schema.sql`
-then migrations `004_multi_agent.sql`, `005_gemini_direct_api.sql`,
-and `006_four_direct_api_providers.sql`. If that project already has those
-migrations, do not rerun them.
-
-Edit `design-engineer-backend/.env` on your own machine (never commit it).
-You can keep the values from local testing but **change BACKEND_URL to your
-new Cloudflare Worker URL**, not localhost:
+Edit `design-engineer-backend/.env` locally, *never commit it*:
 
 ```dotenv
 PORT=4000
 BACKEND_URL=https://design-engineer-containers-v05.YOUR-SUBDOMAIN.workers.dev
 SUPABASE_URL=https://YOUR-STAGING-PROJECT.supabase.co
-SUPABASE_PUBLISHABLE_KEY=YOUR_STAGING_ANON_OR_PUBLISHABLE_KEY
-SUPABASE_SERVICE_ROLE_KEY=YOUR_STAGING_SERVICE_ROLE_KEY
+SUPABASE_PUBLISHABLE_KEY=YOUR_STAGING_SUPABASE_ANON_OR_PUBLISHABLE_KEY
+SUPABASE_SERVICE_ROLE_KEY=YOUR_STAGING_SUPABASE_SERVICE_ROLE_KEY
 GITHUB_CLIENT_ID=YOUR_STAGING_GITHUB_CLIENT_ID
 GITHUB_CLIENT_SECRET=YOUR_STAGING_GITHUB_CLIENT_SECRET
 ENCRYPTION_KEY=YOUR_EXISTING_STAGING_64_CHAR_HEX_ENCRYPTION_KEY
-GATEWAY_SHARED_SECRET=YOUR_SEPARATE_64_CHAR_RANDOM_GATEWAY_SECRET
+GATEWAY_SHARED_SECRET=YOUR_NEW_RANDOM_64_CHAR_HEX_GATEWAY_SECRET
 ```
 
-To generate a fresh secret:
+Generate a gateway secret using PowerShell:
 
 ```powershell
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Run that command twice when starting a **new empty staging database**, once
-for `ENCRYPTION_KEY` and once for `GATEWAY_SHARED_SECRET`. If encrypted
-staging records already exist, preserve the **old staging ENCRYPTION_KEY**
-instead of regenerating it. The new gateway secret need not match it.
+If your development Supabase already stores encrypted provider connections,
+**preserve the original ENCRYPTION_KEY**. Use a freshly generated key for a
+brand-new empty staging Supabase project only.
 
-No user Gemini/DeepSeek/OpenAI/Anthropic key belongs in `.env`; users connect
-those inside the Figma plugin, stored encrypted per account in staging
-Supabase. Do not put your production API keys in staging.
+Model-provider credentials are still connected by users within the Figma
+plugin and encrypted per user. **OpenCode behavior has not changed.**
 
-## Step 5 — Upload secrets into Cloudflare
+### 7. Upload the .env values into Cloudflare Secrets
 
-Your `design-engineer-backend/.env` is **not** automatically uploaded to
-Cloudflare by Docker or Wrangler. This branch includes a PowerShell script
-that securely sends the required values to Cloudflare Workers Secrets.
-
-From the **cloudflare/** directory:
+From the `cloudflare/` directory in PowerShell:
 
 ```powershell
 .\scripts\upload-secrets.ps1
 ```
 
-This sets the eight required Worker secrets:
+The script uploads the eight backend values above **except PORT** using
+Wrangler's secret store. It never prints their contents. Every new environment
+change requires reuploading changed secrets to Cloudflare; merely editing
+your PC's `.env` is not enough.
 
-```text
-SUPABASE_URL
-SUPABASE_PUBLISHABLE_KEY
-SUPABASE_SERVICE_ROLE_KEY
-GITHUB_CLIENT_ID
-GITHUB_CLIENT_SECRET
-ENCRYPTION_KEY
-BACKEND_URL
-GATEWAY_SHARED_SECRET
-```
+If the container started before secret upload, redeploy or restart it after
+the secrets are present.
 
-The Worker automatically passes them to its Container on startup.
-Never add them to `wrangler.jsonc`, your published Figma plugin, or GitHub.
-You can alternatively run `npx wrangler secret put SECRET_NAME` eight
-times manually, pasting the relevant secret at each prompt.
+### 8. Configure a separate staging GitHub OAuth App
 
-After setting secrets, restart the container if it is already running (or
-deploy again) to ensure fresh envVars are applied; do not rotate secrets
-mid-job. Keep the Worker URL constant across the OAuth callback settings.
+At https://github.com/settings/developers → OAuth Apps → New OAuth App:
 
-## Step 6 — New GitHub OAuth App for Cloudflare
+- **Name:** Design Engineer Cloudflare Staging
+- **Homepage URL:** your Worker HTTPS URL
+- **Authorization callback:**
+  `https://YOUR-WORKER-URL/auth/github/callback`
 
-In https://github.com/settings/developers:
+Copy that app's Client ID/Secret to the staging `.env` and upload secrets
+again. Keep your production OAuth App and callback unchanged.
 
-1. OAuth Apps → **New OAuth App**.
-2. Name: `Design Engineer Cloudflare Staging`
-3. Homepage URL:
-   `https://design-engineer-containers-v05.YOUR-SUBDOMAIN.workers.dev`
-4. Authorization callback URL:
-   `https://design-engineer-containers-v05.YOUR-SUBDOMAIN.workers.dev/auth/github/callback`
-5. Register, copy **Client ID** and generate **Client Secret**.
-6. Put these in your staging backend `.env` and run the upload script again
-   if you created the OAuth app after Step 5.
+### 9. Configure staging Supabase / Google login
 
-**Never replace your production GitHub OAuth callback URL.**
+Go to **staging Supabase → Authentication → URL Configuration** and allow:
 
-## Step 7 — Supabase Google Sign-In callback
+`https://YOUR-WORKER-URL/auth/google/callback/**`
 
-In **staging Supabase → Authentication → URL Configuration**, add:
+Keep existing development localhost redirects if needed. The Google Cloud
+OAuth redirect is still your **Supabase** endpoint:
 
-```text
-https://design-engineer-containers-v05.YOUR-SUBDOMAIN.workers.dev/auth/google/callback/**
-```
+`https://YOUR-STAGING-PROJECT.supabase.co/auth/v1/callback`
 
-You may keep the localhost redirect while testing. For this staging-only
-Supabase project the Site URL may be the Worker hostname.
+Do **not** replace Google's OAuth redirect with your Worker URL.
 
-If Google OAuth already works in staging Supabase, **do not change its Client
-ID or Client Secret**. The redirect URL registered in **Google Cloud Console**
-stays the staging Supabase callback:
+### 10. Build the Figma development plugin
 
-```text
-https://YOUR-STAGING-PROJECT.supabase.co/auth/v1/callback
-```
-
-Do not register the Worker URL as Google's OAuth callback.
-
-## Step 8 — Point Figma development plugin to Cloudflare
-
-The frontend URL is configured **at build time**, not by modifying
-`src/api/client.ts`. In PowerShell at repo root:
+From the repository root, in a new PowerShell session:
 
 ```powershell
 cd design-engineer-plugin
-$env:DESIGN_ENGINEER_API_URL="https://design-engineer-containers-v05.YOUR-SUBDOMAIN.workers.dev"
+$env:DESIGN_ENGINEER_API_URL="https://YOUR-WORKER-URL"
 npm ci
 npm run watch
 ```
 
-Reload/import your local development Figma manifest. It allows workers.dev
-domains in its development network permissions. Keep your published Figma
-plugin unchanged until testing is complete.
+Open Figma Desktop and reload the **development** plugin. The branch's
+development manifest allows `workers.dev`. Do not publish the production
+plugin yet.
 
-## Step 9 — Verify end-to-end
+### 11. Smoke-test every stage
 
-1. Visit `https://YOUR-WORKER-URL/__edge/health`: should report
-   `runtime: workers-paid`.
-2. Visit `https://YOUR-WORKER-URL/healthz`: should show the Express backend
-   health JSON. A 503 may mean secrets missing, container still provisioning,
-   or startup failure.
-3. In Figma, test new Google/email login.
-4. Connect GitHub using your staging OAuth app.
-5. Choose a staging project/repo/branch, then React/React Native stack.
-6. Test model verification for Codex, Claude, OpenCode, Gemini, DeepSeek,
-   OpenAI, and Anthropic with test accounts/keys as available.
-7. Select a small Figma screen, fetch design context, review plan, approve,
-   and verify the new GitHub PR in a disposable repo.
-8. Test two **distinct** Supabase accounts with their own Codex/Claude/provider
-   connections. Verify neither account can list or use the other's secrets.
-   Automated tests do NOT substitute for this real two-user check.
-9. Test a long-running request and a container restart/redeploy. OAuth and
-   in-flight jobs still have restart limitations in this release.
+1. `https://YOUR-WORKER-URL/__edge/health` reports paid/per-job-container mode.
+2. `https://YOUR-WORKER-URL/healthz` returns Express backend health.
+3. Test email/Google sign-in, GitHub OAuth, project/repo/branch selection.
+4. Test Codex, Claude, OpenCode and Direct APIs using your existing models
+   and your *own* staging credentials.
+5. Fetch a small Figma screen → review plan → approve implementation.
+6. The plugin now says **queued**, then **running**, then **completed**,
+   providing a PR link on success.
+7. Test User A and User B simultaneously: two different job IDs must create
+   **two different Cloudflare execution containers**. Confirm independent
+   GitHub PRs and credential ownership.
+8. Check Queue backlogs, dead-letter queue, Container instances and billing.
+9. Review Cloudflare logs: `npx wrangler tail`,
+   `npx wrangler containers list`.
 
-## Logs and troubleshooting
+Do not run CLI users against the same real private repository during your
+first test. Start with separate disposable repositories.
 
-```powershell
-cd cloudflare
-npx wrangler tail
-npx wrangler containers list
-```
+## Important remaining operational limitations
 
-In Cloudflare Dashboard → Workers & Pages → Containers, inspect instance
-status and logs. API keys, secrets and raw model responses should never be
-copied into support tickets. Coding CLI output is intentionally not streamed
-verbatim into logs.
+- **OAuth restart safety:** the API container retains device/OAuth state in
+  memory. Restarting it during GitHub/Google/Codex auth can require signing in
+  again; move OAuth state to durable storage before public scale.
+- **Job crash recovery:** a queue message is acknowledged after the job
+  container accepts dispatch, not after the GitHub PR is finished. If the
+  container dies later, status can remain `running`; further watchdog/recovery
+  logic is needed before reliable production release.
+- **Token expiry:** the user-scoped short-lived encrypted Supabase JWT is
+  captured at submission time; a very long queue wait can cause expiry
+  before execution. It is erased after completion/failure. Expired jobs need
+  a renewed user authorization and retry.
+- **Control-plane secrets:** job Containers still receive service credentials
+  because the current backend controls GitHub and model connections. The coding
+  agent subprocess drops privileges and receives only selected credentials,
+  but stronger brokered secret delivery and network egress controls are needed
+  for a hardened multi-tenant service.
+- **Quota:** anonymous OpenCode free-model provider limits remain controlled
+  by OpenCode/provider policy, not by Figma accounts or Container IDs.
+  This branch deliberately does **not** alter OpenCode free-model options.
+- **Costs and platform capacity:** `max_instances:1000` is infrastructure
+  capacity configuration, not a spending cap. Monitor Cloudflare metered usage
+  and limits. Workers Paid can exceed $5.
+- **Monitoring:** implement alerting, idempotent retries, job cancellation,
+  dead-letter replay and event persistence before inviting general public.
 
-- HTTP 503 + `CLOUDFLARE_CONFIG_MISSING`: missing Worker secrets.
-- HTTP 503 + `CONTAINER_UNAVAILABLE`: container is starting or crashed;
-  inspect Cloudflare logs.
-- HTTP 403 on backend routes: mismatched gateway secret. The Worker and
-  container must have the same `GATEWAY_SHARED_SECRET`.
-- GitHub OAuth callback mismatch: check your GitHub staging app callback and
-  `BACKEND_URL` against the **exact** Worker HTTPS hostname.
-- Supabase Google callback mismatch: check the staging Supabase redirect allowlist.
-- HTTP 429 `IMPLEMENTATION_BUSY`: another implementation is active. Only
-  one at a time in this cost-limited prototype.
-- OpenCode model 429: upstream provider rate limit; not a Cloudflare request
-  quota. Free-tier access is provider-specific, and not guaranteed unlimited.
-
-## Production-readiness blockers still remaining
-
-Do **not** publish to untrusted multi-user production users solely because
-the project builds/deploys:
-
-- Separate job containers/VMs with strict filesystem, network and process
-  isolation (the API container is currently shared; per-job UID separation
-  is only defense in depth).
-- Durable queue and job status/retry/recovery; current implementation can
-  outlive connections and is not restart-safe.
-- OAuth state persistence across container sleep/redeploy and timeout handling.
-- Multi-user end-to-end isolation/authorization tests, security review and
-  threat modeling for untrusted repositories and model-generated commands.
-- Provider usage/cost tracking, quotas and rate limits; free OpenCode access
-  cannot be guaranteed or billed reliably without provider-specific accounts.
-- Secrets rotation, audit logging and error redaction review.
-
-Recommended: keep the new Worker in **private staging** until all are addressed.
-
-## Official docs
+## Official documentation
 
 - https://developers.cloudflare.com/containers/get-started/
-- https://developers.cloudflare.com/containers/examples/env-vars-and-secrets/
-- https://developers.cloudflare.com/containers/pricing/
+- https://developers.cloudflare.com/containers/platform/limits/
+- https://developers.cloudflare.com/queues/get-started/
+- https://developers.cloudflare.com/queues/configuration/configure-queues/
 - https://developers.cloudflare.com/workers/configuration/secrets/
