@@ -1,0 +1,5 @@
+# Local Wrangler only. Never commit .dev.vars with real values.
+# BACKEND_ORIGIN must be a publicly reachable HTTPS origin (NOT localhost).
+BACKEND_ORIGIN=https://YOUR-TEMPORARY-TUNNEL.trycloudflare.com
+# Generate 32+ random characters and use the SAME value in backend .env.
+GATEWAY_SHARED_SECRET=REPLACE_WITH_LONG_RANDOM_VALUE
