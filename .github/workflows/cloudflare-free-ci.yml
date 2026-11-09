@@ -22,6 +22,12 @@ jobs:
       - name: Test Workers Free gateway (no Cloudflare account required)
         run: node --test tests/*.test.js
         working-directory: cloudflare
+      - name: Install Wrangler
+        run: npm install
+        working-directory: cloudflare
+      - name: Bundle Cloudflare Worker configuration (no deploy)
+        run: npx wrangler deploy --dry-run --outdir ./dist-check
+        working-directory: cloudflare
       - name: Backend dependency install
         run: npm ci
         working-directory: design-engineer-backend
