@@ -1,8 +1,21 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "design-engineer-free-gateway",
-  "main": "src/free-gateway.js",
+  "name": "design-engineer-containers-v05",
+  "main": "src/paid-containers.js",
   "compatibility_date": "2026-11-07",
   "workers_dev": true,
-  "observability": {"enabled": true}
+  "observability": {"enabled": true},
+  "containers": [{
+    "class_name": "DesignEngineerContainer",
+    "image": "./Dockerfile",
+    "instance_type": "standard-1",
+    "max_instances": 1
+  }],
+  "durable_objects": {
+    "bindings": [{"name": "BACKEND_CONTAINER", "class_name": "DesignEngineerContainer"}]
+  },
+  "migrations": [{
+    "tag": "v1-design-engineer-containers",
+    "new_sqlite_classes": ["DesignEngineerContainer"]
+  }]
 }
