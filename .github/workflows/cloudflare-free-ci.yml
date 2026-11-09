@@ -1,4 +1,4 @@
-name: Cloudflare Free Gateway CI
+name: Cloudflare Paid Containers CI
 on:
   push:
     branches:
@@ -19,14 +19,14 @@ jobs:
       - name: Check backend syntax
         run: node --check server.js
         working-directory: design-engineer-backend
-      - name: Test Workers Free gateway (no Cloudflare account required)
+      - name: Test Cloudflare routing and container configuration (no Cloudflare account required)
         run: node --test tests/*.test.js
         working-directory: cloudflare
       - name: Install Wrangler
         run: npm install
         working-directory: cloudflare
-      - name: Bundle Cloudflare Worker configuration (no deploy)
-        run: npx wrangler deploy --dry-run --outdir ./dist-check
+      - name: Build Cloudflare Container and Worker configuration (no deploy)
+        run: npm run check:deploy
         working-directory: cloudflare
       - name: Backend dependency install
         run: npm ci
