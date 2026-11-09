@@ -1372,12 +1372,11 @@ function startCodexAuth(deviceCode, userId, accessToken) {
       return;
     }
 
-    // In a local desktop session the CLI can open the user's browser and
-    // receive its localhost callback directly. On a remote host (Render, a VPS,
-    // etc.) that callback points at the server, not the user's machine, so we
-    // use Codex's device-code flow and show the link + code in the plugin.
-    const useDeviceAuth =
-      !isLocalBackendUrl() || process.env.CODEX_DEVICE_AUTH === '1';
+    // The Codex process runs inside a Docker container or remote server.
+    // Even if BACKEND_URL is localhost, the CLI cannot open a browser on the
+    // user's desktop. Always use a visible device-code sign-in by default.
+    // Only opt into browser auth explicitly for a native (non-container) setup.
+    const useDeviceAuth = process.env.CODEX_BROWSER_AUTH !== '1';
 
     const args = useDeviceAuth
       ? [CODEX_CLI_BIN, 'login', '--device-auth']
