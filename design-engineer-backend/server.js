@@ -2560,6 +2560,11 @@ app.post('/internal/jobs/execute',async(req,res)=>{
           {status:'failed',error:'Implementation could not finish. Retry after checking the service logs.',
             encrypted_access_token:null,finished_at:new Date().toISOString()})
           .catch(()=>{});
+      }finally{
+        // One job per container. Terminate after status persistence, rather
+        // than paying for an idle job image or retaining decrypted credentials.
+        if(process.env.DESIGN_ENGINEER_ROLE==='job')
+          setTimeout(()=>process.exit(0),1000).unref();
       }
     })();
   }catch(error){
