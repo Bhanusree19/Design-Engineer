@@ -143,7 +143,7 @@ export async function consume(batch,env,jobContainer=(binding,id)=>getContainer(
 export async function reconcileStaleJobs(env,fetchImpl=fetch){
   if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return;
   const key=env.SUPABASE_SERVICE_ROLE_KEY;
-  const base=env.SUPABASE_URL.replace(/\\/+$/,'')+'/rest/v1/implementation_jobs';
+  const base=new URL('/rest/v1/implementation_jobs',env.SUPABASE_URL).toString();
   const headers={apikey:key,Authorization:'Bearer '+key,
     'Content-Type':'application/json',Prefer:'return=minimal'};
   for(const [status,field,ageMinutes] of [
