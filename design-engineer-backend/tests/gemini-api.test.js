@@ -71,3 +71,81 @@ test('Gemini adapter rejects symlink paths without editing outside workspace',as
   }),err=>err.code==='UNSAFE_FILE_PATH');
  }finally{await fs.rm(root,{recursive:true,force:true})}
 });
+
+test('Gemini file edits use output JSON schema and Gemini 3 low thinking',async()=>{
+  let config;
+  const output=await gemini.generate({
+    apiKey:key,model:'gemini-3-flash-preview',responseJson:true,prompt:'Return file edits.',
+    fetchImpl:async(url,opts)=>{
+      config=JSON.parse(opts.body).generationConfig;
+      return {status:200,ok:true,json:async()=>({
+        candidates:[{finishReason:'STOP',content:{parts:[{text:'{"files":[{"path":"src/App.tsx","content":"export default 1"}]}'}]}}]
+      })};
+    }
+  });
+  assert(JSON.parse(output).files.length===1);
+  assert.equal(config.responseMimeType,'application/json');
+  assert.equal(config.responseJsonSchema.properties.files.type,'array');
+  assert.equal(config.thinkingConfig.thinkingLevel,'low');
+  assert.equal(config.temperature,undefined);
+  assert.equal(config.maxOutputTokens,32768);
+});
+test('Gemini MAX_TOKENS gives retryable structured error without showing partial response',async()=>{
+  await assert.rejects(gemini.generate({
+    apiKey:key,model:'gemini-3-flash-preview',responseJson:true,prompt:'Return file edits.',
+    fetchImpl:async()=>({status:200,ok:true,json:async()=>({
+      candidates:[{finishReason:'MAX_TOKENS',content:{parts:[{text:'{"files":['}]}}],
+      usageMetadata:{candidatesTokenCount:32768}
+    })})
+  }),err=>err.code==='MODEL_OUTPUT_TRUNCATED'&&!err.message.includes('files'));
+});
+test('Gemini safely retries malformed JSON using smaller context and then writes valid output',async()=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'gemini-json-retry-'));
+  try {
+    const ctx=path.join(root,'.design-engineer','context');await fs.mkdir(ctx,{recursive:true});
+    await fs.writeFile(path.join(ctx,'home.json'),JSON.stringify({screen:'Home',frame:'screenshot_1'}));
+    await fs.mkdir(path.join(root,'src'));await fs.writeFile(path.join(root,'src','App.tsx'),'x'.repeat(20000));
+    const prompts=[];
+    const result=await gemini.execute({
+      workspace:root,contextDir:ctx,model:'gemini-3-flash-preview',apiKey:key,
+      prompt:'Implement the screen.',
+      generateImpl:async args=>{
+        prompts.push(args.prompt);
+        if(prompts.length===1)return '{"files":[{"path":"src/Home.tsx"';
+        return JSON.stringify({files:[{path:'src/Home.tsx',content:'export default function Home(){return null;}'}]});
+      }
+    });
+    assert.equal(prompts.length,2);
+    assert(prompts[1].length<prompts[0].length,'retry should reduce context');
+    assert.deepEqual(result.files,['src/Home.tsx']);
+  }finally{await fs.rm(root,{recursive:true,force:true})}
+});
+test('Gemini retries output truncation without writing partial files',async()=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'gemini-truncation-test-'));
+  try {
+    const ctx=path.join(root,'.design-engineer','context');await fs.mkdir(ctx,{recursive:true});
+    let calls=0;
+    await assert.rejects(gemini.execute({
+      workspace:root,contextDir:ctx,model:'gemini-3-flash-preview',apiKey:key,
+      prompt:'Implement the screen.',
+      generateImpl:async()=>{
+        calls++;
+        throw new gemini.GeminiError('Truncated output', 'MODEL_OUTPUT_TRUNCATED',502);
+      }
+    }),err=>err.code==='MODEL_OUTPUT_TRUNCATED');
+    assert.equal(calls,3);
+    await assert.rejects(fs.stat(path.join(root,'src','Bad.tsx')),{code:'ENOENT'});
+  }finally{await fs.rm(root,{recursive:true,force:true})}
+});
+test('Gemini does not retry provider quota errors',async()=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'gemini-provider-error-'));
+  try {
+    const ctx=path.join(root,'.design-engineer','context');await fs.mkdir(ctx,{recursive:true});
+    let calls=0;
+    await assert.rejects(gemini.execute({
+      workspace:root,contextDir:ctx,model:'gemini-3-flash-preview',apiKey:key,prompt:'Implement.',
+      generateImpl:async()=>{calls++;throw new gemini.GeminiError('Quota exceeded','PROVIDER_RATE_LIMIT',429)}
+    }),err=>err.code==='PROVIDER_RATE_LIMIT');
+    assert.equal(calls,1);
+  }finally{await fs.rm(root,{recursive:true,force:true})}
+});
