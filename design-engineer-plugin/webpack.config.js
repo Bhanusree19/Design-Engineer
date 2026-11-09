@@ -1,4 +1,5 @@
 const path = require('path');
+const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const HtmlInlineScriptPlugin = require('html-inline-script-webpack-plugin');
 
@@ -27,6 +28,11 @@ module.exports = (env, argv) => {
         path: path.resolve(__dirname, 'dist')
       },
       plugins: [
+        new webpack.DefinePlugin({
+          __DESIGN_ENGINEER_API_URL__: JSON.stringify(
+            process.env.DESIGN_ENGINEER_API_URL || 'http://localhost:4000'
+          )
+        }),
         new HtmlWebpackPlugin({
           template: path.resolve(__dirname, 'src/ui/index.html'),
           filename: 'ui.html',
