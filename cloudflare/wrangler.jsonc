@@ -4,18 +4,64 @@
   "main": "src/paid-containers.js",
   "compatibility_date": "2026-11-07",
   "workers_dev": true,
-  "observability": {"enabled": true},
-  "containers": [{
-    "class_name": "DesignEngineerContainer",
-    "image": "./Dockerfile",
-    "instance_type": "standard-1",
-    "max_instances": 1
-  }],
-  "durable_objects": {
-    "bindings": [{"name": "BACKEND_CONTAINER", "class_name": "DesignEngineerContainer"}]
+  "observability": {
+    "enabled": true
   },
-  "migrations": [{
-    "tag": "v1-design-engineer-containers",
-    "new_sqlite_classes": ["DesignEngineerContainer"]
-  }]
+  "containers": [
+    {
+      "class_name": "DesignEngineerContainer",
+      "image": "./Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 1
+    },
+    {
+      "class_name": "DesignEngineerJobContainer",
+      "image": "./Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 1000
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BACKEND_CONTAINER",
+        "class_name": "DesignEngineerContainer"
+      },
+      {
+        "name": "JOB_CONTAINER",
+        "class_name": "DesignEngineerJobContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-design-engineer-containers",
+      "new_sqlite_classes": [
+        "DesignEngineerContainer"
+      ]
+    },
+    {
+      "tag": "v2-isolated-job-containers",
+      "new_sqlite_classes": [
+        "DesignEngineerJobContainer"
+      ]
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "JOBS_QUEUE",
+        "queue": "design-engineer-v05-jobs"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "design-engineer-v05-jobs",
+        "max_batch_size": 1,
+        "max_batch_timeout": 0,
+        "max_retries": 10,
+        "dead_letter_queue": "design-engineer-v05-jobs-dlq"
+      }
+    ]
+  }
 }
