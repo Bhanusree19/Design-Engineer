@@ -48,6 +48,7 @@ function toApiRequest(request,env,urlOverride){
   headers.set('x-design-engineer-gateway',env.GATEWAY_SHARED_SECRET);
   // Do not allow external callers to smuggle internal dispatch credentials.
   headers.delete('x-design-engineer-internal-job');
+  headers.delete('x-design-engineer-job-submit');
   headers.delete('cf-connecting-ip');
   headers.delete('cf-ray');
   headers.delete('x-forwarded-host');
@@ -80,7 +81,9 @@ export async function route(request,env,apiContainer=(binding)=>
       // ownership and stores encrypted job credentials in development Supabase.
       const submitUrl=new URL(request.url);
       submitUrl.pathname='/api/jobs';
-      const submitted=await container.fetch(toApiRequest(request,env,submitUrl.toString()));
+      const submitRequest=toApiRequest(request,env,submitUrl.toString());
+      submitRequest.headers.set('x-design-engineer-job-submit',env.GATEWAY_SHARED_SECRET);
+      const submitted=await container.fetch(submitRequest);
       if(!submitted.ok)return safeResponse(submitted);
       const data=await submitted.json();
       if(!JOB_ID.test(data?.jobId||''))
