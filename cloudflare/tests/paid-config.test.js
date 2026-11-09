@@ -29,3 +29,19 @@ test('Paid Worker never enables public generic proxy routes',()=>{
  assert.match(runtime,/x-design-engineer-gateway/);
  assert(!runtime.includes('BACKEND_ORIGIN'));
 });
+
+test('Queue dispatches to distinct job containers with no OpenCode or credential payload',()=>{
+ const job=config.containers.find(c=>c.class_name==='DesignEngineerJobContainer');
+ assert(job,'dedicated job container missing');
+ assert(job.max_instances>1,'job pool still has the old single-instance restriction');
+ assert(job.instance_type==='standard-1');
+ assert(config.durable_objects.bindings.some(b=>b.name==='JOB_CONTAINER'));
+ assert(config.queues.producers.some(p=>p.binding==='JOBS_QUEUE'));
+ assert(config.queues.consumers.some(c=>c.queue==='design-engineer-v05-jobs'));
+ assert.match(runtime,/getContainer\(binding,id\)/);
+ assert.match(runtime,/job-['"]?\+jobId/);
+ assert.match(runtime,/JOBS_QUEUE\.send\(\{jobId:data\.jobId\}\)/);
+ assert(!runtime.includes('IMPLEMENTATION_BUSY'));
+ assert(!runtime.includes('apiKey:'));
+ assert(!runtime.includes('opencode/big-pickle'));
+});
