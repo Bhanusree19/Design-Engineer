@@ -63,5 +63,10 @@
         "dead_letter_queue": "design-engineer-v05-jobs-dlq"
       }
     ]
+  },
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
   }
 }
