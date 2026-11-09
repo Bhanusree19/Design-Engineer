@@ -1190,7 +1190,7 @@ function getCodexLoginStatus(home = CODEX_HOME) {
       [CODEX_CLI_BIN, 'login', 'status'],
       {
         cwd: __dirname,
-        env: { ...process.env, CODEX_HOME:home, HOME:home },
+        env: isolatedCodexAuthEnv(home),
         stdio: ['ignore', 'pipe', 'pipe'],
       }
     );
@@ -1358,6 +1358,18 @@ function isLocalBackendUrl() {
   );
 }
 
+// Codex device login must never inherit server-side Supabase/GitHub secrets.
+function isolatedCodexAuthEnv(home){
+  return {
+    PATH:process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
+    HOME:home,
+    CODEX_HOME:home,
+    XDG_CONFIG_HOME:path.join(home,'.config'),
+    XDG_DATA_HOME:path.join(home,'.local','share'),
+    TERM:'dumb',
+    NO_COLOR:'1'
+  };
+}
 function parseCodexDeviceAuthOutput(text) {
   const clean = String(text).replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
   const urlMatch = clean.match(/https:\/\/[^\s]+/);
@@ -1401,7 +1413,7 @@ function startCodexAuth(deviceCode, userId, accessToken) {
 
     const child = spawn(process.execPath, args, {
       cwd: __dirname,
-      env: { ...process.env, CODEX_HOME:entry.home, HOME:entry.home },
+      env: isolatedCodexAuthEnv(entry.home),
       stdio: useDeviceAuth ? ['ignore', 'pipe', 'pipe'] : 'ignore',
     });
 
