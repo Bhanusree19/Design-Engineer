@@ -42,8 +42,9 @@ export async function gateway(request,env,fetchImpl=fetch){
   headers.delete('cf-ray');
   headers.delete('x-forwarded-host');
   headers.delete('x-forwarded-proto');
+  const hasBody=!['GET','HEAD'].includes(request.method) && request.body !== null;
   const options={method:request.method,headers,redirect:'manual',
-    body:['GET','HEAD'].includes(request.method)?undefined:request.body};
+    ...(hasBody?{body:request.body,duplex:'half'}:{})};
   try{
     const response=await fetchImpl(new Request(target.toString(),options));
     const responseHeaders=new Headers(response.headers);
