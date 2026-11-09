@@ -5,7 +5,7 @@ create table if not exists public.implementation_jobs (
   user_id uuid not null references auth.users(id) on delete cascade,
   project_id uuid not null references public.projects(id) on delete cascade,
   screens jsonb not null,
-  encrypted_access_token text not null,
+  encrypted_access_token text,
   status text not null default 'queued' check (status in ('queued','running','completed','failed')),
   result jsonb,
   error text,
@@ -13,7 +13,8 @@ create table if not exists public.implementation_jobs (
   finished_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint implementation_jobs_screens_array check (jsonb_typeof(screens) = 'array')
+  constraint implementation_jobs_screens_array check (jsonb_typeof(screens) = 'array'),
+  constraint implementation_jobs_queued_token check (status <> 'queued' or encrypted_access_token is not null)
 );
 create index if not exists implementation_jobs_user_created_idx on public.implementation_jobs(user_id, created_at desc);
 create index if not exists implementation_jobs_status_created_idx on public.implementation_jobs(status,created_at);
