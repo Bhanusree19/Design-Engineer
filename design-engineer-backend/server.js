@@ -34,6 +34,23 @@ const directApi=require('./adapters/direct-api');
 const app = express();
 
 app.use(cors());
+// When deployed behind the Cloudflare Free Worker gateway, require a private
+// origin header for every API and OAuth route. Leave unset for localhost-only
+// development. Configure the SAME random value in the Worker secret.
+// The Worker overwrites any client-provided header before forwarding.
+const GATEWAY_SHARED_SECRET = process.env.GATEWAY_SHARED_SECRET || '';
+if(GATEWAY_SHARED_SECRET.length > 0 && GATEWAY_SHARED_SECRET.length < 32)
+  throw new Error('GATEWAY_SHARED_SECRET must contain at least 32 characters.');
+app.use((req,res,next)=>{
+  if(!GATEWAY_SHARED_SECRET||req.method==='OPTIONS'||req.path==='/healthz')
+    return next();
+  const actual=req.get('x-design-engineer-gateway')||'';
+  const expectedHash=crypto.createHash('sha256').update(GATEWAY_SHARED_SECRET).digest();
+  const actualHash=crypto.createHash('sha256').update(actual).digest();
+  if(!crypto.timingSafeEqual(expectedHash,actualHash))
+    return res.status(403).json({error:'Use the configured Design Engineer gateway.'});
+  next();
+});
 
 function escapeHtml(value) {
   return String(value)
