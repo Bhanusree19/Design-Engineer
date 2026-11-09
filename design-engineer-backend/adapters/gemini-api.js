@@ -13,6 +13,21 @@ const BLOCKED_NAMES = new Set(['.git','.env','.env.local','.env.production',
   '.npmrc','.ssh','.aws','.config','node_modules','dist','build','.next','.vercel',
   '.wrangler','.github','.gitignore','package-lock.json','yarn.lock','pnpm-lock.yaml']);
 const MAX_FILE_BYTES = 32000;
+const FILE_EDITS_SCHEMA = {
+  type:'object',properties:{
+    files:{type:'array',minItems:1,maxItems:32,items:{
+      type:'object',properties:{path:{type:'string'},content:{type:'string'}},
+      required:['path','content'],additionalProperties:false
+    }}
+  },required:['files'],additionalProperties:false
+};
+const MAX_GENERATION_ATTEMPTS=3;
+function diagnostic(model,stage,details={}) {
+  // Only log fixed metadata. Never log prompts, API keys or generated files.
+  console.warn('[Design Engineer][Direct API]',JSON.stringify({
+    provider:'gemini',model,stage,...details
+  }));
+}
 
 class GeminiError extends Error {
   constructor(message, code='GEMINI_ERROR', status=400) {
@@ -65,20 +80,41 @@ function responseText(result) {
 }
 async function generate({apiKey,model,prompt,responseJson=false,timeoutMs=120000,fetchImpl=fetch}) {
   const chosen=normalizeModel(model);
+  const isGemini3=/^gemini-3(?:\.|-|$)/.test(chosen);
+  const config={maxOutputTokens:32768};
+  // Gemini 3 models recommend the default temperature and support thinkingLevel.
+  // A lower thinking level preserves more of the output budget for code.
+  if(isGemini3)config.thinkingConfig={thinkingLevel:'low'};
+  else config.temperature=0.15;
+  if(responseJson){
+    config.responseMimeType='application/json';
+    config.responseJsonSchema=FILE_EDITS_SCHEMA;
+  }
   const result=await googleRequest('/models/'+encodeURIComponent(chosen)+':generateContent',apiKey,{
     method:'POST',timeoutMs,fetchImpl,
     body:{
       contents:[{role:'user',parts:[{text:prompt}]}],
-      generationConfig:{maxOutputTokens:16384,temperature:0.15,
-        ...(responseJson?{responseMimeType:'application/json'}:{})}
+      generationConfig:config
     }
   });
+  const candidate=result?.candidates?.[0];
+  const finishReason=candidate?.finishReason||'UNKNOWN';
   const text=responseText(result);
-  if(!text)throw new GeminiError('Gemini did not return a usable response.','GEMINI_EMPTY_RESPONSE',502);
-  if(Buffer.byteLength(text,'utf8')>MAX_OUTPUT_BYTES)
+  const bytes=Buffer.byteLength(text,'utf8');
+  if(finishReason==='MAX_TOKENS'){
+    diagnostic(chosen,'output_limit',{finishReason,bytes,
+      outputTokens:result?.usageMetadata?.candidatesTokenCount??null});
+    throw new GeminiError('Gemini reached its response token limit while generating files. Retrying with smaller context.','MODEL_OUTPUT_TRUNCATED',502);
+  }
+  if(['SAFETY','RECITATION','BLOCKLIST','PROHIBITED_CONTENT','SPII'].includes(finishReason))
+    throw new GeminiError('Gemini stopped generation because of a safety or content restriction.','MODEL_OUTPUT_BLOCKED',422);
+  if(!text.trim())
+    throw new GeminiError('Gemini returned no text for this request.','GEMINI_EMPTY_RESPONSE',502);
+  if(bytes>MAX_OUTPUT_BYTES)
     throw new GeminiError('Gemini returned too much code for a single change set.','GEMINI_OUTPUT_TOO_LARGE',413);
   return text;
 }
+
 async function verify({apiKey,model,fetchImpl=fetch}) {
   normalizeModel(model);
   const models=await listModels(apiKey,{fetchImpl});
@@ -152,21 +188,56 @@ async function execute({workspace,contextDir,apiKey,model,prompt,generateImpl=ge
     budget-=Buffer.byteLength(raw,'utf8');
     designs.push({file,content:raw});
   }
-  const instructions=[
-    'Implement the provided Figma screens in the existing repository. Preserve existing architecture and navigation.',
-    'Return ONLY a JSON object: {"files":[{"path":"src/...","content":"complete UTF-8 file contents"}]}.',
-    'Do not output markdown, shell commands, secrets, or explanations. Only create or replace files.',
-    'Keep each file under 80KB and return at most 32 files. Never modify .git, secrets, env files, lockfiles, or CI.',
-    'Use exact existing project conventions. Do not claim you ran tests.',
-    'IMPLEMENTATION REQUIREMENTS:\n'+prompt,
-    'FIGMA DESIGN CONTEXT:\n'+JSON.stringify(designs),
-    'EXISTING REPOSITORY FILES:\n'+JSON.stringify(existing)
-  ].join('\n\n');
-  if(Buffer.byteLength(instructions,'utf8')>270000)
-    throw new GeminiError('Implementation context is too large for direct API mode.','CONTEXT_TOO_LARGE',413);
-  const output=await generateImpl({apiKey,model,prompt:instructions,responseJson:true});
+  // Retry only malformed/truncated responses. Never retry provider auth, quota,
+  // safety blocks or invalid file paths. Requests can consume API quota.
   let response;
-  try {response=JSON.parse(output)}catch{throw new GeminiError('Gemini returned invalid JSON for file edits.','INVALID_CODE_RESPONSE',502)}
+  let lastError;
+  for(let attempt=0;attempt<MAX_GENERATION_ATTEMPTS;attempt++){
+    const repoLimit=[115000,33000,12000][attempt];
+    const designLimit=[115000,42000,16000][attempt];
+    const repoContext=existing.map(({path:filename,content})=>({
+      path:filename,content:content.slice(0,Math.max(800,Math.floor(repoLimit/Math.max(existing.length,1))))
+    }));
+    const designContext=designs.map(({file,content})=>({
+      file,content:content.slice(0,Math.max(1800,Math.floor(designLimit/Math.max(designs.length,1))))
+    }));
+    const instructions=[
+      'Implement the provided Figma screens in the existing repository. Preserve existing architecture and navigation.',
+      'Return ONLY one valid JSON object: {"files":[{"path":"src/...","content":"complete UTF-8 file contents"}]}.',
+      'Do not output markdown, shell commands, secrets, explanations, or partial JSON.',
+      'Never modify .git, secrets, env files, lockfiles, or CI. Use existing project conventions.',
+      'Do not claim you ran tests. Each changed file must contain its complete contents.',
+      ...(attempt?['The previous attempt failed to produce a complete JSON file-edits response. You have a smaller repository summary; prioritize complete, syntactically valid file edits.']:[]),
+      'IMPLEMENTATION REQUIREMENTS:\n'+prompt,
+      'FIGMA DESIGN CONTEXT:\n'+JSON.stringify(designContext),
+      'EXISTING REPOSITORY FILES:\n'+JSON.stringify(repoContext)
+    ].join('\n\n');
+    if(Buffer.byteLength(instructions,'utf8')>270000)
+      throw new GeminiError('Implementation context is too large for direct API mode.','CONTEXT_TOO_LARGE',413);
+    try{
+      const output=await generateImpl({apiKey,model,prompt:instructions,responseJson:true});
+      // JSON MIME responses usually need no cleanup. Strip only surrounding
+      // Markdown fences in case a non-Gemini Direct API provider adds them.
+      const cleaned=String(output).trim().replace(/^\uFEFF/,'')
+        .replace(/^\`\`\`(?:json)?\s*\n?/i,'').replace(/\n?\`\`\`\s*$/,'').trim();
+      try{response=JSON.parse(cleaned)}
+      catch{
+        throw new GeminiError('The model returned malformed or incomplete JSON file edits.','INVALID_CODE_RESPONSE',502);
+      }
+      // Structural failures are recoverable. Unsafe file edits are NOT.
+      if(!response||!Array.isArray(response.files)||response.files.length===0||response.files.length>MAX_RESPONSE_FILES)
+        throw new GeminiError('The model returned an invalid file-edits structure.','INVALID_CODE_RESPONSE',502);
+      break;
+    }catch(error){
+      if(!['INVALID_CODE_RESPONSE','MODEL_OUTPUT_TRUNCATED','GEMINI_EMPTY_RESPONSE'].includes(error?.code))throw error;
+      lastError=error;
+      diagnostic(model,'retryable_response',{attempt:attempt+1,maxAttempts:MAX_GENERATION_ATTEMPTS,
+        code:error.code});
+      if(attempt===MAX_GENERATION_ATTEMPTS-1)throw new GeminiError(
+        'Model could not return complete JSON after 3 attempts. Try a smaller Figma selection or a model with a higher output limit.',
+        error.code==='MODEL_OUTPUT_TRUNCATED'?'MODEL_OUTPUT_TRUNCATED':'INVALID_CODE_RESPONSE',502);
+    }
+  }
   if(!Array.isArray(response.files)||response.files.length===0||response.files.length>MAX_RESPONSE_FILES)
     throw new GeminiError('Gemini returned no usable file changes.','INVALID_CODE_RESPONSE',502);
   let size=0;
