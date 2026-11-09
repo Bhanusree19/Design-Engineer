@@ -23,7 +23,8 @@ alter table public.implementation_jobs enable row level security;
 -- Backend uses PostgREST with the authenticated user JWT, and selects only
 -- specific public fields for status responses.
 revoke all on public.implementation_jobs from anon;
-grant insert on public.implementation_jobs to authenticated;
+-- Job creation is backend-only after verifying the Supabase user and project.
+revoke insert,update,delete on public.implementation_jobs from authenticated;
 revoke select on public.implementation_jobs from authenticated;
 grant select (id,user_id,project_id,status,result,error,created_at,updated_at,started_at,finished_at)
   on public.implementation_jobs to authenticated;
@@ -31,8 +32,5 @@ drop policy if exists implementation_jobs_select_own on public.implementation_jo
 create policy implementation_jobs_select_own on public.implementation_jobs
   for select to authenticated using (user_id=auth.uid());
 drop policy if exists implementation_jobs_insert_own on public.implementation_jobs;
-create policy implementation_jobs_insert_own on public.implementation_jobs
-  for insert to authenticated
-  with check (user_id=auth.uid() and status='queued' and result is null and error is null);
 -- Only the backend's service role can change job status/results.
 revoke update,delete on public.implementation_jobs from authenticated;
