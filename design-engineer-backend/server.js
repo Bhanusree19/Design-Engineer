@@ -2108,6 +2108,12 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
 
     await runProcess('git', ['checkout', '-b', branchName], { cwd: worktree });
 
+    // Preserve a root-owned copy of Git metadata OUTSIDE the agent workspace.
+    // This is restored before the privileged Git commit/push, so CLI-generated
+    // files cannot swap Git hooks/config/filter definitions for server execution.
+    const safeGitDir=path.join(tempRoot,'protected-git');
+    await fs.promises.cp(path.join(worktree,'.git'),safeGitDir,{recursive:true});
+
     console.log(`[Design Engineer] Created implementation branch ${branchName}`);
 
     await fs.promises.mkdir(contextDir, { recursive: true });
@@ -2161,7 +2167,12 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
     if(!['gemini-api','direct-api'].includes(selection.agent)) await executeCodingAgent({selection,workspace:worktree,home,env:agentEnv,
       prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack)});
     console.log('[Design Engineer] '+selection.agent+' completed');
-    
+
+    // Replace repository control metadata with the original root-owned copy.
+    // Only generated source changes are carried forward to the Git operations.
+    await fs.promises.rm(path.join(worktree,'.git'),{recursive:true,force:true});
+    await fs.promises.cp(safeGitDir,path.join(worktree,'.git'),{recursive:true});
+
     await fs.promises.rm(path.join(worktree, '.design-engineer'), {
       recursive: true,
       force: true,
@@ -2169,11 +2180,20 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
 
     await appendTestInstructions(worktree, screenNames, branchName, stack);
 
-    await runProcess('git', ['config', 'user.name', 'Design Engineer'], { cwd: worktree });
-    await runProcess('git', ['config', 'user.email', 'design-engineer[bot]@users.noreply.github.com'], { cwd: worktree });
-    await runProcess('git', ['add', '-A'], { cwd: worktree });
-    await runProcess('git', ['commit', '-m', `Implement ${screenNames.join(', ')}`], { cwd: worktree });
-    await runProcess('git', ['push', 'origin', branchName], { cwd: worktree, env: gitAuthEnv });
+    // The agent worktree belongs to its temporary UID. Use Git's explicit
+    // safe.directory override, disable hooks, and ignore server global configs.
+    const safeGit=['-c',`safe.directory=${worktree}`,'-c','core.hooksPath=/dev/null'];
+    const postAgentGitEnv={...gitAuthEnv,GIT_CONFIG_GLOBAL:'/dev/null',
+      GIT_CONFIG_NOSYSTEM:'1'};
+    await runProcess('git', [...safeGit,'config', 'user.name', 'Design Engineer'],
+      { cwd: worktree, env:postAgentGitEnv });
+    await runProcess('git', [...safeGit,'config', 'user.email', 'design-engineer[bot]@users.noreply.github.com'],
+      { cwd: worktree, env:postAgentGitEnv });
+    await runProcess('git', [...safeGit,'add', '-A'], { cwd: worktree, env:postAgentGitEnv });
+    await runProcess('git', [...safeGit,'commit', '-m', `Implement ${screenNames.join(', ')}`],
+      { cwd: worktree, env:postAgentGitEnv });
+    await runProcess('git', [...safeGit,'push', 'origin', branchName],
+      { cwd: worktree, env:postAgentGitEnv });
 
     const [owner, repo] = getRepositoryParts(repository);
 
