@@ -1,0 +1,13 @@
+node_modules
+.dev.vars*
+.env*
+.wrangler
+dist
+dist-check
+build/backend/node_modules
+build/backend/.env*
+build/backend/.codex
+build/backend/.config
+build/backend/.local
+build/backend/sessions.json
+build/backend/auth.json
