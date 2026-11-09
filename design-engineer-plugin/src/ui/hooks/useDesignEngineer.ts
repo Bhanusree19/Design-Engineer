@@ -929,10 +929,41 @@ export function useDesignEngineer() {
         project.id,
         screens.map(({ screen }) => ({ screen }))
       );
-      const completed = result.implementations?.[0];
+      let completed: api.ImplementationResult | null = null;
+      if ('jobId' in result) {
+        const jobId = result.jobId;
+        setNotice('Implementation queued. Your job runs in its own Cloudflare Container.');
+        // Poll only for status: each coding job continues independently on
+        // Cloudflare even if the Figma panel is closed or reloaded.
+        let networkErrors=0;
+        for(let attempt=0;attempt<900;attempt++){
+          await new Promise<void>(resolve=>window.setTimeout(resolve,3000));
+          let job: api.ImplementationJob;
+          try{
+            job=await api.getImplementationJob(jobId);
+            networkErrors=0;
+          }catch(error){
+            networkErrors++;
+            if(networkErrors<8)continue;
+            throw new Error('Could not reach the job status service. Job ID: '+jobId+
+              '. The coding job may still be running.');
+          }
+          if(job.status==='running')setNotice('A dedicated coding container is implementing your screens.');
+          if(job.status==='failed')throw new Error(job.error||'Implementation failed. Job ID: '+jobId);
+          if(job.status==='completed'){
+            completed=job.result;
+            break;
+          }
+        }
+        if(!completed)throw new Error('Job is taking longer than expected. Job ID: '+jobId+
+          '. The job continues on Cloudflare.');
+      }else{
+        completed=result.implementations?.[0]||null;
+      }
       if (!completed?.pullRequestUrl) {
         throw new Error('Coding agent finished without returning a pull request URL.');
       }
+      setNotice(null);
       setImplementation(completed);
       setWaiting(null);
       setStep('complete');
