@@ -62,7 +62,28 @@ function safeResponse(response){
   headers.set('cache-control','no-store');
   return new Response(response.body,{status:response.status,headers});
 }
-export async function route(request,env,apiContainer=(binding)=>
+// Figma runs plugin UI in a sandbox with Origin: null. The API is authenticated
+// using Bearer tokens (not cross-origin cookies), so wildcard origin is safe
+// and avoids relying on the caller-controlled Origin request header. Apply
+// CORS even to errors generated at the edge, including queued-job responses.
+const CORS_HEADERS={
+  'Access-Control-Allow-Origin':'*',
+  'Access-Control-Allow-Methods':'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers':'Authorization, Content-Type',
+  'Access-Control-Max-Age':'86400'
+};
+function withCors(response){
+  const headers=new Headers(response.headers);
+  for(const [key,value] of Object.entries(CORS_HEADERS))headers.set(key,value);
+  return new Response(response.body,{status:response.status,headers});
+}
+export async function route(request,env,apiContainer){
+  // Preflight must never start a Container or create an implementation job.
+  if(request.method==='OPTIONS' && isAllowedRoute(new URL(request.url).pathname))
+    return withCors(new Response(null,{status:204}));
+  return withCors(await routeInternal(request,env,apiContainer));
+}
+async function routeInternal(request,env,apiContainer=(binding)=>
   getContainer(binding,'design-engineer-api-v05')){
   const url=new URL(request.url);
   if(url.pathname==='/__edge/health')return Response.json({
