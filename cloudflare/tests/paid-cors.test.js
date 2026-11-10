@@ -19,7 +19,8 @@ const env={
 };
 function cors(response){
   assert.equal(response.headers.get('Access-Control-Allow-Origin'),'*');
-  assert.match(response.headers.get('Access-Control-Allow-Methods'),/OPTIONS/);
+  for(const method of ['GET','POST','PATCH','DELETE','OPTIONS'])
+    assert.match(response.headers.get('Access-Control-Allow-Methods'),new RegExp('\\b'+method+'\\b'));
   assert.match(response.headers.get('Access-Control-Allow-Headers'),/Authorization/);
   assert.match(response.headers.get('Access-Control-Allow-Headers'),/Content-Type/);
 }
@@ -32,6 +33,19 @@ test('Figma Origin null OPTIONS preflight succeeds without starting API containe
   assert.equal(result.status,204);
   assert.equal(calls,0);
   cors(result);
+});
+test('Figma branch selection PATCH and project DELETE preflight succeed',async()=>{
+  let calls=0;
+  for(const method of ['PATCH','DELETE']){
+    const response=await worker.route(new Request(base+'/api/projects/43bf2d85-7b38-418b-9ce1-6c04ed0a8f80',{
+      method:'OPTIONS',headers:{Origin:'null','Access-Control-Request-Method':method,
+      'Access-Control-Request-Headers':'authorization,content-type'}}),
+      env,()=>{calls++;throw Error('Preflight must never start a container')});
+    assert.equal(response.status,204);
+    cors(response);
+    assert(response.headers.get('Access-Control-Allow-Methods').includes(method));
+  }
+  assert.equal(calls,0);
 });
 test('Accepted queued implementation returns CORS headers and only UUID in Queue',async()=>{
   const jobId='9066285f-289b-4c89-a6d3-8ec529e0fc06';
