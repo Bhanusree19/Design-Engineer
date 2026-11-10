@@ -68,7 +68,7 @@ function safeResponse(response){
 // CORS even to errors generated at the edge, including queued-job responses.
 const CORS_HEADERS={
   'Access-Control-Allow-Origin':'*',
-  'Access-Control-Allow-Methods':'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods':'GET, HEAD, POST, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers':'Authorization, Content-Type',
   'Access-Control-Max-Age':'86400'
 };
