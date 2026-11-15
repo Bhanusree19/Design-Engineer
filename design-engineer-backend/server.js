@@ -2611,6 +2611,14 @@ app.post('/internal/jobs/execute',async(req,res)=>{
 // Deployment 05 dispatches implementations through a durable queue to
 // dedicated job containers. No global cross-user implementation lock.
 app.post('/api/screens/implement', async (req, res) => {
+  // Production implementation is reachable only inside the dedicated job
+  // Container. Prevent direct calls to the Express API (including localhost)
+  // from bypassing the atomic minute reservation and Queue.
+  if(process.env.DESIGN_ENGINEER_ROLE!=='job')
+    return res.status(409).json({
+      error:'Metered implementations must run through Cloudflare job dispatch. The local API supports billing and checkout testing only.',
+      code:'JOB_RUNTIME_REQUIRED'
+    });
   const auth = await requireUser(req, res);
   if (!auth) return;
 
