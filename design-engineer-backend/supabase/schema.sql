@@ -43,9 +43,8 @@ create table if not exists public.plans (
   id uuid primary key default gen_random_uuid(),
   name text unique not null,
   slug text unique not null,
-  project_limit integer not null default 0,
-  screen_limit_per_project integer not null default 0,
-  price_inr integer not null default 0,
+  build_minutes integer not null default 0 check(build_minutes >= 0),
+  price_inr integer not null default 0 check(price_inr >= 0),
   currency text not null default 'INR',
   is_active boolean not null default true,
   sort_order integer not null default 0,
@@ -54,15 +53,16 @@ create table if not exists public.plans (
   updated_at timestamptz not null default now()
 );
 
--- Seed default plans (free, pro, plus, premier)
-insert into public.plans (name, slug, project_limit, screen_limit_per_project, price_inr, sort_order, features)
+-- Only these three plans can be purchased. No project/screen quotas.
+insert into public.plans
+ (name, slug, build_minutes, price_inr, currency, is_active, sort_order, features)
 values
-  ('Free', 'free', 2, 5, 0, 1, '["2 projects", "5 screens per project"]'::jsonb),
-  ('Pro', 'pro', 10, 10, 1000, 2, '["10 projects", "10 screens per project"]'::jsonb),
-  ('Plus', 'plus', 50, 20, 2999, 3, '["50 projects", "20 screens per project"]'::jsonb),
-  ('Premier', 'premier', 200, 100, 9999, 4, '["200 projects", "100 screens per project"]'::jsonb)
+ ('Free','free',40,0,'INR',true,1,'["40 lifetime implementation minutes"]'::jsonb),
+ ('Plus','plus',100,2999,'INR',true,2,'["100 implementation minutes per 30 days"]'::jsonb),
+ ('Studio','studio',200,4999,'INR',true,3,'["200 implementation minutes per 30 days"]'::jsonb)
 on conflict (slug) do nothing;
 
+-- -----------------------------------------------------------------------------
 -- -----------------------------------------------------------------------------
 -- USER SUBSCRIPTIONS
 -- -----------------------------------------------------------------------------
@@ -363,38 +363,69 @@ revoke update,delete on public.implementation_jobs from authenticated;
 
 -- DEPLOYMENT 06: dynamic minute allowance and verified payments
 -- Deployment 06: database-owned minute allowances and payment reconciliation.
--- Apply AFTER schema.sql and 007_implementation_jobs.sql on a test Supabase project.
+-- Apply to an existing Deployment 05 Supabase database (base schema + 007 present).
 -- Minutes are editable in public.plans; runtime reads the database on EVERY call.
--- Existing columns and records are preserved.
+-- Legacy plan quota columns are removed; existing plan UUIDs and subscriptions stay intact.
 begin;
 
+-- Convert the legacy plans table in place, retaining UUIDs referenced by
+-- user_subscriptions and payments. No screen or project count quotas remain.
 alter table public.plans add column if not exists build_minutes integer not null default 0;
-do $ begin
- if not exists(select 1 from pg_constraint where conname='plans_build_minutes_nonnegative') then
-  alter table public.plans add constraint plans_build_minutes_nonnegative check(build_minutes>=0);
+alter table public.plans drop column if exists project_limit;
+alter table public.plans drop column if exists screen_limit_per_project;
+
+-- Idempotent nonnegative validation.
+do $billing_plans$
+begin
+ if not exists (
+   select 1 from pg_constraint
+   where conrelid='public.plans'::regclass
+     and conname='plans_build_minutes_nonnegative'
+ ) then
+   alter table public.plans add constraint plans_build_minutes_nonnegative
+     check (build_minutes >= 0);
  end if;
-end $;
--- The price column is in whole INR (Razorpay orders are created in paise).
-insert into public.plans(name,slug,project_limit,screen_limit_per_project,price_inr,
-  currency,sort_order,features,build_minutes)
+end
+$billing_plans$;
+
+-- New customers see only Free, Plus, Studio. Old tiers stay inactive because
+-- existing subscriptions or payments may still reference their UUIDs.
+insert into public.plans
+ (name,slug,build_minutes,price_inr,currency,is_active,sort_order,features)
 values
- ('Studio','studio',200,100,1699,'INR',3,'["200 implementation minutes per 30 days","Bring your own AI model"]',200)
-on conflict(slug) do nothing;
-update public.plans set build_minutes=case slug
+ ('Free','free',40,0,'INR',true,1,'["40 lifetime implementation minutes"]'::jsonb),
+ ('Plus','plus',100,2999,'INR',true,2,'["100 implementation minutes per 30 days"]'::jsonb),
+ ('Studio','studio',200,4999,'INR',true,3,'["200 implementation minutes per 30 days"]'::jsonb)
+on conflict (slug) do nothing;
+
+-- Adopt required defaults on existing legacy records once, without resetting
+-- later admin edits on subsequent runs of this migration.
+update public.plans set build_minutes = case slug
  when 'free' then 40 when 'plus' then 100 when 'studio' then 200
  else build_minutes end
 where slug in ('free','plus','studio') and build_minutes=0;
--- Existing Plus price isn't overwritten: edit price_inr in Supabase when ready.
-update public.plans set price_inr=799 where slug='plus' and price_inr=2999;
--- Previous Pro / Premier plans are retained in DB but hidden from new checkout.
-update public.plans set is_active=false where slug in ('pro','premier');
-update public.plans set is_active=true where slug in ('free','plus','studio');
+update public.plans set price_inr=2999 where slug='plus' and price_inr in (799,2999);
+update public.plans set price_inr=4999 where slug='studio' and price_inr=1699;
+update public.plans set price_inr=0 where slug='free' and price_inr<>0;
+update public.plans set is_active=(slug in ('free','plus','studio'));
+update public.plans set sort_order=case slug
+ when 'free' then 1 when 'plus' then 2 when 'studio' then 3
+ else sort_order end
+where slug in ('free','plus','studio');
+update public.plans set features=case slug
+ when 'free' then '["40 lifetime implementation minutes"]'::jsonb
+ when 'plus' then '["100 implementation minutes per 30 days"]'::jsonb
+ when 'studio' then '["200 implementation minutes per 30 days"]'::jsonb
+ else features end
+where slug in ('free','plus','studio')
+ and (features is null or features::text like '%screens%' or features::text like '%projects%');
 
 alter table public.implementation_jobs add column if not exists encrypted_access_token text;
 alter table public.implementation_jobs add column if not exists started_at timestamptz;
 alter table public.implementation_jobs add column if not exists finished_at timestamptz;
 -- Older deployments have mandatory model columns; fresh 007 tables omit them.
-do $ begin
+do $legacy_job_columns$
+begin
  if exists(select 1 from information_schema.columns where table_schema='public'
    and table_name='implementation_jobs' and column_name='coding_agent') then
    alter table public.implementation_jobs alter column coding_agent drop not null;
@@ -403,7 +434,8 @@ do $ begin
    and table_name='implementation_jobs' and column_name='model_provider') then
    alter table public.implementation_jobs alter column model_provider drop not null;
  end if;
-end $;
+end
+$legacy_job_columns$;
 
 create table if not exists public.minute_wallets (
  user_id uuid primary key references auth.users(id) on delete cascade,
@@ -605,7 +637,7 @@ $$;
 -- Stale-job recovery must not bill all the idle time between a crash
 -- and the next scheduled cleanup. Heartbeats have already charged used seconds.
 create or replace function public.fail_stale_metered_job(p_job uuid,p_error text)
-returns boolean language plpgsql security definer set search_path=public,pg_temp as $
+returns boolean language plpgsql security definer set search_path=public,pg_temp as $stale_job$
 declare j public.implementation_jobs%rowtype;
 begin
  select * into j from public.implementation_jobs where id=p_job for update;
@@ -617,7 +649,7 @@ begin
    finished_at=now(),updated_at=now() where id=p_job;
  return true;
 end;
-$;
+$stale_job$;
 
 -- Idempotent entitlement grant only after payment has been verified by backend
 -- against Razorpay order/payment APIs. The DB locks payment + subscription.
