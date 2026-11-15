@@ -136,7 +136,10 @@ export function useDesignEngineer() {
       catch(error){console.warn('[Design Engineer] Minute balance unavailable',error);}
     };
     void refresh();
-    const interval=window.setInterval(()=>{void refresh()},5000);
+    // Keep live billing screens responsive without polling Supabase every
+    // five seconds for users who are simply browsing repository settings.
+    const interval=window.setInterval(()=>{void refresh()},
+      ['billing','plan','implementing'].includes(step)?5000:30000);
     return ()=>{cancelled=true;window.clearInterval(interval)};
   },[step,sessionId]);
 
@@ -1014,7 +1017,6 @@ export function useDesignEngineer() {
           try{
             job=await api.getImplementationJob(jobId);
             networkErrors=0;
-            void api.billingStatus().then(setBilling).catch(()=>{});
           }catch(error){
             networkErrors++;
             if(networkErrors<8)continue;
