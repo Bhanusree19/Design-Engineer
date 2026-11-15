@@ -192,9 +192,9 @@ export async function reconcileStaleJobs(env,fetchImpl=fetch){
     }
     for(const job of await records.json()){
       if(!JOB_ID.test(job?.id||''))continue;
-      const final=await fetchImpl(new URL('/rest/v1/rpc/finish_metered_job',
+      const final=await fetchImpl(new URL('/rest/v1/rpc/fail_stale_metered_job',
         env.SUPABASE_URL).toString(),{method:'POST',headers:auth,
-        body:JSON.stringify({p_job:job.id,p_status:'failed',p_result:null,
+        body:JSON.stringify({p_job:job.id,
           p_error:status==='queued'?'Job expired in queue. Please approve again.':
             'Job timed out. Please approve again.'})});
       if(!final.ok)console.warn('[Design Engineer] Cannot finalize expired job',final.status);
