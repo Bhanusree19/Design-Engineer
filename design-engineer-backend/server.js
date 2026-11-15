@@ -2482,8 +2482,8 @@ app.post('/api/jobs',async(req,res)=>{
     return res.status(403).json({error:'Submit jobs through the approved implementation endpoint.'});
   const auth=await requireUser(req,res);if(!auth)return;
   const {projectId,screens}=req.body||{};
-  if(!validJobId(projectId)||!Array.isArray(screens)||!screens.length||screens.length>15)
-    return res.status(400).json({error:'Select a project and 1 to 15 screens.'});
+  if(!validJobId(projectId)||!Array.isArray(screens)||!screens.length)
+    return res.status(400).json({error:'Select a project and at least one screen.'});
   const names=screens.map(item=>typeof item?.screen==='string'?item.screen:
     typeof item?.name==='string'?item.name:'').filter(Boolean);
   if(names.length!==screens.length||names.some(name=>name.length>180))
