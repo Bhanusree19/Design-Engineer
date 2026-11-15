@@ -8,18 +8,18 @@
 | Plan slug | Default allowance | Default price | Renewal |
 | --- | --- | --- | --- |
 | free | 40 minutes, once per account | ₹0 | Lifetime trial |
-| plus | 100 minutes | ₹799 | 30 days, manual payment |
-| studio | 200 minutes | ₹1,699 | 30 days, manual payment |
+| plus | 100 minutes | ₹2,999 | 30 days, manual payment |
+| studio | 200 minutes | ₹4,999 | 30 days, manual payment |
 
 Defaults are seeded by migration 008. All amounts are example prices that you
 can change in Supabase. The Figma dashboard and server fetch them each time
 rather than keeping separate values in code.
 
-**Change plan values (SQL Editor)**:
+**Change plan values (SQL Editor)** (applies to both the backend rules and the Figma display):
 
 ```sql
-update public.plans set build_minutes=120, price_inr=999 where slug='plus';
-update public.plans set build_minutes=240, price_inr=1899 where slug='studio';
+update public.plans set build_minutes=120, price_inr=3499 where slug='plus';
+update public.plans set build_minutes=240, price_inr=5999 where slug='studio';
 select slug,build_minutes,price_inr,currency from public.plans
 where slug in ('free','plus','studio') order by sort_order;
 ```
@@ -40,8 +40,8 @@ and OAuth requests do not consume user implementation minutes.
 
 ## 1. Supabase setup — staging project first
 
-After base `schema.sql` and Deployment 05's `007_implementation_jobs.sql`,
-run:
+If your existing Deployment 05 database already has its earlier base schema and
+`implementation_jobs` table, run ONLY:
 
 `design-engineer-backend/supabase/008_minute_billing.sql`
 
@@ -49,7 +49,7 @@ For a new clean project, `design-engineer-backend/supabase/schema.sql`
 contains the full merged base schema + 007 + 008. Existing projects should
 run **008 only**, to preserve their existing data.
 
-The migration adds `plans.build_minutes`, `minute_wallets` and
+The migration removes legacy `plans.project_limit` and `plans.screen_limit_per_project`, adds `plans.build_minutes`, `minute_wallets` and
 `minute_reservations`, plus transactional stored functions to reserve,
 meter and settle seconds. It locks down the existing payments and subscription
 tables: only backend service-role credentials may create or alter entitlements.
