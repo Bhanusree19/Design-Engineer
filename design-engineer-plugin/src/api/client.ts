@@ -436,3 +436,40 @@ export function implementScreens(
     body: JSON.stringify({ projectId, screens }),
   });
 }
+
+ 
+// -----------------------------------------------------------------------------
+// DATABASE-DEFINED IMPLEMENTATION MINUTES + RAZORPAY CHECKOUT
+// -----------------------------------------------------------------------------
+
+export interface MinuteUsage {
+  plan: 'free' | 'plus' | 'studio';
+  planName: string;
+  allowanceSeconds: number;
+  usedSeconds: number;
+  remainingSeconds: number;
+  availableSeconds: number;
+  reservedSeconds: number;
+  priceInr: number;
+  expiresAt: string | null;
+}
+export interface SubscriptionPlan {
+  slug: 'free' | 'plus' | 'studio';
+  name: string;
+  build_minutes: number;
+  price_inr: number;
+  currency: string;
+  features: string[];
+  sort_order: number;
+}
+export interface BillingStatus {
+  usage: MinuteUsage;
+  plans: SubscriptionPlan[];
+  paymentsEnabled: boolean;
+}
+export function billingStatus(): Promise<BillingStatus> {
+  return request('/api/billing/status');
+}
+export function startCheckout(plan: 'plus' | 'studio'): Promise<{checkoutUrl:string}> {
+  return request('/api/billing/order',{method:'POST',body:JSON.stringify({plan})});
+}
