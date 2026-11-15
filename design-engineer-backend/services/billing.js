@@ -5,7 +5,7 @@ const crypto=require('node:crypto');
 const express=require('express');
 const BASE=()=>process.env.SUPABASE_URL;
 const KEY=()=>process.env.SUPABASE_SERVICE_ROLE_KEY;
-function envReady(){return !!(process.env.RAZORPAY_KEY_ID&&process.env.RAZORPAY_KEY_SECRET)}
+function envReady(){return !!(process.env.RAZORPAY_KEY_ID&&process.env.RAZORPAY_KEY_SECRET&&process.env.RAZORPAY_WEBHOOK_SECRET)}
 function encode(value){return encodeURIComponent(String(value))}
 function constantHexEqual(a,b){
  if(typeof a!=='string'||! /^[a-f0-9]{64}$/i.test(a)||typeof b!=='string'||! /^[a-f0-9]{64}$/i.test(b))return false;
