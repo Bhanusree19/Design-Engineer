@@ -89,6 +89,7 @@ npm ci
 # Localhost-only testing: override the Cloudflare gateway secret for this
 # PowerShell process, without editing the .env used for cloud deployment.
 $env:GATEWAY_SHARED_SECRET=""
+$env:BACKEND_URL="http://localhost:4000"
 npm start
 ```
 
