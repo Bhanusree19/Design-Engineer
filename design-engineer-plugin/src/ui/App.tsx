@@ -8,6 +8,7 @@ import React, { ErrorInfo } from 'react';
 import { useDesignEngineer } from './hooks/useDesignEngineer';
 import Restoring from './screens/Restoring';
 import Account from './screens/Account';
+import Billing from './screens/Billing';
 import SignIn from './screens/SignIn';
 import Github from './screens/Github';
 import Projects from './screens/Projects';
@@ -64,6 +65,7 @@ function DesignEngineerApp() {
     <div className="app" data-step={state.step}>
       {state.step === 'restoring' && <Restoring />}
       {state.step === 'account' && <Account {...props} />}
+      {state.step === 'billing' && <Billing {...props} />}
       {state.step === 'signin' && <SignIn {...props} />}
       {state.step === 'github' && <Github {...props} />}
       {state.step === 'project' && <Projects {...props} />}
