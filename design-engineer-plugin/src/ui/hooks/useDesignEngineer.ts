@@ -988,7 +988,7 @@ export function useDesignEngineer() {
     try {
       const current=await api.billingStatus();
       setBilling(current);
-      if(current.usage.availableSeconds<=0){
+      if(current.usage.availableSeconds<60){
         setWaiting(null);
         setBillingReturnStep('plan');
         setStep('billing');
