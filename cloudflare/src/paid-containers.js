@@ -24,7 +24,10 @@ const backendEnv={
   GITHUB_CLIENT_SECRET:secrets.GITHUB_CLIENT_SECRET,
   ENCRYPTION_KEY:secrets.ENCRYPTION_KEY,
   BACKEND_URL:secrets.BACKEND_URL,
-  GATEWAY_SHARED_SECRET:secrets.GATEWAY_SHARED_SECRET
+  GATEWAY_SHARED_SECRET:secrets.GATEWAY_SHARED_SECRET,
+  RAZORPAY_KEY_ID:secrets.RAZORPAY_KEY_ID,
+  RAZORPAY_KEY_SECRET:secrets.RAZORPAY_KEY_SECRET,
+  RAZORPAY_WEBHOOK_SECRET:secrets.RAZORPAY_WEBHOOK_SECRET
 };
 export class DesignEngineerContainer extends Container {
   defaultPort=4000;
@@ -38,7 +41,8 @@ export class DesignEngineerJobContainer extends Container {
 }
 export function isAllowedRoute(path){
   return path==='/healthz'||path==='/auth'||path.startsWith('/auth/')||
-    path==='/api'||path.startsWith('/api/');
+    path==='/api'||path.startsWith('/api/')||path==='/billing'||
+    path.startsWith('/billing/');
 }
 function jsonError(message,status,code){
   return Response.json({error:message,code},{status,headers:{'cache-control':'no-store'}});
@@ -158,29 +162,34 @@ export async function consume(batch,env,jobContainer=(binding,id)=>getContainer(
     }
   }
 }
-// Periodic safety net: never leave aborted jobs permanently "running" or
-// keep an expired queued user's encrypted access token indefinitely.
-// We mark stale work failed rather than blindly replaying GitHub side effects.
+// Reconcile expired queued/running jobs via the SAME transactional RPC as
+// normal job termination. A raw UPDATE would strand quota reservations.
 export async function reconcileStaleJobs(env,fetchImpl=fetch){
   if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return;
   const key=env.SUPABASE_SERVICE_ROLE_KEY;
   const base=new URL('/rest/v1/implementation_jobs',env.SUPABASE_URL).toString();
-  const headers={apikey:key,Authorization:'Bearer '+key,
-    'Content-Type':'application/json',Prefer:'return=minimal'};
+  const auth={apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json'};
   for(const [status,field,ageMinutes] of [
     ['running','started_at',35],
     ['queued','created_at',50]
   ]){
     const cutoff=new Date(Date.now()-ageMinutes*60000).toISOString();
-    const url=base+'?status=eq.'+status+'&'+field+'=lt.'+
-      encodeURIComponent(cutoff);
-    const response=await fetchImpl(url,{method:'PATCH',headers,
-      body:JSON.stringify({status:'failed',encrypted_access_token:null,
-        finished_at:new Date().toISOString(),
-        error:status==='queued'?
-          'Job expired while waiting for capacity. Approve the plan again to retry.':
-          'Job stopped unexpectedly. Approve the plan again after checking the service.'})});
-    if(!response.ok)console.warn('[Design Engineer] Could not reconcile stale jobs',status,response.status);
+    const lookup=base+'?status=eq.'+status+'&'+field+'=lt.'+
+      encodeURIComponent(cutoff)+'&select=id&limit=100';
+    const records=await fetchImpl(lookup,{headers:auth});
+    if(!records.ok){
+      console.warn('[Design Engineer] Cannot inspect expired jobs',status,records.status);
+      continue;
+    }
+    for(const job of await records.json()){
+      if(!JOB_ID.test(job?.id||''))continue;
+      const final=await fetchImpl(new URL('/rest/v1/rpc/finish_metered_job',
+        env.SUPABASE_URL).toString(),{method:'POST',headers:auth,
+        body:JSON.stringify({p_job:job.id,p_status:'failed',p_result:null,
+          p_error:status==='queued'?'Job expired in queue. Please approve again.':
+            'Job timed out. Please approve again.'})});
+      if(!final.ok)console.warn('[Design Engineer] Cannot finalize expired job',final.status);
+    }
   }
 }
 export default {
