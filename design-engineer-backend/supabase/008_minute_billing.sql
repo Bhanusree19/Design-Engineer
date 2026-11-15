@@ -5,7 +5,11 @@
 begin;
 
 alter table public.plans add column if not exists build_minutes integer not null default 0;
-alter table public.plans add constraint plans_build_minutes_nonnegative check (build_minutes >= 0);
+do $ begin
+ if not exists(select 1 from pg_constraint where conname='plans_build_minutes_nonnegative') then
+  alter table public.plans add constraint plans_build_minutes_nonnegative check(build_minutes>=0);
+ end if;
+end $;
 -- The price column is in whole INR (Razorpay orders are created in paise).
 insert into public.plans(name,slug,project_limit,screen_limit_per_project,price_inr,
   currency,sort_order,features,build_minutes)
@@ -233,7 +237,9 @@ begin
   razorpay_signature=p_signature,paid_at=now(),checkout_token_hash=null,updated_at=now()
  where id=pay.id;
  insert into public.minute_wallets(user_id) values(pay.user_id) on conflict do nothing;
- -- Renewal starts a new 30-day period, does not carry over minutes.
+ -- Renewal starts a new 30-day period and clears the previous paid allowance.
+ -- All reservations from the previous cycle must remain accounted for.
+ -- Finished rows are retained as the audit trail.
  update public.minute_wallets set paid_used_seconds=0,updated_at=now() where user_id=pay.user_id;
  update public.user_subscriptions set plan_id=pay.plan_id,plan_slug=pay.plan_slug,
    status='active',started_at=now(),expires_at=now()+interval '30 days',updated_at=now()
