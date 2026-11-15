@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - design-engineer-cloudflare-deployment-05
+      - design-engineer-subscriptions-minutes-razorpay-06
   workflow_dispatch:
 jobs:
   verify:
@@ -17,7 +18,7 @@ jobs:
             design-engineer-backend/package-lock.json
             design-engineer-plugin/package-lock.json
       - name: Check backend syntax
-        run: node --check server.js
+        run: node --check server.js && node --check services/billing.js
         working-directory: design-engineer-backend
       - name: Test Cloudflare routing and container configuration (no Cloudflare account required)
         run: node --test tests/*.test.js
