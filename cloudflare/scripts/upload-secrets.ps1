@@ -49,4 +49,13 @@ foreach($name in $required) {
   $values[$name] | & npx wrangler secret put $name
   if($LASTEXITCODE -ne 0) { throw "Unable to save Worker secret: $name" }
 }
+# Payment keys are optional in local development; paid plans are disabled until
+# configured. Never print their values or pass them in process arguments.
+foreach($name in @("RAZORPAY_KEY_ID","RAZORPAY_KEY_SECRET","RAZORPAY_WEBHOOK_SECRET")) {
+  if($values.ContainsKey($name) -and ![string]::IsNullOrWhiteSpace($values[$name])) {
+    Write-Host "Setting Cloudflare Worker secret $name ..."
+    $values[$name] | & npx wrangler secret put $name
+    if($LASTEXITCODE -ne 0) { throw "Unable to save Worker secret: $name" }
+  }
+}
 Write-Host "Secret upload completed. Credentials never printed."
