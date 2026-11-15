@@ -116,11 +116,20 @@ async function routeInternal(request,env,apiContainer=(binding)=>
       try {
         await env.JOBS_QUEUE.send({jobId:data.jobId});
       }catch {
-        // The job stays queued and can be re-dispatched by an operator.
-        return Response.json({jobId:data.jobId,status:'queued',error:
-          'Job record saved but dispatch failed. Contact support with this job ID.',
-          code:'JOB_DISPATCH_FAILED'},{
-          status:503,headers:{'cache-control':'no-store'}});
+        // A persisted job reserves paid minutes. Release that reservation
+        // immediately if the Queue cannot dispatch it, instead of blocking
+        // the user until the stale-job cron eventually runs.
+        try{
+          await fetch(new URL('/rest/v1/rpc/finish_metered_job',env.SUPABASE_URL),{
+            method:'POST',
+            headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,
+              Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,
+              'Content-Type':'application/json'},
+            body:JSON.stringify({p_job:data.jobId,p_status:'failed',p_result:null,
+              p_error:'Queue dispatch unavailable; please retry.'})
+          });
+        }catch{console.warn('[Design Engineer] Deferred reservation cleanup for failed dispatch');}
+        return jsonError('Queue dispatch unavailable. Please retry.',503,'JOB_DISPATCH_FAILED');
       }
       return Response.json({jobId:data.jobId,status:'queued'},{status:202,
         headers:{'cache-control':'no-store'}});
