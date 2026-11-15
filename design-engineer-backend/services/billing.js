@@ -155,6 +155,12 @@ function registerRoutes(app,requireUser){
   if(!['plus','studio'].includes(slug))return res.status(400).json({error:'Choose Plus or Studio.'});
   try{
    if(!envReady())return res.status(503).json({error:'Razorpay keys not configured.'});
+   // Avoid unbounded provider-side order creation from repeated plugin clicks.
+   const since=new Date(Date.now()-60*60*1000).toISOString();
+   const recent=await service('payments?user_id=eq.'+encode(auth.user.id)+
+     '&created_at=gte.'+encode(since)+'&select=id&limit=6');
+   if((recent||[]).length>=5)
+     return res.status(429).json({error:'Too many checkout attempts. Retry in an hour.'});
    const plans=await service('plans?slug=eq.'+encode(slug)+
     '&is_active=eq.true&select=id,slug,name,price_inr,currency&limit=1');
    const plan=plans?.[0];
