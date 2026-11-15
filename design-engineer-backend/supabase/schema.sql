@@ -602,6 +602,23 @@ begin
 end;
 $$;
 
+-- Stale-job recovery must not bill all the idle time between a crash
+-- and the next scheduled cleanup. Heartbeats have already charged used seconds.
+create or replace function public.fail_stale_metered_job(p_job uuid,p_error text)
+returns boolean language plpgsql security definer set search_path=public,pg_temp as $
+declare j public.implementation_jobs%rowtype;
+begin
+ select * into j from public.implementation_jobs where id=p_job for update;
+ if not found or j.status not in ('queued','running') then return false; end if;
+ update public.minute_reservations set state='finished',finished_at=now()
+ where job_id=p_job and state<>'finished';
+ update public.implementation_jobs set status='failed',result=null,
+   error=left(p_error,500),encrypted_access_token=null,
+   finished_at=now(),updated_at=now() where id=p_job;
+ return true;
+end;
+$;
+
 -- Idempotent entitlement grant only after payment has been verified by backend
 -- against Razorpay order/payment APIs. The DB locks payment + subscription.
 create or replace function public.grant_verified_payment(
@@ -639,10 +656,12 @@ revoke all on function public.claim_metered_job(uuid) from public,anon,authentic
 revoke all on function public.meter_job_seconds(uuid) from public,anon,authenticated;
 revoke all on function public.finish_metered_job(uuid,text,jsonb,text) from public,anon,authenticated;
 revoke all on function public.grant_verified_payment(text,text,text) from public,anon,authenticated;
+revoke all on function public.fail_stale_metered_job(uuid,text) from public,anon,authenticated;
 grant execute on function public.minute_balance(uuid) to service_role;
 grant execute on function public.create_metered_job(uuid,uuid,jsonb,text) to service_role;
 grant execute on function public.claim_metered_job(uuid) to service_role;
 grant execute on function public.meter_job_seconds(uuid) to service_role;
 grant execute on function public.finish_metered_job(uuid,text,jsonb,text) to service_role;
 grant execute on function public.grant_verified_payment(text,text,text) to service_role;
+grant execute on function public.fail_stale_metered_job(uuid,text) to service_role;
 commit;
