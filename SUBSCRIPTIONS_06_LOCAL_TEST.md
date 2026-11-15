@@ -86,6 +86,9 @@ git pull origin design-engineer-subscriptions-minutes-razorpay-06
 
 cd design-engineer-backend
 npm ci
+# Localhost-only testing: override the Cloudflare gateway secret for this
+# PowerShell process, without editing the .env used for cloud deployment.
+$env:GATEWAY_SHARED_SECRET=""
 npm start
 ```
 
