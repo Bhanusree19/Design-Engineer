@@ -564,6 +564,8 @@ export function useDesignEngineer() {
       api.setAccessToken(null);
       rememberSession(null);
       sendToPlugin({ type: 'clear-session' });
+      // Never leave the prior account's minute balance in the next session.
+      setBilling(null);
       setCodexUser(null);
       setGithubUser(null);
       setRepos([]);
