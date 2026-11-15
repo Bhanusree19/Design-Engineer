@@ -26,6 +26,7 @@ export function Header({
         <details className="account-menu">
           <summary aria-label="Account options" title="Account options">Account</summary>
           <div className="account-menu-panel">
+            <button type="button" onClick={()=>void actions.openBilling()}>Plans &amp; minutes</button>
             <button type="button" onClick={actions.logoutAccount}>Log out</button>
           </div>
         </details>
@@ -69,7 +70,7 @@ const RAIL: { key: Step; label: string }[] = [
 export function Rail({ step }: { step: Step }) {
   // Codex login remains an internal auth screen, but belongs visually under AI Agent.
   // Planning, approval, implementation and results remain inside Screens.
-  const visibleStep: Step = step === 'signin' ? 'agent' :
+  const visibleStep: Step = step === 'signin' ? 'agent' : step==='billing'?'screens' :
     ['done','planning','plan','implementing','complete'].includes(step) ? 'screens' : step;
   const current = RAIL.findIndex((r) => r.key === visibleStep);
   return (
