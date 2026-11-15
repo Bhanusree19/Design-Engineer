@@ -30,6 +30,7 @@ const {agents:CODING_AGENTS,providers:MODEL_PROVIDERS,validateSelection,execute:
 const {verifyModelAccess,ModelAccessError}=require('./services/model-verification');
 const geminiApi=require('./adapters/gemini-api');
 const directApi=require('./adapters/direct-api');
+const billing=require('./services/billing');
 
 const app = express();
 
@@ -86,6 +87,9 @@ function sendAuthComplete(res, provider, identity) {
     </html>
   `);
 }
+
+// Razorpay webhooks require the untouched raw request bytes for HMAC validation.
+billing.registerWebhook(app);
 
 app.use(
   express.json({
@@ -274,6 +278,9 @@ async function requireUser(req, res) {
 
   return { token, user: data.user };
 }
+
+// Billing APIs are authenticated, provider pricing comes exclusively from Supabase.
+billing.registerRoutes(app,requireUser);
 
 function mapAuthError(error) {
   const code = error?.code || error?.status || '';
@@ -2493,16 +2500,18 @@ app.post('/api/jobs',async(req,res)=>{
     const available=new Set((contexts||[]).map(c=>c.screen_name));
     if(!names.every(name=>available.has(sanitizeFileName(name))))
       return res.status(400).json({error:'Fetch and save all selected Figma screens before implementation.'});
-    const jobId=crypto.randomUUID();
-    // Only the backend service role can create jobs. Even an authenticated
-    // Supabase client cannot insert arbitrary encrypted credentials directly.
-    await adminJobQuery('', 'POST',
-      {id:jobId,user_id:auth.user.id,project_id:projectId,
-        screens:names.map(screen=>({screen})),encrypted_access_token:encryptText(auth.token),
-        status:'queued'}, 'return=minimal');
+    // Atomic Postgres RPC reserves the user's remaining minutes before
+    // inserting the job. Multiple concurrent clicks cannot double-spend.
+    const jobId=await billing.createJob(auth.user.id,projectId,
+      names.map(screen=>({screen})),encryptText(auth.token));
     return res.status(201).json({jobId,status:'queued'});
   }catch(error){
-    console.error('[Design Engineer] Job submission failed:',error?.code||'database');
+    if(/MINUTES_EXHAUSTED/.test(error?.message||''))
+      return res.status(402).json({
+        error:'Your implementation minutes are exhausted. Upgrade or renew your plan.',
+        code:'MINUTES_EXHAUSTED'
+      });
+    console.error('[Design Engineer] Job submission failed:',error?.dbCode||error?.status||'database');
     return res.status(503).json({error:'Unable to queue implementation. Retry shortly.'});
   }
 });
@@ -2533,17 +2542,40 @@ app.post('/internal/jobs/execute',async(req,res)=>{
   const jobId=req.body?.jobId;
   if(!validJobId(jobId))return res.status(400).json({error:'Invalid job.'});
   try{
-    const now=new Date().toISOString();
-    // Atomic state transition ensures re-delivered Queue messages do not
-    // execute the same job twice. The query uses the service-role key.
-    const claimed=await adminJobQuery('id=eq.'+encodeURIComponent(jobId)+'&status=eq.queued',
-      'PATCH',{status:'running',started_at:now,updated_at:now});
-    if(!claimed?.length)return res.status(200).json({accepted:false});
-    const job=claimed[0];
+    // The claim and quota reservation are transactionally owned by Postgres.
+    const job=await billing.claimJob(jobId);
+    if(!job)return res.status(200).json({accepted:false});
     res.status(202).json({accepted:true,jobId});
     // Deliberately keep job execution asynchronous inside its OWN Container.
     // Status is durable in Supabase; no long-lived Worker request is required.
     void (async()=>{
+      let metering=false;
+      let stoppedForQuota=false;
+      // Emit consumed seconds to Supabase continuously. Once a reservation
+      // is exhausted, terminate the dedicated job container and its agent.
+      const heartbeat=setInterval(async()=>{
+        if(metering||stoppedForQuota)return;
+        metering=true;
+        try{
+          const metered=await billing.meterJob(jobId);
+          if(metered?.exhausted){
+            stoppedForQuota=true;
+            clearInterval(heartbeat);
+            await billing.finishJob(jobId,'failed',null,
+              'Implementation ran out of included minutes. Upgrade or renew.');
+            // The isolated container exits, terminating remaining agent work.
+            process.exit(1);
+          }
+        }catch(error){
+          console.error('[Design Engineer] Minute metering unavailable:',error?.status||'error');
+          // Fail closed: do not execute unlimited code without accounting.
+          stoppedForQuota=true;
+          clearInterval(heartbeat);
+          await billing.finishJob(jobId,'failed',null,
+            'Implementation stopped because usage metering was unavailable.').catch(()=>{});
+          process.exit(1);
+        }finally{metering=false;}
+      },5000);
       try {
         const token=decryptText(job.encrypted_access_token);
         const result=await fetch('http://127.0.0.1:'+PORT+'/api/screens/implement',{
@@ -2556,16 +2588,14 @@ app.post('/internal/jobs/execute',async(req,res)=>{
         const body=await result.json().catch(()=>({}));
         if(!result.ok||!body.implementations?.[0]?.pullRequestUrl)
           throw new Error('Implementation failed. See server logs for details.');
-        await adminJobQuery('id=eq.'+encodeURIComponent(jobId),'PATCH',
-          {status:'completed',result:body.implementations[0],
-            encrypted_access_token:null,finished_at:new Date().toISOString()});
+        await billing.finishJob(jobId,'completed',body.implementations[0]);
       }catch(error){
         console.error('[Design Engineer] Isolated job failed',jobId,error?.name||'error');
-        await adminJobQuery('id=eq.'+encodeURIComponent(jobId),'PATCH',
-          {status:'failed',error:'Implementation could not finish. Retry after checking the service logs.',
-            encrypted_access_token:null,finished_at:new Date().toISOString()})
+        await billing.finishJob(jobId,'failed',null,
+          'Implementation could not finish. Retry after checking the service logs.')
           .catch(()=>{});
       }finally{
+        clearInterval(heartbeat);
         // One job per container. Terminate after status persistence, rather
         // than paying for an idle job image or retaining decrypted credentials.
         if(process.env.DESIGN_ENGINEER_ROLE==='job')
