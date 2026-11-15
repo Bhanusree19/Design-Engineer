@@ -4,6 +4,7 @@ import React from 'react';
 import { Body, ErrorBanner, Footer, Header, Rail, Route, Spinner } from '../components/Chrome';
 import { Check, Cursor, File } from '../components/Icons';
 import type { DesignEngineerActions, DesignEngineerState, SelectionItem } from '../hooks/useDesignEngineer';
+import { MinuteSummary } from './Billing';
 
 type Props = { state: DesignEngineerState; actions: DesignEngineerActions };
 
@@ -236,6 +237,7 @@ export function PlanReview({ state, actions }: Props) {
             <p>Review the proposed changes before approving code generation.</p></span>
         </div>
         {state.error && <ErrorBanner message={state.error} />}
+        <MinuteSummary state={state} actions={actions} />
         {plan ? (
           <>
             <div className="plan-meta">
@@ -286,6 +288,7 @@ export function Implementing({ state, actions }: Props) {
         <h1>Your coding agent is implementing your screens</h1>
         <p className="lede">The selected agent is working on a branch, then it will commit, push, and open your pull request.</p>
         {state.error && <ErrorBanner message={state.error} />}
+        <MinuteSummary state={state} actions={actions} />
         <div className="bar" role="progressbar" aria-label="Coding agent implementation in progress"><i /></div>
         <div className="wait"><Spinner /><span className="wait-label">Running coding agent and creating pull request</span></div>
       </Body>
