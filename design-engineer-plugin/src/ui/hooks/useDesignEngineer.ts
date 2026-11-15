@@ -29,7 +29,8 @@ export type Step =
   | 'planning'
   | 'plan'
   | 'implementing'
-  | 'complete';
+  | 'complete'
+  | 'billing';
 
 export interface SelectionItem {
   id: string;
@@ -86,6 +87,9 @@ export interface DesignEngineerState {
   implementationScreens: DesignContext[];
   screenPlan: api.ScreenPlan | null;
   implementation: api.ImplementationResult | null;
+  billing: api.BillingStatus | null;
+  billingReturnStep: Step;
+  billingLoading: boolean;
 }
 
 // -----------------------------------------------------------------------------
@@ -118,6 +122,23 @@ export function useDesignEngineer() {
   const [implementationScreens, setImplementationScreens] = useState<DesignContext[]>([]);
   const [screenPlan, setScreenPlan] = useState<api.ScreenPlan | null>(null);
   const [implementation, setImplementation] = useState<api.ImplementationResult | null>(null);
+  const [billing, setBilling] = useState<api.BillingStatus | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingReturnStep, setBillingReturnStep] = useState<Step>('project');
+  const stepRef = useRef<Step>('account');
+  useEffect(()=>{stepRef.current=step;},[step]);
+  // Refresh elapsed minutes and plan changes directly from Supabase.
+  useEffect(()=>{
+    if(!api.getAccessToken())return;
+    let cancelled=false;
+    const refresh=async()=>{
+      try{const data=await api.billingStatus();if(!cancelled)setBilling(data)}
+      catch(error){console.warn('[Design Engineer] Minute balance unavailable',error);}
+    };
+    void refresh();
+    const interval=window.setInterval(()=>{void refresh()},5000);
+    return ()=>{cancelled=true;window.clearInterval(interval)};
+  },[step,sessionId]);
 
   // Refs mirror state for use inside the message listener and polling
   // callbacks, which are created once and would otherwise see stale values.
@@ -913,6 +934,46 @@ export function useDesignEngineer() {
     }
   }
 
+  async function refreshBilling() {
+    try{
+      const result=await api.billingStatus();
+      setBilling(result);
+      return result;
+    }catch(error){
+      fail(serverError(error,'Unable to load plan usage.'),error);
+      return null;
+    }
+  }
+  async function openBilling() {
+    setBillingReturnStep(stepRef.current==='billing'?'project':stepRef.current);
+    setStep('billing');
+    setError(null);
+    setBillingLoading(true);
+    try{
+      const data=await api.billingStatus();
+      setBilling(data);
+    }catch(error){
+      fail(serverError(error,'Unable to load subscription plans.'),error);
+    }finally{setBillingLoading(false)}
+  }
+  function closeBilling(){
+    setError(null);
+    setStep(billingReturnStep==='billing'?'project':billingReturnStep);
+  }
+  async function buyPlan(plan:'plus'|'studio') {
+    setError(null);
+    setBillingLoading(true);
+    try{
+      // User action begins in the plugin; checkout opens an isolated browser
+      // page with a short-lived, scoped token, never a Supabase bearer token.
+      const {checkoutUrl}=await api.startCheckout(plan);
+      window.open(checkoutUrl,'_blank');
+      setNotice('Complete Razorpay checkout in the browser, then return here. Your balance refreshes automatically.');
+    }catch(error){
+      fail(serverError(error,'Unable to open payment checkout.'),error);
+    }finally{setBillingLoading(false)}
+  }
+
   async function startImplementation() {
     const project = selectedProjectRef.current;
     const screens = implementationScreensRef.current;
@@ -925,6 +986,15 @@ export function useDesignEngineer() {
     setWaiting('implementing');
     setStep('implementing');
     try {
+      const current=await api.billingStatus();
+      setBilling(current);
+      if(current.usage.availableSeconds<=0){
+        setWaiting(null);
+        setBillingReturnStep('plan');
+        setStep('billing');
+        setError('Your implementation minutes are exhausted. Choose Plus or Studio to continue.');
+        return;
+      }
       const result = await api.implementScreens(
         project.id,
         screens.map(({ screen }) => ({ screen }))
@@ -942,6 +1012,7 @@ export function useDesignEngineer() {
           try{
             job=await api.getImplementationJob(jobId);
             networkErrors=0;
+            void api.billingStatus().then(setBilling).catch(()=>{});
           }catch(error){
             networkErrors++;
             if(networkErrors<8)continue;
@@ -965,11 +1036,19 @@ export function useDesignEngineer() {
       }
       setNotice(null);
       setImplementation(completed);
+      void api.billingStatus().then(setBilling).catch(()=>{});
       setWaiting(null);
       setStep('complete');
     } catch (err) {
-      fail(serverError(err, "Coding agent couldn't complete the implementation."), err);
-      setStep('plan');
+      if(err instanceof api.ApiError && (err.status===402||err.code==='MINUTES_EXHAUSTED')){
+        setWaiting(null);
+        setBillingReturnStep('plan');
+        setError(err.message);
+        setStep('billing');
+      }else{
+        fail(serverError(err, "Coding agent couldn't complete the implementation."), err);
+        setStep('plan');
+      }
     }
   }
 
@@ -1016,6 +1095,9 @@ export function useDesignEngineer() {
     implementationScreens,
     screenPlan,
     implementation,
+    billing,
+    billingReturnStep,
+    billingLoading,
   };
 
   const actions = {
@@ -1048,6 +1130,10 @@ export function useDesignEngineer() {
     fetchMore,
     planImplementation,
     startImplementation,
+    refreshBilling,
+    openBilling,
+    closeBilling,
+    buyPlan,
     retry,
     dismissError: () => setError(null),
   };
