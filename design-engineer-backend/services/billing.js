@@ -224,13 +224,22 @@ function registerRoutes(app,requireUser){
    const rows=await service('payments?razorpay_order_id=eq.'+encode(order)+
     '&select=status,checkout_token_hash,checkout_expires_at&limit=1');
    const pending=rows?.[0];
-   if(!pending||!constantHexEqual(sha(token),pending.checkout_token_hash||'')||
-      Date.parse(pending.checkout_expires_at)<Date.now())
-    return res.status(403).json({error:'Checkout session expired. Check your billing status.'});
+   if(!pending)return res.status(404).json({error:'Payment order not found.'});
+   // Razorpay may deliver the captured-payment webhook before the browser's
+   // success callback. In that case the consumed checkout token is already
+   // erased, but a valid signature and matching captured payment still prove
+   // the customer succeeded.
    const expected=crypto.createHmac('sha256',process.env.RAZORPAY_KEY_SECRET)
     .update(order+'|'+payment).digest('hex');
    if(!constantHexEqual(expected,signature))
     return res.status(401).json({error:'Payment signature could not be verified.'});
+   if(pending.status==='paid'){
+     const match=await confirmedOrder(order,payment,signature);
+     return res.json({success:!!match});
+   }
+   if(!constantHexEqual(sha(token),pending.checkout_token_hash||'')||
+      Date.parse(pending.checkout_expires_at)<Date.now())
+    return res.status(403).json({error:'Checkout session expired. Check your billing status.'});
    const success=await confirmedOrder(order,payment,signature);
    return res.json({success:!!success});
   }catch(error){return respondError(res,error)}
