@@ -535,6 +535,13 @@ declare j public.implementation_jobs%rowtype;
 begin
  select * into j from public.implementation_jobs where id=p_job for update;
  if not found or j.status<>'queued' then return null; end if;
+ if not exists(select 1 from public.minute_reservations where job_id=p_job and state='reserved')
+ then
+   update public.implementation_jobs set status='failed',
+     error='This job predates minute billing. Please approve a fresh job.',
+     encrypted_access_token=null,finished_at=now() where id=p_job;
+   return null;
+ end if;
  update public.implementation_jobs set status='running',started_at=now(),
  updated_at=now() where id=p_job;
  update public.minute_reservations set state='running',started_at=now() where job_id=p_job;
@@ -583,9 +590,12 @@ begin
  if p_status not in ('completed','failed') then raise exception 'INVALID_FINAL_STATUS'; end if;
  select * into j from public.implementation_jobs where id=p_job for update;
  if not found or j.status in ('completed','failed','cancelled') then return false; end if;
- perform public.meter_job_seconds(p_job);
- update public.minute_reservations set state='finished',finished_at=now()
- where job_id=p_job;
+ -- Older pre-deployment-06 jobs may not have a reservation.
+ if exists(select 1 from public.minute_reservations where job_id=p_job) then
+   perform public.meter_job_seconds(p_job);
+   update public.minute_reservations set state='finished',finished_at=now()
+   where job_id=p_job;
+ end if;
  update public.implementation_jobs set status=p_status,result=p_result,error=left(p_error,500),
  encrypted_access_token=null,finished_at=now(),updated_at=now() where id=p_job;
  return true;
