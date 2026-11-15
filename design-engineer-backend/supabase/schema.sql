@@ -385,7 +385,7 @@ begin
    alter table public.plans add constraint plans_build_minutes_nonnegative
      check (build_minutes >= 0);
  end if;
-end
+end;
 $billing_plans$;
 
 -- New customers see only Free, Plus, Studio. Old tiers stay inactive because
@@ -434,7 +434,7 @@ begin
    and table_name='implementation_jobs' and column_name='model_provider') then
    alter table public.implementation_jobs alter column model_provider drop not null;
  end if;
-end
+end;
 $legacy_job_columns$;
 
 create table if not exists public.minute_wallets (
