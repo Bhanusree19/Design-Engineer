@@ -393,8 +393,17 @@ update public.plans set is_active=true where slug in ('free','plus','studio');
 alter table public.implementation_jobs add column if not exists encrypted_access_token text;
 alter table public.implementation_jobs add column if not exists started_at timestamptz;
 alter table public.implementation_jobs add column if not exists finished_at timestamptz;
-alter table public.implementation_jobs alter column coding_agent drop not null;
-alter table public.implementation_jobs alter column model_provider drop not null;
+-- Older deployments have mandatory model columns; fresh 007 tables omit them.
+do $ begin
+ if exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='implementation_jobs' and column_name='coding_agent') then
+   alter table public.implementation_jobs alter column coding_agent drop not null;
+ end if;
+ if exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='implementation_jobs' and column_name='model_provider') then
+   alter table public.implementation_jobs alter column model_provider drop not null;
+ end if;
+end $;
 
 create table if not exists public.minute_wallets (
  user_id uuid primary key references auth.users(id) on delete cascade,
@@ -506,7 +515,7 @@ begin
  end if;
  b=public.minute_balance(p_user);
  v_avail=(b->>'availableSeconds')::int;
- if v_avail<1 then raise exception 'MINUTES_EXHAUSTED'; end if;
+ if v_avail<60 then raise exception 'MINUTES_EXHAUSTED'; end if;
  v_bucket=case when b->>'plan'='free' then 'free' else 'paid' end;
  -- One implementation reserves at most fifteen minutes. Unused time is
  -- released on completion; all active reservations prevent double spending.
@@ -560,7 +569,8 @@ begin
   update public.minute_reservations set billed_seconds=v_bill where job_id=p_job;
  end if;
  v_bal=public.minute_balance(r.user_id);
- return jsonb_build_object('exhausted',v_bill>=r.reserved_seconds,
+ return jsonb_build_object('exhausted',
+  v_bill>=r.reserved_seconds or (v_bal->>'remainingSeconds')::int<=0,
   'billedSeconds',v_bill,'balance',v_bal);
 end;
 $$;
