@@ -58,8 +58,8 @@ insert into public.plans
  (name, slug, build_minutes, price_inr, currency, is_active, sort_order, features)
 values
  ('Free','free',40,0,'INR',true,1,'["40 lifetime implementation minutes"]'::jsonb),
- ('Plus','plus',100,2999,'INR',true,2,'["100 implementation minutes per 30 days"]'::jsonb),
- ('Studio','studio',200,4999,'INR',true,3,'["200 implementation minutes per 30 days"]'::jsonb)
+ ('Plus','plus',100,799,'INR',true,2,'["100 implementation minutes per 30 days"]'::jsonb),
+ ('Studio','studio',200,1699,'INR',true,3,'["200 implementation minutes per 30 days"]'::jsonb)
 on conflict (slug) do nothing;
 
 -- -----------------------------------------------------------------------------
@@ -394,8 +394,8 @@ insert into public.plans
  (name,slug,build_minutes,price_inr,currency,is_active,sort_order,features)
 values
  ('Free','free',40,0,'INR',true,1,'["40 lifetime implementation minutes"]'::jsonb),
- ('Plus','plus',100,2999,'INR',true,2,'["100 implementation minutes per 30 days"]'::jsonb),
- ('Studio','studio',200,4999,'INR',true,3,'["200 implementation minutes per 30 days"]'::jsonb)
+ ('Plus','plus',100,799,'INR',true,2,'["100 implementation minutes per 30 days"]'::jsonb),
+ ('Studio','studio',200,1699,'INR',true,3,'["200 implementation minutes per 30 days"]'::jsonb)
 on conflict (slug) do nothing;
 
 -- Adopt required defaults on existing legacy records once, without resetting
@@ -404,8 +404,9 @@ update public.plans set build_minutes = case slug
  when 'free' then 40 when 'plus' then 100 when 'studio' then 200
  else build_minutes end
 where slug in ('free','plus','studio') and build_minutes=0;
-update public.plans set price_inr=2999 where slug='plus' and price_inr in (799,2999);
-update public.plans set price_inr=4999 where slug='studio' and price_inr=1699;
+-- Revert only the earlier draft defaults; any other admin-set price is kept.
+update public.plans set price_inr=799 where slug='plus' and price_inr=2999;
+update public.plans set price_inr=1699 where slug='studio' and price_inr=4999;
 update public.plans set price_inr=0 where slug='free' and price_inr<>0;
 update public.plans set is_active=(slug in ('free','plus','studio'));
 update public.plans set sort_order=case slug
@@ -727,6 +728,11 @@ $wallet_carryover$;
 -- Which verified payment bought the current paid period (used by refunds).
 alter table public.user_subscriptions add column if not exists current_payment_id uuid
  references public.payments(id) on delete set null;
+
+-- Launch prices: Plus ₹799, Studio ₹1,699. Only replaces the earlier draft
+-- defaults (₹2,999 / ₹4,999), so a price an admin set later is kept.
+update public.plans set price_inr=799,updated_at=now() where slug='plus' and price_inr=2999;
+update public.plans set price_inr=1699,updated_at=now() where slug='studio' and price_inr=4999;
 
 create index if not exists minute_reservations_user_created_idx
  on public.minute_reservations(user_id,created_at desc);

@@ -20,8 +20,8 @@ test('migration 008 has correctly paired PostgreSQL function and DO delimiters',
 test('both migration and fresh schema use ONLY minutes for plan quota',()=>{
   for(const source of [migration,schema]){
     assert.match(source,/build_minutes\s+integer\b/i);
-    assert.match(source,/['"]Studio['"],['"]studio['"],200,4999/);
-    assert.match(source,/['"]Plus['"],['"]plus['"],100,2999/);
+    assert.match(source,/['"]Studio['"],['"]studio['"],200,1699/);
+    assert.match(source,/['"]Plus['"],['"]plus['"],100,799/);
     assert.match(source,/drop column if exists project_limit/i);
     assert.match(source,/drop column if exists screen_limit_per_project/i);
     assert.match(source,/function public\.minute_balance/i);

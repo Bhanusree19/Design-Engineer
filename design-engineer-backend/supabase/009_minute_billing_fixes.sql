@@ -27,6 +27,11 @@ $wallet_carryover$;
 alter table public.user_subscriptions add column if not exists current_payment_id uuid
  references public.payments(id) on delete set null;
 
+-- Launch prices: Plus ₹799, Studio ₹1,699. Only replaces the earlier draft
+-- defaults (₹2,999 / ₹4,999), so a price an admin set later is kept.
+update public.plans set price_inr=799,updated_at=now() where slug='plus' and price_inr=2999;
+update public.plans set price_inr=1699,updated_at=now() where slug='studio' and price_inr=4999;
+
 create index if not exists minute_reservations_user_created_idx
  on public.minute_reservations(user_id,created_at desc);
 

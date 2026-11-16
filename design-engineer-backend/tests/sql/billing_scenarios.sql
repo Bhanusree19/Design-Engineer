@@ -80,16 +80,16 @@ begin
  -- 7. Refunds
  perform pg_temp.check(not public.revoke_refunded_payment('order_C','pay_order_C',100),
    'partial refund does not revoke');
- perform pg_temp.check(public.revoke_refunded_payment('order_A','pay_order_A',299900),
+ perform pg_temp.check(public.revoke_refunded_payment('order_A','pay_order_A',79900),
    'refund of an older month recorded');
  perform pg_temp.check((public.minute_balance(u)->>'plan')='studio',
    'refunding an older month keeps the current period');
- perform pg_temp.check(public.revoke_refunded_payment('order_C','pay_order_C',499900),
+ perform pg_temp.check(public.revoke_refunded_payment('order_C','pay_order_C',169900),
    'refund of the current month recorded');
  b:=public.minute_balance(u);
  perform pg_temp.check(b->>'plan'='free' and (b->>'usedSeconds')::int=125,
    'refunding the current month falls back to the remaining free trial');
- perform pg_temp.check(not public.revoke_refunded_payment('order_C','pay_order_C',499900),
+ perform pg_temp.check(not public.revoke_refunded_payment('order_C','pay_order_C',169900),
    'refund webhook replay is ignored');
 
  -- 8. Purchase after lapse starts clean (no carry-over)

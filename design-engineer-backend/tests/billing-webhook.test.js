@@ -37,8 +37,8 @@ async function withWebhook(db,run){
  }
 }
 const refundEvent={event:'payment.refunded',payload:{
- payment:{entity:{id:'pay_ABC',order_id:'order_XYZ',amount:299900,amount_refunded:299900}},
- refund:{entity:{amount:299900}}}};
+ payment:{entity:{id:'pay_ABC',order_id:'order_XYZ',amount:79900,amount_refunded:79900}},
+ refund:{entity:{amount:79900}}}};
 
 test('webhook rejects a bad signature without touching the database',async()=>{
  await withWebhook(()=>null,async(send,calls)=>{
@@ -53,7 +53,7 @@ test('full refund webhook revokes through the atomic SQL function and records th
   const res=await send(refundEvent,{eventId:'evt_1'});
   assert.equal(res.status,200);
   const rpc=calls.find(c=>c.path==='/rest/v1/rpc/revoke_refunded_payment');
-  assert.deepEqual(rpc.body,{p_order:'order_XYZ',p_payment:'pay_ABC',p_refunded_amount:299900});
+  assert.deepEqual(rpc.body,{p_order:'order_XYZ',p_payment:'pay_ABC',p_refunded_amount:79900});
   assert.ok(calls.some(c=>c.method==='POST'&&c.path==='/rest/v1/billing_webhook_events'
    &&c.body.event_id==='evt_1'));
   // No direct table PATCHes on payments/subscriptions any more.
