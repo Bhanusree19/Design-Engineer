@@ -1,4 +1,5 @@
 import React, {useEffect,useRef,useState} from 'react';
+import RepoContextCard from '../components/RepoContextCard';
 import * as api from '../../api/client';
 import {Body,ErrorBanner,Footer,Header,Rail} from '../components/Chrome';
 import type {DesignEngineerState,DesignEngineerActions} from '../hooks/useDesignEngineer';
@@ -61,6 +62,8 @@ export default function AgentSelection({state,actions}:{state:DesignEngineerStat
     </span>
    </div>
    {state.error&&<ErrorBanner message={state.error}/>}
+   {state.selectedProject?.repo_context&&<RepoContextCard context={state.selectedProject.repo_context}
+     source={state.selectedProject.stack_source} compact onChangeStack={actions.goBack}/>}
    <div className="agent-category-title"><b>Coding CLI agents</b><span>Run through a supported coding-agent CLI.</span></div>
    <div className="agent-choice-grid" role="radiogroup" aria-label="Coding CLI agents">{cliChoices.map(choice=><button type="button"
      key={choice.id} role="radio" aria-checked={agent===choice.id} disabled={saving}

@@ -31,6 +31,7 @@ const {verifyModelAccess,ModelAccessError}=require('./services/model-verificatio
 const geminiApi=require('./adapters/gemini-api');
 const directApi=require('./adapters/direct-api');
 const billing=require('./services/billing');
+const repoContext=require('./services/repo-context');
 
 const app = express();
 
@@ -1055,6 +1056,10 @@ app.patch('/api/projects/:id', async (req, res) => {
   for (const key of allowed) {
     if (body[key] !== undefined) patch[key] = body[key];
   }
+  // A stack picked by the person always wins over a detected one.
+  if (patch.stack !== undefined) patch.stack_source = patch.stack ? 'user' : null;
+  // A new repository or branch makes the previous repository context stale.
+  if (patch.repository !== undefined || patch.base_branch !== undefined) patch.repo_context = null;
   if (['coding_agent','model_provider','model_id'].some(k => k in patch)) {
     try {
       const rows = await pgQuery('projects',{token:auth.token,query:
@@ -1723,6 +1728,56 @@ app.get('/api/repos/:owner/:repo/branches', async (req, res) => {
   }
 });
 
+// Reads the project's repository + branch, stores what it finds, and picks the
+// stack automatically when an existing React / React Native app is detected.
+app.post('/api/projects/:id/repo-context', async (req, res) => {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const conn = await requireGithubConnection(auth, res);
+  if (!conn) return;
+  try {
+    const rows = await pgQuery('projects', {
+      token: auth.token,
+      query: `id=eq.${encodeURIComponent(req.params.id)}&select=id,repository,base_branch,stack,stack_source&limit=1`,
+    });
+    const project = Array.isArray(rows) ? rows[0] : null;
+    if (!project) return res.status(404).json({ error: 'Project not found.' });
+    if (!project.repository || !project.base_branch) {
+      return res.status(400).json({ error: 'Choose a repository and branch first.' });
+    }
+    const [owner, repo] = getRepositoryParts(project.repository);
+    const gh = (endpoint, accept) => githubFetch(conn, endpoint, { headers: { Accept: accept } });
+    const context = await repoContext.analyzeRepository(gh, owner, repo, project.base_branch);
+
+    const patch = { repo_context: context };
+    if (context.stack) {
+      patch.stack = context.stack;
+      patch.stack_source = 'detected';
+    } else if (project.stack_source === 'detected') {
+      // The earlier detection no longer applies to this branch; ask again.
+      patch.stack = null;
+      patch.stack_source = null;
+    }
+    const updated = await pgQuery('projects', {
+      token: auth.token,
+      method: 'PATCH',
+      query: `id=eq.${encodeURIComponent(project.id)}`,
+      body: patch,
+      prefer: 'return=representation',
+    });
+    res.json({ project: Array.isArray(updated) ? updated[0] : null, context, autoStack: !!context.stack });
+  } catch (error) {
+    if (error.code === 'GITHUB_REAUTH_REQUIRED') {
+      return res.status(401).json({
+        error: 'GitHub authorization expired or was revoked. Reconnect GitHub in the plugin.',
+        code: 'GITHUB_REAUTH_REQUIRED',
+      });
+    }
+    console.error('[Design Engineer] Repository context failed:', error?.message || error);
+    res.status(502).json({ error: 'Could not read the repository right now. Choose the stack manually or retry.' });
+  }
+});
+
 // -----------------------------------------------------------------------------
 // SAVE DESIGN CONTEXT (Figma -> Supabase)
 // -----------------------------------------------------------------------------
@@ -2024,8 +2079,11 @@ function buildImplementationPrompt(
   contextDir,
   baseBranch,
   branchName,
-  stack
+  stack,
+  repoCtx = null
 ) {
+  const contextLines = repoContext.contextPromptLines(repoCtx);
+  const contextBlock = contextLines.length ? `\n${contextLines.join('\n')}\n` : '';
   const screenList = screens
     .map((screen) => `- ${screen.name}: ${path.join(contextDir, screen.fileName)}`)
     .join('\n');
@@ -2049,7 +2107,7 @@ ${screenList}
 Base branch: ${baseBranch}
 Working branch: ${branchName}
 Requested stack: ${projectLabel}
-
+${contextBlock}
 Instructions:
 1. Read README.md first, then inspect the complete repository tree, package.json files, and existing source before changing anything.
 2. The base branch may contain only README.md. If the app structure is missing, create a standard ${projectLabel} project structure in this repository using the stack and package manager described by README.md. Keep the structure clear and production-ready, ${structureHint}.
@@ -2088,7 +2146,7 @@ async function appendTestInstructions(
   await fs.promises.writeFile(readmePath, `${current.trimEnd()}${section}`, 'utf8');
 }
 
-async function implementScreensInBranch(conn, repository, baseBranch, screens, stack, selection, auth) {
+async function implementScreensInBranch(conn, repository, baseBranch, screens, stack, selection, auth, repoCtx = null) {
   const screenNames = screens.map((screen) => screen.name);
   const firstScreenName = screenNames[0] || 'screens';
   const safeScreenName = sanitizeFileName(firstScreenName).toLowerCase();
@@ -2159,7 +2217,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       await directApi.execute({
         provider,workspace:worktree,contextDir,model:selection.model,
         apiKey:decryptText(connection.encrypted_credential),
-        prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack)
+        prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack,repoCtx)
       });
     } else if (selection.agent==='claude' ||
               (selection.agent==='opencode' && selection.provider!=='opencode')) {
@@ -2172,7 +2230,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       agentEnv[names[provider]]=decryptText(connection.encrypted_credential);
     }
     if(!['gemini-api','direct-api'].includes(selection.agent)) await executeCodingAgent({selection,workspace:worktree,home,env:agentEnv,
-      prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack)});
+      prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack,repoCtx)});
     console.log('[Design Engineer] '+selection.agent+' completed');
 
     // Replace repository control metadata with the original root-owned copy.
@@ -2275,7 +2333,7 @@ function describeDesignContext(row) {
   };
 }
 
-function buildImplementationPlan(selectedScreens, repository, baseBranch, stack) {
+function buildImplementationPlan(selectedScreens, repository, baseBranch, stack, repoCtx = null) {
   const firstScreen = selectedScreens[0]?.name || 'screens';
   const proposedBranch = `implement/${sanitizeFileName(firstScreen).toLowerCase()}-screens-${Date.now()}`;
   const projectLabel = stackLabel(stack);
@@ -2311,14 +2369,17 @@ function buildImplementationPlan(selectedScreens, repository, baseBranch, stack)
     '.design-engineer/context',
     baseBranch,
     proposedBranch,
-    stack
+    stack,
+    repoCtx
   );
+  const detected = repoCtx && repoCtx.status === 'existing-app' && repoCtx.summary
+    ? `\n**Detected in the branch:** ${repoCtx.summary}` : '';
 
   const plan = `# Implementation plan
 
 **Repository:** \`${repository}\`
 **Base branch:** \`${baseBranch}\`
-**Stack:** ${projectLabel}
+**Stack:** ${projectLabel}${detected}
 **Screens (${selectedScreens.length}):**
 
 ${screenLines}
@@ -2427,7 +2488,8 @@ app.post('/api/screens/plan', async (req, res) => {
       selectedScreens,
       repository,
       baseBranch,
-      stack
+      stack,
+      project.repo_context
     );
 
     console.log(
@@ -2701,7 +2763,8 @@ app.post('/api/screens/implement', async (req, res) => {
       selectedScreens,
       stack,
       selection,
-      auth
+      auth,
+      project.repo_context
     );
 
     res.json({ success: true, implementations: [implementation] });

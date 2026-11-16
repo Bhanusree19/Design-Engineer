@@ -19,7 +19,7 @@ function PickerHeader({ state, actions }: Props) {
 
 export function BranchStep({ state, actions }: Props) {
   const [highlight, setHighlight] = useState<string | null>(state.selectedBranch);
-  const loading = state.waiting === 'branches' || state.waiting === 'saving';
+  const loading = state.waiting === 'branches' || state.waiting === 'saving' || state.waiting === 'analyzing';
   const failed = !!state.error && state.branches.length === 0;
 
   useEffect(() => {
@@ -56,7 +56,9 @@ export function BranchStep({ state, actions }: Props) {
           <button className="link" type="button" onClick={actions.changeRepo}>Change</button>
         </div>
         {state.error && <ErrorBanner message={state.error} />}
-        {loading && <WaitRow label={state.waiting === 'saving' ? 'Saving project settings' : 'Loading branches'} />}
+        {loading && <WaitRow
+          label={state.waiting === 'analyzing' ? 'Reading the repository' : state.waiting === 'saving' ? 'Saving project settings' : 'Loading branches'}
+          detail={state.waiting === 'analyzing' ? 'Checking the stack, styling and existing components' : undefined} />}
         {!loading && !failed && (
           <SearchList
             id="search-branches"

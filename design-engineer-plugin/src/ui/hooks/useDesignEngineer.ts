@@ -59,6 +59,7 @@ export type Waiting =
   | 'create-project'
   | 'repos'
   | 'branches'
+  | 'analyzing'
   | 'extracting'
   | 'saving'
   | 'planning'
@@ -775,8 +776,30 @@ export function useDesignEngineer() {
     setImplementationScreens([]);
     setScreenPlan(null);
     setImplementation(null);
-    setWaiting(null);
     setError(null);
+
+    // Read the branch first. An existing React / React Native app decides the
+    // stack on its own; only an empty or unclear branch asks the person.
+    setWaiting('analyzing');
+    try {
+      const analysis = await api.analyzeRepoContext(project.id);
+      if (analysis.project) {
+        setSelectedProject(analysis.project);
+        selectedProjectRef.current = analysis.project;
+      }
+      setWaiting(null);
+      if (analysis.autoStack && analysis.context.app) {
+        // The agent screen shows what was found, with a way to change it.
+        setNotice(null);
+        setStep('agent');
+        return;
+      }
+      setNotice(null);
+    } catch (err) {
+      console.warn('[Design Engineer] Repository context unavailable', err);
+      setWaiting(null);
+      setNotice("Couldn't read the repository just now, so choose the stack yourself.");
+    }
     setStep('stack');
   }
 
@@ -797,6 +820,7 @@ export function useDesignEngineer() {
       fail(serverError(err, "Couldn't save the project's technology stack."), err);
       return;
     }
+    setNotice(null);
 
     setWaiting(null);
     setError(null);

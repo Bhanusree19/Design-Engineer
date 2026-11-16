@@ -196,6 +196,44 @@ export function listGeminiModels(apiKey?:string): Promise<{models:string[]}> {
 }
 
 
+// What Design Engineer found in the chosen repository branch.
+export interface RepoApp {
+  root: string;
+  stack: Stack;
+  framework: string;
+  frameworkName: string;
+  versions: { react: string | null; reactNative: string | null; expo: string | null; next: string | null };
+  language: 'typescript' | 'javascript';
+  packageManager: string | null;
+  styling: string[];
+  uiLibraries: string[];
+  navigation: string[];
+  state: string[];
+  testing: string[];
+  components: { dirs: string[]; count: number; names: string[] };
+  screenDirs: string[];
+  themeFiles: string[];
+  scripts: string[];
+}
+export type RepoContextStatus =
+  | 'existing-app' | 'multiple-apps' | 'empty' | 'no-app' | 'unsupported' | 'branch-not-found' | 'repo-not-found';
+export interface RepoContext {
+  version: number;
+  status: RepoContextStatus;
+  stack: Stack | null;
+  summary: string;
+  app?: RepoApp;
+  apps?: RepoApp[];
+  detectedOther?: string;
+  repository?: string;
+  branch?: string;
+  analyzedAt?: string;
+  truncated?: boolean;
+}
+export function analyzeRepoContext(projectId: string): Promise<{ project: Project; context: RepoContext; autoStack: boolean }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/repo-context`, { method: 'POST', body: '{}' });
+}
+
 export interface Project {
   id: string;
   user_id: string;
@@ -205,6 +243,9 @@ export interface Project {
   repository: string | null;
   base_branch: string | null;
   stack: Stack | null;
+  /** 'detected' when the stack came from the repository, 'user' when picked. */
+  stack_source?: 'detected' | 'user' | null;
+  repo_context?: RepoContext | null;
   coding_agent?: Agent;
   model_provider?: ModelProvider | null;
   model_id?: string | null;

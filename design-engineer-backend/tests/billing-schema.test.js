@@ -44,7 +44,8 @@ const fixes=fs.readFileSync(path.join(sqlDir,'009_minute_billing_fixes.sql'),'ut
 test('fresh schema embeds the exact current migration 009',()=>{
  const marker='\n-- DEPLOYMENT 06b: build-minute renewal, refund and history fixes\n';
  assert.ok(schema.includes(marker));
- assert.equal(schema.split(marker)[1],fixes);
+ const next='\n-- DEPLOYMENT 07: repository context\n';
+ assert.equal(schema.split(marker)[1].split(next)[0],fixes);
 });
 test('migration 009 keeps minute billing and pairs its delimiters',()=>{
  for(const tag of ['$wallet_carryover$','$balance$','$grant$','$refund$','$history$']){
@@ -57,4 +58,14 @@ test('migration 009 keeps minute billing and pairs its delimiters',()=>{
  for(const fn of ['revoke_refunded_payment(text,text,integer)','billing_history(uuid,integer)']){
   assert.ok(fixes.includes('revoke all on function public.'+fn+' from public,anon,authenticated'));
  }
+});
+
+const repoCtx=fs.readFileSync(path.join(sqlDir,'010_repo_context.sql'),'utf8');
+test('fresh schema embeds the exact current migration 010 (repository context)',()=>{
+ const marker='\n-- DEPLOYMENT 07: repository context\n';
+ assert.ok(schema.includes(marker));
+ assert.equal(schema.split(marker)[1],repoCtx);
+ assert.match(repoCtx,/add column if not exists repo_context jsonb/);
+ assert.match(repoCtx,/stack_source in \('detected','user'\)/);
+ assert.equal((repoCtx.split('$stack_source$').length-1)%2,0);
 });
