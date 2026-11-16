@@ -41,13 +41,45 @@ and OAuth requests do not consume user implementation minutes.
 ## 1. Supabase setup — staging project first
 
 If your existing Deployment 05 database already has its earlier base schema and
-`implementation_jobs` table, run ONLY:
+`implementation_jobs` table, run ONLY, in this order:
 
-`design-engineer-backend/supabase/008_minute_billing.sql`
+1. `design-engineer-backend/supabase/008_minute_billing.sql`
+2. `design-engineer-backend/supabase/009_minute_billing_fixes.sql`
+
+(If 008 is already applied, run just 009. Both are safe to re-run.)
 
 For a new clean project, `design-engineer-backend/supabase/schema.sql`
-contains the full merged base schema + 007 + 008. Existing projects should
-run **008 only**, to preserve their existing data.
+contains the full merged base schema + 007 + 008 + 009. Existing projects should
+run **008 then 009 only**, to preserve their existing data.
+
+### What 009 changes (billing is still pure build minutes)
+
+- **Early renewal / plan switch keeps unused minutes.** Renewing the same plan
+  before it ends adds 30 days to the current end date. Switching Plus ↔ Studio
+  starts a new 30-day period today. In both cases unused paid seconds carry
+  over (`minute_wallets.paid_carryover_seconds`). Buying after a period has
+  lapsed starts clean with no carry-over.
+- **Refunds:** a verified full refund ends the paid period *that payment
+  bought* (`user_subscriptions.current_payment_id`), and the user falls back to
+  any remaining free-trial minutes. Refunding an older month leaves the current
+  period alone. Partial refunds change nothing (reconcile manually).
+- **Usage history:** `billing_history()` powers the new *Recent builds* and
+  *Payments* lists in Figma (`GET /api/billing/history`): minutes deducted per
+  build, status, screens, date.
+- **Webhook replays** are skipped using Razorpay's `x-razorpay-event-id`
+  (`billing_webhook_events`).
+
+### Database scenario test (disposable database only)
+
+`design-engineer-backend/tests/sql/billing_scenarios.sql` runs 23 checks
+(free trial, per-second metering, idempotent grants, early renewal, upgrade,
+refunds, history) inside a transaction that is rolled back:
+
+```powershell
+psql "postgresql://postgres:PASSWORD@db.STAGING-REF.supabase.co:5432/postgres" -v ON_ERROR_STOP=1 -f design-engineer-backend/tests/sql/billing_scenarios.sql
+```
+
+Every line should print `ok - ...`. Run it on staging, never production.
 
 The migration removes legacy `plans.project_limit` and `plans.screen_limit_per_project`, adds `plans.build_minutes`, `minute_wallets` and
 `minute_reservations`, plus transactional stored functions to reserve,
@@ -178,6 +210,12 @@ settlement and Razorpay account approval are external steps.
    navigates to Plans & minutes.
 7. Pay in Razorpay Test Mode; verify exactly one 30-day entitlement is granted.
 8. Deliver the test webhook twice; verify no extra minutes are granted.
+8a. Renew the same plan early; verify the end date moves +30 days and unused
+    minutes appear as "carried over" in Figma.
+8b. Fully refund the latest payment in Razorpay Test Mode; verify the user drops
+    back to the free trial. Refund an older month; verify the current plan stays.
+8c. Open Plans & minutes; verify *Recent builds* lists each build with the
+    minutes deducted, and *Payments* lists paid/refunded orders.
 9. Change Plus/Studio prices in Supabase; verify checkout charges the
    new DB-derived amount (in paise), not a client-provided amount.
 10. Confirm 30-day expiry falls back to the user's remaining lifetime free

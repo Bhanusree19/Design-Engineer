@@ -74,6 +74,25 @@ async function confirmedOrder(orderId,paymentId,signature){
  await verifyCapturedPayment(orderId,paymentId,payment);
  return grantPayment(orderId,paymentId,signature);
 }
+// Razorpay sends cumulative payment.amount_refunded; refund.amount is this refund only.
+function refundedAmount(pay,refund){
+ const values=[pay?.amount_refunded,refund?.amount].map(Number).filter(Number.isFinite);
+ return values.length?Math.max(...values):0;
+}
+async function revokeRefund(orderId,paymentId,amount){
+ return rpc('revoke_refunded_payment',{p_order:orderId,p_payment:paymentId,
+  p_refunded_amount:Math.trunc(amount)});
+}
+async function history(userId,limit=20){return rpc('billing_history',{p_user:userId,p_limit:limit})}
+async function webhookSeen(eventId){
+ const rows=await service('billing_webhook_events?event_id=eq.'+encode(eventId)+'&select=event_id&limit=1');
+ return !!rows?.length;
+}
+async function recordWebhook(eventId,type){
+ return service('billing_webhook_events',{method:'POST',
+  prefer:'resolution=ignore-duplicates,return=minimal',
+  body:{event_id:eventId,event_type:type.slice(0,64)}});
+}
 function respondError(res,error){
  console.warn('[Design Engineer] Billing request error',error?.dbCode||error?.status||'unknown');
  return res.status(error?.status>=400&&error.status<500?error.status:503)
@@ -92,7 +111,10 @@ function registerWebhook(app){
   const provided=req.get('x-razorpay-signature')||'';
   const signature=crypto.createHmac('sha256',secret).update(req.body).digest('hex');
   if(!constantHexEqual(signature,provided))return res.status(401).end();
+  const eventId=String(req.get('x-razorpay-event-id')||'').slice(0,128);
   try{
+   // Razorpay retries deliveries; skip events already processed successfully.
+   if(eventId&&await webhookSeen(eventId))return res.status(200).json({ok:true,duplicate:true});
    const event=JSON.parse(req.body.toString('utf8'));
    if(event.event==='payment.captured'){
     const pay=event.payload?.payment?.entity;
@@ -106,30 +128,15 @@ function registerWebhook(app){
      }
     }
    }
-   // Handle refunds, including revocation of the currently paid entitlement.
+   // Full refunds revoke the paid period they bought (decided atomically in SQL).
    if(event.event==='payment.refunded'){
     const pay=event.payload?.payment?.entity;
     const refund=event.payload?.refund?.entity;
-    if(pay?.order_id&&pay?.id&&refund?.amount>=pay.amount){
-      const rows=await service('payments?razorpay_order_id=eq.'+encode(pay.order_id)+
-       '&razorpay_payment_id=eq.'+encode(pay.id)+'&select=id,user_id,status&limit=1');
-      const p=rows?.[0];
-      if(p?.status==='paid'){
-       await service('payments?id=eq.'+encode(p.id),{method:'PATCH',body:{status:'refunded'},
-         prefer:'return=minimal'});
-       const subs=await service('user_subscriptions?user_id=eq.'+encode(p.user_id)+
-         '&select=started_at&limit=1');
-       // Only deactivate when this is the latest paid period.
-       const latest=await service('payments?user_id=eq.'+encode(p.user_id)+
-         '&status=eq.paid&order=paid_at.desc&select=id&limit=1');
-       if(!latest?.length){
-        await service('user_subscriptions?user_id=eq.'+encode(p.user_id),{
-         method:'PATCH',body:{status:'expired',expires_at:new Date().toISOString()},
-         prefer:'return=minimal'});
-       }
-      }
+    if(pay?.order_id&&pay?.id){
+     await revokeRefund(pay.order_id,pay.id,refundedAmount(pay,refund));
     }
    }
+   if(eventId)await recordWebhook(eventId,String(event.event||'unknown'));
    return res.status(200).json({ok:true});
   }catch(error){
    console.error('[Design Engineer] Razorpay webhook processing failed',error?.status||'unknown');
@@ -147,6 +154,16 @@ function registerRoutes(app,requireUser){
       '&select=slug,name,build_minutes,price_inr,currency,features,sort_order&order=sort_order.asc')
    ]);
    res.set('Cache-Control','no-store').json({usage,plans,paymentsEnabled:envReady()});
+  }catch(error){return respondError(res,error)}
+ });
+ app.get('/api/billing/history',async(req,res)=>{
+  const auth=await requireUser(req,res);if(!auth)return;
+  try{
+   const data=await history(auth.user.id,20);
+   res.set('Cache-Control','no-store').json({
+    builds:Array.isArray(data?.builds)?data.builds:[],
+    payments:Array.isArray(data?.payments)?data.payments:[]
+   });
   }catch(error){return respondError(res,error)}
  });
  app.post('/api/billing/order',async(req,res)=>{
@@ -252,4 +269,5 @@ function registerRoutes(app,requireUser){
  });
 }
 module.exports={registerWebhook,registerRoutes,balance,createJob,claimJob,meterJob,
- finishJob,constantHexEqual,verifyCapturedPayment,grantPayment};
+ finishJob,constantHexEqual,verifyCapturedPayment,grantPayment,revokeRefund,
+ refundedAmount,history};

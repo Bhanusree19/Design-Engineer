@@ -36,5 +36,25 @@ test('both migration and fresh schema use ONLY minutes for plan quota',()=>{
 test('fresh schema embeds the exact current migration 008',()=>{
  const marker='-- DEPLOYMENT 06: dynamic minute allowance and verified payments\n';
  assert.ok(schema.includes(marker));
- assert.equal(schema.split(marker)[1],migration);
+ const next='\n-- DEPLOYMENT 06b: build-minute renewal, refund and history fixes\n';
+ assert.equal(schema.split(marker)[1].split(next)[0],migration);
+});
+
+const fixes=fs.readFileSync(path.join(sqlDir,'009_minute_billing_fixes.sql'),'utf8');
+test('fresh schema embeds the exact current migration 009',()=>{
+ const marker='\n-- DEPLOYMENT 06b: build-minute renewal, refund and history fixes\n';
+ assert.ok(schema.includes(marker));
+ assert.equal(schema.split(marker)[1],fixes);
+});
+test('migration 009 keeps minute billing and pairs its delimiters',()=>{
+ for(const tag of ['$wallet_carryover$','$balance$','$grant$','$refund$','$history$']){
+  assert.equal((fixes.split(tag).length-1)%2,0,'Odd number of '+tag+' delimiters');
+ }
+ assert.match(fixes,/paid_carryover_seconds/);
+ assert.match(fixes,/current_payment_id/);
+ assert.match(fixes,/function public\.revoke_refunded_payment/);
+ assert.match(fixes,/function public\.billing_history/);
+ for(const fn of ['revoke_refunded_payment(text,text,integer)','billing_history(uuid,integer)']){
+  assert.ok(fixes.includes('revoke all on function public.'+fn+' from public,anon,authenticated'));
+ }
 });

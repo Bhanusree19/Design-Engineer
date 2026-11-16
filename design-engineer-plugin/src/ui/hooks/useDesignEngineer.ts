@@ -88,6 +88,7 @@ export interface DesignEngineerState {
   screenPlan: api.ScreenPlan | null;
   implementation: api.ImplementationResult | null;
   billing: api.BillingStatus | null;
+  billingHistory: api.BillingHistory | null;
   billingReturnStep: Step;
   billingLoading: boolean;
 }
@@ -124,6 +125,7 @@ export function useDesignEngineer() {
   const [implementation, setImplementation] = useState<api.ImplementationResult | null>(null);
   const [billing, setBilling] = useState<api.BillingStatus | null>(null);
   const [billingLoading, setBillingLoading] = useState(false);
+  const [billingHistory, setBillingHistory] = useState<api.BillingHistory | null>(null);
   const [billingReturnStep, setBillingReturnStep] = useState<Step>('project');
   const stepRef = useRef<Step>('account');
   useEffect(()=>{stepRef.current=step;},[step]);
@@ -134,6 +136,11 @@ export function useDesignEngineer() {
     const refresh=async()=>{
       try{const data=await api.billingStatus();if(!cancelled)setBilling(data)}
       catch(error){console.warn('[Design Engineer] Minute balance unavailable',error);}
+      // Per-build usage is only needed while the Plans & minutes screen is open.
+      if(step==='billing'){
+        try{const h=await api.billingHistory();if(!cancelled)setBillingHistory(h)}
+        catch(error){console.warn('[Design Engineer] Usage history unavailable',error);}
+      }
     };
     void refresh();
     // Keep live billing screens responsive without polling Supabase every
@@ -569,6 +576,7 @@ export function useDesignEngineer() {
       sendToPlugin({ type: 'clear-session' });
       // Never leave the prior account's minute balance in the next session.
       setBilling(null);
+      setBillingHistory(null);
       setCodexUser(null);
       setGithubUser(null);
       setRepos([]);
@@ -941,8 +949,10 @@ export function useDesignEngineer() {
 
   async function refreshBilling() {
     try{
-      const result=await api.billingStatus();
+      const [result,h]=await Promise.all([api.billingStatus(),
+        api.billingHistory().catch(()=>null)]);
       setBilling(result);
+      if(h)setBillingHistory(h);
       return result;
     }catch(error){
       fail(serverError(error,'Unable to load plan usage.'),error);
@@ -955,8 +965,10 @@ export function useDesignEngineer() {
     setError(null);
     setBillingLoading(true);
     try{
-      const data=await api.billingStatus();
+      const [data,h]=await Promise.all([api.billingStatus(),
+        api.billingHistory().catch(()=>null)]);
       setBilling(data);
+      if(h)setBillingHistory(h);
     }catch(error){
       fail(serverError(error,'Unable to load subscription plans.'),error);
     }finally{setBillingLoading(false)}
@@ -997,7 +1009,7 @@ export function useDesignEngineer() {
         setWaiting(null);
         setBillingReturnStep('plan');
         setStep('billing');
-        setError('Your implementation minutes are exhausted. Choose Plus or Studio to continue.');
+        setError('You have used all your build minutes. Choose Plus or Studio to continue.');
         return;
       }
       const result = await api.implementScreens(
@@ -1100,6 +1112,7 @@ export function useDesignEngineer() {
     screenPlan,
     implementation,
     billing,
+    billingHistory,
     billingReturnStep,
     billingLoading,
   };

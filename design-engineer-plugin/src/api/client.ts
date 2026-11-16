@@ -446,6 +446,10 @@ export interface MinuteUsage {
   plan: 'free' | 'plus' | 'studio';
   planName: string;
   allowanceSeconds: number;
+  /** Plan's own build minutes in seconds (paid periods add carryoverSeconds). */
+  planSeconds?: number;
+  /** Unused paid seconds carried over from an early renewal or plan switch. */
+  carryoverSeconds?: number;
   usedSeconds: number;
   remainingSeconds: number;
   availableSeconds: number;
@@ -469,6 +473,31 @@ export interface BillingStatus {
 }
 export function billingStatus(): Promise<BillingStatus> {
   return request('/api/billing/status');
+}
+export interface BuildUsage {
+  jobId: string;
+  projectName: string | null;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  bucket: 'free' | 'paid';
+  billedSeconds: number;
+  meterState: 'reserved' | 'running' | 'finished';
+  screenCount: number;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  error: string | null;
+}
+export interface PaymentRecord {
+  planSlug: string;
+  amount: number; // paise
+  currency: string;
+  status: 'paid' | 'refunded';
+  createdAt: string;
+  paidAt: string | null;
+}
+export interface BillingHistory { builds: BuildUsage[]; payments: PaymentRecord[]; }
+export function billingHistory(): Promise<BillingHistory> {
+  return request('/api/billing/history');
 }
 export function startCheckout(plan: 'plus' | 'studio'): Promise<{checkoutUrl:string}> {
   return request('/api/billing/order',{method:'POST',body:JSON.stringify({plan})});
