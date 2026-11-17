@@ -1,0 +1,11 @@
+{
+  "name": "design-engineer-website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:live": "node build.mjs --strict",
+    "preview": "node build.mjs && npx --yes serve dist -l 4321",
+    "deploy": "node build.mjs --strict && npx --yes wrangler pages deploy dist --project-name design-engineer-site"
+  }
+}

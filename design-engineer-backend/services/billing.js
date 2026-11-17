@@ -3,6 +3,7 @@
 // No billing secrets or service-role credentials are sent to the Figma UI.
 const crypto=require('node:crypto');
 const express=require('express');
+const checkoutPage=require('./checkout-page');
 const BASE=()=>process.env.SUPABASE_URL;
 const KEY=()=>process.env.SUPABASE_SERVICE_ROLE_KEY;
 function envReady(){return !!(process.env.RAZORPAY_KEY_ID&&process.env.RAZORPAY_KEY_SECRET&&process.env.RAZORPAY_WEBHOOK_SECRET)}
@@ -98,10 +99,6 @@ function respondError(res,error){
  return res.status(error?.status>=400&&error.status<500?error.status:503)
    .json({error:error?.status===409?error.message:'Billing service unavailable. Please try again.'});
 }
-function escaped(value){return String(value).replace(/[&<>"']/g,s=>({
- '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
- })[s]);}
-function safeScript(value){return JSON.stringify(value).replace(/</g,'\\u003c').replace(/>/g,'\\u003e')}
 
 function registerWebhook(app){
  // Express raw body must be parsed BEFORE express.json() middleware.
@@ -205,35 +202,27 @@ function registerRoutes(app,requireUser){
  });
  app.get('/billing/checkout',async(req,res)=>{
   const order=String(req.query.order||''),token=String(req.query.token||'');
+  res.set({'Content-Security-Policy':checkoutPage.CHECKOUT_CSP,'Cache-Control':'no-store',
+   'Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY'});
   if(!/^order_[a-zA-Z0-9]+$/.test(order)||! /^[a-f0-9]{64}$/.test(token))
-   return res.status(400).send('Invalid checkout link.');
+   return res.status(400).type('html').send(checkoutPage.renderNotice('This checkout link isn\u2019t valid',
+    'Open Design Engineer in Figma, go to Plans & minutes and choose your plan again.'));
   try{
    const rows=await service('payments?razorpay_order_id=eq.'+encode(order)+
     '&select=plan_slug,amount,currency,status,checkout_token_hash,checkout_expires_at&limit=1');
    const p=rows?.[0];
    if(!p||!constantHexEqual(sha(token),p.checkout_token_hash||'')||
       Date.parse(p.checkout_expires_at)<Date.now()||p.status!=='created')
-    return res.status(403).send('Checkout link expired. Open Design Engineer and try again.');
-   res.set({'Content-Security-Policy':"default-src 'none'; script-src 'unsafe-inline' https://checkout.razorpay.com; connect-src 'self' https://api.razorpay.com https://*.razorpay.com; img-src https: data:; style-src 'unsafe-inline'; frame-src https://*.razorpay.com https://api.razorpay.com; form-action 'self'",'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'});
-   const options={key:process.env.RAZORPAY_KEY_ID,amount:p.amount,currency:p.currency,
-     name:'Design Engineer',description:p.plan_slug+' — 30-day minutes plan',
-     order_id:order};
-   const html='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'+
-    '<title>Design Engineer Checkout</title></head><body style="font-family:system-ui;max-width:480px;margin:50px auto;padding:20px">'+
-    '<h2>Design Engineer — '+escaped(p.plan_slug)+'</h2><p>₹'+(p.amount/100).toFixed(2)+
-    ' for 30 days. Manual renewal; no automatic debit.</p>'+
-    '<button id="pay" style="padding:13px 28px">Pay securely with Razorpay</button>'+
-    '<p id="msg" role="status"></p><script src="https://checkout.razorpay.com/v1/checkout.js"></script>'+
-    '<script>const cfg='+safeScript(options)+';const token='+safeScript(token)+
-    ';document.getElementById("pay").onclick=function(){if(!window.Razorpay){document.getElementById("msg").textContent="Checkout unavailable. Refresh.";return;}'+
-    'const rz=new Razorpay({...cfg,handler:async function(result){'+
-    'document.getElementById("msg").textContent="Verifying payment...";'+
-    'try{const r=await fetch("/billing/confirm",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...result,token})});'+
-    'const data=await r.json();document.getElementById("msg").textContent=r.ok?"Payment verified. Return to Figma; minutes are available.":(data.error||"Verification pending; contact support.");}'+
-    'catch{document.getElementById("msg").textContent="Verification pending; do not pay again. Contact support.";}}});'+
-    'rz.open();};</script></body></html>';
-   return res.type('html').send(html);
-  }catch(error){return res.status(503).send('Checkout temporarily unavailable.')}
+    return res.status(403).type('html').send(checkoutPage.renderNotice('This checkout link has expired',
+     'Links last 15 minutes and work once. Open Design Engineer in Figma and choose your plan again. If you already paid, your minutes are on their way: check Plans & minutes before paying again.'));
+   const plans=await service('plans?slug=eq.'+encode(p.plan_slug)+'&select=name,build_minutes&limit=1').catch(()=>null);
+   const plan=plans?.[0];
+   return res.type('html').send(checkoutPage.renderCheckout({
+    planName:plan?.name||(p.plan_slug==='studio'?'Studio':'Plus'),
+    buildMinutes:plan?.build_minutes,amount:p.amount,currency:p.currency,
+    keyId:process.env.RAZORPAY_KEY_ID,orderId:order,token}));
+  }catch(error){return res.status(503).type('html').send(checkoutPage.renderNotice('Checkout is unavailable right now',
+   'Nothing was charged. Please try again in a minute from Plans & minutes in the plugin.'))}
  });
  app.post('/billing/confirm',async(req,res)=>{
   const order=req.body?.razorpay_order_id,payment=req.body?.razorpay_payment_id,
