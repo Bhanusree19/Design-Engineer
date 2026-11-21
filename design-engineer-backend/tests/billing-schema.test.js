@@ -64,8 +64,38 @@ const repoCtx=fs.readFileSync(path.join(sqlDir,'010_repo_context.sql'),'utf8');
 test('fresh schema embeds the exact current migration 010 (repository context)',()=>{
  const marker='\n-- DEPLOYMENT 07: repository context\n';
  assert.ok(schema.includes(marker));
- assert.equal(schema.split(marker)[1],repoCtx);
+ assert.equal(schema.split(marker)[1].split('\n-- DEPLOYMENT 09: flow revamp\n')[0],repoCtx);
  assert.match(repoCtx,/add column if not exists repo_context jsonb/);
  assert.match(repoCtx,/stack_source in \('detected','user'\)/);
  assert.equal((repoCtx.split('$stack_source$').length-1)%2,0);
+});
+
+const flow=fs.readFileSync(path.join(sqlDir,'011_flow_revamp.sql'),'utf8');
+test('fresh schema embeds the exact current migration 011 (flow revamp)',()=>{
+ const marker='\n-- DEPLOYMENT 09: flow revamp\n';
+ assert.ok(schema.includes(marker));
+ assert.equal(schema.split(marker)[1],flow);
+});
+test('migration 011 is additive and pairs its delimiters',()=>{
+ assert.doesNotMatch(flow,/drop\s+table/i);
+ assert.doesNotMatch(flow,/drop\s+column/i);
+ for(const tag of ['$$','$sync_link$','$profile_model$','$snapshot$','$buffer$']){
+  assert.equal((flow.split(tag).length-1)%2,0,'Odd number of '+tag+' delimiters');
+ }
+ assert.match(flow,/^begin;/m);
+ assert.match(flow,/^commit;\s*$/m);
+});
+test('migration 011 charges a 10 second server-start buffer, capped at the reservation',()=>{
+ assert.match(flow,/build_start_buffer_seconds\(\)\s*returns integer language sql immutable as \$buffer\$ select 10 \$buffer\$/);
+ assert.match(flow,/r\.started_at is not null and r\.state<>'finished'/);
+ assert.match(flow,/least\(public\.build_start_buffer_seconds\(\),r\.reserved_seconds-r\.billed_seconds\)/);
+ assert.ok(flow.includes('grant execute on function public.finish_metered_job(uuid,text,jsonb,text) to service_role'));
+});
+test('migration 011 adds project repository links with RLS',()=>{
+ assert.match(flow,/create table if not exists public\.project_repos/);
+ assert.match(flow,/unique \(project_id, repository, branch, app_root\)/);
+ assert.match(flow,/on public\.project_repos\(project_id\) where is_default/);
+ assert.match(flow,/alter table public\.project_repos enable row level security/);
+ assert.match(flow,/create trigger sync_project_repo_link/);
+ assert.match(flow,/add column if not exists ai_agent text/);
 });

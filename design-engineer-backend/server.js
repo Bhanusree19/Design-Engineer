@@ -31,6 +31,7 @@ const {verifyModelAccess,ModelAccessError}=require('./services/model-verificatio
 const geminiApi=require('./adapters/gemini-api');
 const directApi=require('./adapters/direct-api');
 const billing=require('./services/billing');
+const flowRevamp=require('./services/flow-revamp');
 const repoContext=require('./services/repo-context');
 
 const app = express();
@@ -282,6 +283,10 @@ async function requireUser(req, res) {
 
 // Billing APIs are authenticated, provider pricing comes exclusively from Supabase.
 billing.registerRoutes(app,requireUser);
+// Deployment 09: repository links, account model and per-project builds (additive).
+flowRevamp.registerRoutes(app,{requireUser,pgQuery,validateSelection,
+  listConnections:(userId)=>modelConnectionDb('user_id=eq.'+encodeURIComponent(userId)+'&select=provider,status,updated_at'),
+  billingHistory:(userId)=>billing.history(userId,50)});
 
 function mapAuthError(error) {
   const code = error?.code || error?.status || '';

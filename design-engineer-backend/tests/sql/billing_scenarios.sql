@@ -41,8 +41,8 @@ begin
  perform pg_temp.check((m->>'billedSeconds')::int=125,'metering bills elapsed seconds');
  perform public.finish_metered_job(job,'completed','{}'::jsonb,null);
  b:=public.minute_balance(u);
- perform pg_temp.check((b->>'usedSeconds')::int=125 and (b->>'reservedSeconds')::int=0,
-   'finished build releases its unused reservation');
+ perform pg_temp.check((b->>'usedSeconds')::int=135 and (b->>'reservedSeconds')::int=0,
+   'finished build is charged run time + 10 s server start and releases the rest');
 
  -- 3. First Plus purchase
  perform pg_temp.check(pg_temp.pay(u,'plus','order_A'),'Plus payment granted');
@@ -87,7 +87,7 @@ begin
  perform pg_temp.check(public.revoke_refunded_payment('order_C','pay_order_C',169900),
    'refund of the current month recorded');
  b:=public.minute_balance(u);
- perform pg_temp.check(b->>'plan'='free' and (b->>'usedSeconds')::int=125,
+ perform pg_temp.check(b->>'plan'='free' and (b->>'usedSeconds')::int=135,
    'refunding the current month falls back to the remaining free trial');
  perform pg_temp.check(not public.revoke_refunded_payment('order_C','pay_order_C',169900),
    'refund webhook replay is ignored');
@@ -101,7 +101,7 @@ begin
  -- 9. Usage history
  h:=public.billing_history(u,20);
  perform pg_temp.check(jsonb_array_length(h->'builds')=1
-   and (h->'builds'->0->>'billedSeconds')::int=125
+   and (h->'builds'->0->>'billedSeconds')::int=135
    and h->'builds'->0->>'projectName'='Scenario project'
    and (h->'builds'->0->>'screenCount')::int=1,'history lists the build with billed seconds');
  perform pg_temp.check(jsonb_array_length(h->'payments')=4,'history lists paid and refunded payments');
