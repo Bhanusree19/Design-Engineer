@@ -70,7 +70,7 @@
 
   window.__fake = {
     state: () => JSON.parse(JSON.stringify(S)),
-    set: (patch) => { Object.assign(S, patch); save(); },
+    set: (patch) => { Object.assign(S, patch); save(); if (patch.selection) reply({ type: 'selection-changed', selection: S.selection }); },
     reset: (patch) => { S = Object.assign(defaults(), patch || {}); save(); localStorage.removeItem(STORE); },
     storage: () => JSON.parse(localStorage.getItem(STORE) || '{}'),
     setStorage: (v) => localStorage.setItem(STORE, JSON.stringify(v)),
@@ -104,8 +104,9 @@
           break;
         }
         case 'get-selection': reply({ type: 'selection-changed', selection: S.selection }); break;
+        case 'get-page-screens': reply({ type: 'page-screens', selection: S.pageScreens || S.selection }); break;
         case 'extract-screens': {
-          const picked = S.selection.filter((s) => msg.nodeIds.includes(s.id));
+          const picked = (S.pageScreens || S.selection).filter((s) => msg.nodeIds.includes(s.id));
           reply({ type: 'extract-started', total: picked.length });
           setTimeout(() => reply({ type: 'screens-extracted', results: picked.map((s) => ({ screen: s.name, frame: { width: s.width, height: s.height }, nodes: [] })) }), 30);
           break;

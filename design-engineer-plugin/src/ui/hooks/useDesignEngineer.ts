@@ -178,8 +178,9 @@ export function useDesignEngineer() {
   const [codexWait, setCodexWait] = useState<CodexWait | null>(null);
 
   // Building --------------------------------------------------------------------
-  const [selection, setSelection] = useState<SelectionItem[]>([]);
-  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [screenPicker, setScreenPicker] = useState<{ items: SelectionItem[]; checked: Set<string>; source: 'canvas' | 'page' }>({ items: [], checked: new Set(), source: 'canvas' });
+  const { items: selection, checked: checkedIds, source: selectionSource } = screenPicker;
+  const resetCanvasSelection = useRef(false);
   const [extractingCount, setExtractingCount] = useState(0);
   const screensRef = useRef<DesignContext[]>([]);
   const [screens, setScreensState] = useState<DesignContext[]>([]);
@@ -304,6 +305,7 @@ export function useDesignEngineer() {
     const prev = s[s.length - 2];
     clearFeedback();
     setRoutes(s.slice(0, -1));
+    if (prev.name === 'screens') { setPlan(null); setScreens([]); useCanvasSelection(); }
     if (prev.name === 'project' && projectRef.current) void refreshProject(projectRef.current.id);
     if (prev.name === 'home') void loadHome();
   }
@@ -398,6 +400,7 @@ export function useDesignEngineer() {
         prefsWaiters.current.splice(0).forEach((w) => w(prefsRef.current));
       }
       if (msg.type === 'selection-changed') applySelection(msg.selection || []);
+      if (msg.type === 'page-screens') setScreenPicker(prev => prev.source === 'page' ? { ...prev, items: msg.selection || [], checked: new Set<string>((msg.selection || []).filter((item: SelectionItem) => prev.checked.has(item.id)).map((item: SelectionItem) => item.id)) } : prev);
       if (msg.type === 'extract-started') setExtractingCount(msg.total || 0);
       if (msg.type === 'extraction-error') fail(msg.error || 'Figma could not read the selected screens.');
       if (msg.type === 'screens-extracted') handlers.current.extracted(msg.results || []);
@@ -1327,30 +1330,38 @@ export function useDesignEngineer() {
   // ===========================================================================
 
   function applySelection(next: SelectionItem[]) {
-    setSelection((previous) => {
-      const previousIds = new Set(previous.map((s) => s.id));
-      setCheckedIds((checked) => {
-        const out = new Set<string>();
-        for (const item of next) if (checked.has(item.id) || !previousIds.has(item.id)) out.add(item.id);
-        return out;
-      });
-      return next;
+    const reset = resetCanvasSelection.current;
+    resetCanvasSelection.current = false;
+    setScreenPicker(previous => {
+      if (previous.source !== 'canvas') return previous;
+      const previousIds = new Set(previous.items.map(s => s.id));
+      const checked = new Set(next.filter(item => reset || previous.checked.has(item.id) || !previousIds.has(item.id)).map(item => item.id));
+      return { items: next, checked, source: 'canvas' };
     });
   }
 
   function toggleChecked(id: string) {
-    setCheckedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+    setScreenPicker(prev => {
+      if (!prev.items.some(item => item.id === id)) return prev;
+      const checked = new Set(prev.checked);
+      if (checked.has(id)) checked.delete(id); else checked.add(id);
+      return { ...prev, checked };
     });
   }
   function checkAll() {
-    setCheckedIds(new Set(selection.map((s) => s.id)));
+    setScreenPicker(prev => ({ ...prev, checked: new Set(prev.items.map(s => s.id)) }));
   }
   function clearChecked() {
-    setCheckedIds(new Set());
+    setScreenPicker(prev => ({ ...prev, checked: new Set() }));
+  }
+  function useCanvasSelection() {
+    resetCanvasSelection.current = true;
+    setScreenPicker({ items: [], checked: new Set(), source: 'canvas' });
+    sendToPlugin({ type: 'get-selection' });
+  }
+  function browsePageScreens() {
+    setScreenPicker(prev => ({ ...prev, items: [], source: 'page' }));
+    sendToPlugin({ type: 'get-page-screens' });
   }
 
   function targetLink(): api.RepoLink | null {
@@ -1372,20 +1383,20 @@ export function useDesignEngineer() {
     setScreens([]);
     setPlan(null);
     // A new build starts with everything selected on the canvas ticked.
-    setCheckedIds(new Set(selection.map((s) => s.id)));
     push({ name: 'screens' });
-    sendToPlugin({ type: 'get-selection' });
+    useCanvasSelection();
   }
 
   function fetchScreens() {
-    if (checkedIds.size === 0) {
+    const selectedIds = selection.filter(item => checkedIds.has(item.id)).map(item => item.id);
+    if (selectedIds.length === 0) {
       setError('Select at least one screen.');
       return;
     }
     clearFeedback();
-    setExtractingCount(checkedIds.size);
+    setExtractingCount(selectedIds.length);
     setBusy('extracting');
-    sendToPlugin({ type: 'extract-screens', nodeIds: Array.from(checkedIds) });
+    sendToPlugin({ type: 'extract-screens', nodeIds: selectedIds });
   }
 
   async function handleExtracted(results: DesignContext[]) {
@@ -1406,7 +1417,6 @@ export function useDesignEngineer() {
       for (const s of results) if (s.screen) merged.set(s.screen, s);
       setPlan(null);
       setScreens(Array.from(merged.values()));
-      setCheckedIds(new Set());
       setBusy(null);
       if (current().name !== 'plan') push({ name: 'plan' });
       await preparePlan();
@@ -1702,6 +1712,7 @@ export function useDesignEngineer() {
     readingContext,
     codexWait,
     selection,
+    selectionSource,
     checkedIds,
     extractingCount,
     screens,
@@ -1764,6 +1775,8 @@ export function useDesignEngineer() {
     checkAll,
     clearChecked,
     fetchScreens,
+    useCanvasSelection,
+    browsePageScreens,
     targetLink,
     chooseTarget,
     preparePlan,

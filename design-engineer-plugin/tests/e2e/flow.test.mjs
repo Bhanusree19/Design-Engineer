@@ -397,6 +397,35 @@ for (const mode of ['new', 'legacy']) {
   });
 
   // ---------------------------------------------------------------- F · build
+  test(`[${mode}] multi-screen canvas and page picker replace previous plan selection`, async () => {
+    const frames = ['Login','Home','Cart','Profile'].map((name,i) => ({id:'9:'+i,name,type:'FRAME',width:390,height:844}));
+    const page = await openPlugin(mode, {projects:[linked()],github:{connected:true,user:'harip0919'},codex:{connected:true,user:'hari@example.com'},selection:[frames[0]],pageScreens:frames});
+    await row(page,'Grocery delivery app').click();
+    await btn(page,'Build screens').click();
+    await see(page,'1 of 1 screen selected');
+    await setServer(page,{selection:frames});
+    await see(page,'4 of 4 screens selected');
+    await btn(page,'Fetch 4 screens').click();
+    await expectRoute(page,'plan',6000);
+    await see(page,'Plan for 4 screens');
+    await back(page).click();
+    await expectRoute(page,'screens');
+    await setServer(page,{selection:[frames[0]]});
+    await see(page,'1 of 1 screen selected');
+    await btn(page,'Fetch 1 screen').click();
+    await expectRoute(page,'plan',6000);
+    await see(page,'Plan for 1 screen');
+    await back(page).click();
+    await expectRoute(page,'screens');
+    await btn(page,'Browse page screens').click();
+    await see(page,'1 of 4 screens selected');
+    await btn(page,'Select all').click();
+    await btn(page,'Fetch 4 screens').click();
+    await expectRoute(page,'plan',6000);
+    await see(page,'Plan for 4 screens');
+    await page.context().close();
+  });
+
   test(`[${mode}] F2 Plan says Codex isn't connected, Connect returns to the Plan`, async () => {
     const page = await openPlugin(mode, { projects: [linked()], github: { connected: true, user: 'harip0919' }, codexAuto: true });
     await row(page, 'Grocery delivery app').click();

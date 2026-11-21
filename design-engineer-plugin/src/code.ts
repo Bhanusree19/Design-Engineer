@@ -8,6 +8,7 @@
 
 import {
   extractSelectedScreens,
+  isScreenNode,
 } from './figma/extractor';
 
 import {
@@ -71,8 +72,8 @@ const PREFS_MAX_LENGTH = 20000;
 // CURRENT FIGMA SELECTION
 // -----------------------------------------------------------------------------
 
-function currentSelection(): SelectionSummary[] {
-  return figma.currentPage.selection
+function summarizeSelection(nodes: readonly SceneNode[]): SelectionSummary[] {
+  return nodes
     .filter(
       (
         node
@@ -80,7 +81,7 @@ function currentSelection(): SelectionSummary[] {
         width: number;
         height: number;
       } =>
-        'width' in node &&
+        isScreenNode(node) && 'width' in node &&
         'height' in node
     )
     .map(
@@ -92,6 +93,23 @@ function currentSelection(): SelectionSummary[] {
         height: Math.round(node.height),
       })
     );
+}
+
+function currentSelection(): SelectionSummary[] {
+  return summarizeSelection(figma.currentPage.selection);
+}
+
+// Include top-level screens and screens inside sections, not every nested UI frame.
+function pageScreens(): SelectionSummary[] {
+  const nodes: SceneNode[] = [];
+  function visit(children: readonly SceneNode[]) {
+    for (const node of children) {
+      if (node.type === 'SECTION') visit(node.children);
+      else if (isScreenNode(node)) nodes.push(node);
+    }
+  }
+  visit(figma.currentPage.children);
+  return summarizeSelection(nodes);
 }
 
 function postSelection() {
@@ -114,6 +132,10 @@ figma.ui.onmessage = async (msg: any) => {
     // GET SELECTION
     // =========================================================================
 
+    if (msg.type === 'get-page-screens') {
+      figma.ui.postMessage({ type: 'page-screens', selection: pageScreens() });
+      return;
+    }
     if (msg.type === 'get-selection') {
       postSelection();
       return;
@@ -237,7 +259,7 @@ figma.ui.onmessage = async (msg: any) => {
 
     if (msg.type === 'extract-screens') {
       const nodeIds: string[] =
-        Array.isArray(msg.nodeIds) ? msg.nodeIds : [];
+        Array.isArray(msg.nodeIds) ? Array.from(new Set<string>(msg.nodeIds.filter((id: unknown) => typeof id === 'string'))) : [];
 
       if (nodeIds.length === 0) {
         figma.ui.postMessage({
@@ -257,6 +279,9 @@ figma.ui.onmessage = async (msg: any) => {
       });
 
       const extracted = await extractSelectedScreens(nodeIds);
+      if (extracted.length !== nodeIds.length) {
+        throw new Error('Some selected screens could not be read. Refresh your selection and try again.');
+      }
       const contexts = toDesignContexts(extracted);
 
       figma.ui.postMessage({

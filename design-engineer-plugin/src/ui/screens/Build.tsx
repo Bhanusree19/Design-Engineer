@@ -33,7 +33,7 @@ function Thumb({ item }: { item: SelectionItem }) {
 
 export function SelectScreens({ state, actions }: Props) {
   const total = state.selection.length;
-  const checked = state.checkedIds.size;
+  const checked = state.selection.filter(item => state.checkedIds.has(item.id)).length;
   const fetching = state.busy === 'extracting' || state.busy === 'saving';
   return (
     <>
@@ -41,6 +41,13 @@ export function SelectScreens({ state, actions }: Props) {
       <Body>
         <h3>{total === 0 ? 'Select screens on the canvas' : `${checked} of ${plural(total, 'screen')} selected`}</h3>
         <Messages error={state.error} notice={state.notice} onDismiss={actions.dismissError} />
+        {!fetching && <>
+          <p className="lede small">Select multiple frames on the canvas with Shift-click, or browse page screens and tick the ones you want.</p>
+          <div className="btn-row">
+            <button type="button" className="btn btn-ghost" onClick={actions.useCanvasSelection}>{state.selectionSource === 'canvas' ? 'Refresh canvas' : 'Use canvas selection'}</button>
+            <button type="button" className="btn btn-ghost" onClick={actions.browsePageScreens}>Browse page screens</button>
+          </div>
+        </>}
         {fetching ? (
           <WaitRow label={state.busy === 'saving' ? 'Saving the screens' : `Reading ${plural(state.extractingCount || checked, 'screen')} from Figma`} />
         ) : total === 0 ? (
@@ -53,7 +60,7 @@ export function SelectScreens({ state, actions }: Props) {
         ) : (
           <>
             <div className="listhead">
-              <span>From your canvas selection</span>
+              <span>{state.selectionSource === 'page' ? 'Screens on this page' : 'From your canvas selection'}</span>
               {checked === total ? (
                 <button type="button" className="link small" onClick={actions.clearChecked}>Clear</button>
               ) : (
