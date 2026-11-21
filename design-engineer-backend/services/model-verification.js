@@ -12,7 +12,7 @@ class ModelAccessError extends Error {
 function sanitizedError(error) {
   if(error instanceof ModelAccessError)return error;
   const code=error?.code;
-  if(code==='INVALID_API_KEY')return new ModelAccessError('Authentication failed. Check or reconnect your API key or OpenCode account.','INVALID_API_KEY',401);
+  if(code==='INVALID_API_KEY')return new ModelAccessError('Authentication failed. Check or reconnect your API key.','INVALID_API_KEY',401);
   if(code==='BILLING_UNAVAILABLE')return new ModelAccessError('The provider reports insufficient credits or billing access.','BILLING_UNAVAILABLE',402);
   if(code==='PROVIDER_RATE_LIMIT')return new ModelAccessError('The provider rate limit has been reached.','PROVIDER_RATE_LIMIT',429);
   if(code==='MODEL_UNAVAILABLE')return new ModelAccessError('That model is not available for the selected provider.','MODEL_UNAVAILABLE',400);
@@ -47,11 +47,7 @@ async function verifyModelAccess({agent,provider,model,apiKey,run=execute,fetchI
   const selection=validateSelection({agent,provider,model});
   if(selection.agent==='codex')throw new ModelAccessError('Use the existing Codex connection flow.','USE_CODEX_AUTH',400);
   if(selection.agent==='claude'&&!apiKey)throw new ModelAccessError('An Anthropic API key is required.','CONNECTION_REQUIRED',401);
-  if(selection.agent==='opencode'&&!selection.model)
-    throw new ModelAccessError('Choose a model before verifying its connection.','MODEL_REQUIRED',400);
   if(apiKey)assertProviderKey(selection.provider,apiKey);
-  if(selection.agent==='opencode'&&selection.provider!=='opencode'&&!apiKey)
-    throw new ModelAccessError('Connect your provider API key first.','CONNECTION_REQUIRED',401);
   // Validate Anthropic credentials first without incurring model usage.
   // Then run a tiny CLI completion to also check billing and actual execution.
   if(selection.agent==='claude')

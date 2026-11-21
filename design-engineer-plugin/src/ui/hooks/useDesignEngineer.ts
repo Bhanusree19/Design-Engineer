@@ -682,7 +682,6 @@ export function useDesignEngineer() {
     if (agent === 'codex') return codexConnected;
     const p = provider || defaultProvider(agent);
     if (connections) {
-      if (agent === 'opencode' && p === 'opencode' && accountModel?.agent === 'opencode') return true;
       return connections.some((c) => c.provider === p);
     }
     // Older backends can't list saved keys: the current choice was verified when made.
@@ -722,7 +721,7 @@ export function useDesignEngineer() {
       await finishModel({ agent: 'claude', provider: 'anthropic', model: accountModel?.agent === 'claude' ? accountModel.model : null });
       return;
     }
-    if ((agent === 'opencode' || agent === 'direct-api') && accountModel?.agent === agent) {
+    if (agent === 'direct-api' && accountModel?.agent === agent) {
       await finishModel(accountModel);
       return;
     }
@@ -841,7 +840,7 @@ export function useDesignEngineer() {
   /** Right before plan / implement the project gets the account model. */
   async function applyModelToProject(p: api.Project): Promise<api.Project> {
     const m = accountModel;
-    if (!m) return p;
+    if (!m) { if (p.coding_agent === 'opencode') throw new Error('Choose a supported AI model before building.'); return p; }
     if (p.coding_agent === m.agent && (p.model_provider || null) === (m.provider || null) && (p.model_id || null) === (m.model || null)) return p;
     const updated = await authed(() => api.updateProject(p.id, { coding_agent: m.agent, model_provider: m.provider, model_id: m.model }));
     setProject(updated.project);
@@ -1789,7 +1788,7 @@ export function defaultProvider(agent: api.Agent): api.ModelProvider {
   if (agent === 'codex') return 'openai';
   if (agent === 'claude') return 'anthropic';
   if (agent === 'gemini-api' || agent === 'direct-api') return 'gemini';
-  return 'opencode';
+  return 'openai';
 }
 
 const SEVERITY: Record<LinkState, number> = { ok: 0, checking: 1, unknown: 1, 'branch-not-found': 3, 'repo-not-found': 3, github: 2 };
@@ -1808,7 +1807,7 @@ export function agentLabel(agent: api.Agent | null | undefined): string {
   switch (agent) {
     case 'codex': return 'Codex CLI';
     case 'claude': return 'Claude Code';
-    case 'opencode': return 'OpenCode';
+    case 'opencode': return 'Choose an AI model';
     case 'gemini-api': return 'Gemini API';
     case 'direct-api': return 'Direct API';
     default: return 'AI model';
@@ -1816,7 +1815,7 @@ export function agentLabel(agent: api.Agent | null | undefined): string {
 }
 
 const PROVIDER_NAMES: Record<string, string> = {
-  openai: 'OpenAI', anthropic: 'Anthropic', opencode: 'OpenCode', 'ollama-cloud': 'Ollama Cloud',
+  openai: 'OpenAI', anthropic: 'Anthropic', 
   deepseek: 'DeepSeek', moonshotai: 'Kimi / Moonshot', gemini: 'Gemini',
 };
 export function providerLabel(provider: string | null | undefined): string {

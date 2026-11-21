@@ -387,25 +387,12 @@ for (const mode of ['new', 'legacy']) {
     await page.context().close();
   });
 
-  test(`[${mode}] E5+N3 an OpenCode model applies to every project`, async () => {
-    const page = await openPlugin(mode, { projects: [linked(), linked({ id: 'proj-2', name: 'Field sales app', repository: 'acme/field-sales' })], github: { connected: true, user: 'harip0919' } });
+  test(`[${mode}] removed OpenCode is not selectable`, async () => {
+    const page = await openPlugin(mode, { projects: [linked()], github: { connected: true, user: 'harip0919' } });
     await row(page, 'Grocery delivery app').click();
     await btn(page, 'Switch').click();
-    await page.getByRole('radio', { name: /OpenCode/ }).click();
-    await btn(page, 'Connect OpenCode').click();
-    await page.getByLabel('Model', { exact: true }).selectOption('opencode/big-pickle');
-    await btn(page, 'Verify and use').click();
-    await expectRoute(page, 'project');
-    await see(page, 'opencode/big-pickle');
-    await back(page).click();
-    await row(page, 'Field sales app').click();
-    await expectRoute(page, 'project');
-    await see(page, 'opencode/big-pickle');
-    // The setting survives closing the plugin.
-    await reopen(page);
-    await expectRoute(page, 'home');
-    await row(page, 'Field sales app').click();
-    await see(page, 'opencode/big-pickle');
+    assert.equal(await page.getByRole('radio', {name: /OpenCode/}).count(), 0);
+    assert.equal(await page.getByRole('radio', {name: /Codex CLI/}).count(), 1);
     await page.context().close();
   });
 

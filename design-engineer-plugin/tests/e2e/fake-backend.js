@@ -199,6 +199,7 @@
 
     // Codex + models
     if (path === '/auth/codex/status') return json(200, { connected: S.codex.connected, codexUser: S.codex.user });
+    if (path === '/auth/codex/logout' && method === 'POST') { S.codex = {connected:false,user:null}; return json(200,{success:true}); }
     if (path === '/auth/codex/device' && method === 'POST') return json(200, { device_code: 'dev-1', interval: 2, deviceAuth: true, verificationUrl: 'https://auth.openai.com/codex/device', userCode: 'K7QD-42XMP' });
     if (path === '/auth/codex/device/dev-1/status') {
       if (S.codexAuto) { S.codex = { connected: true, user: 'hari@example.com' }; return json(200, { status: 'approved', codexUser: 'hari@example.com' }); }
@@ -210,7 +211,7 @@
       return json(200, { connected: true, verified: true, method: 'model-request', billingVerified: false });
     }
     if (path === '/api/models/verify' && method === 'POST') {
-      if (S.connections.some((c) => c.provider === body.provider) || body.provider === 'opencode') return json(200, { connected: true, verified: true, method: 'model-request', billingVerified: false });
+      if (S.connections.some((c) => c.provider === body.provider)) return json(200, { connected: true, verified: true, method: 'model-request', billingVerified: false });
       return json(400, { error: 'Add an API key for this provider first.', code: 'KEY_REQUIRED' });
     }
     if (path === '/api/models') return json(200, { provider: q.get('provider'), models: [`${q.get('provider')}/big-pickle`, `${q.get('provider')}/fast`] });
@@ -222,7 +223,7 @@
     if (path === '/api/models/connections') return json(200, { connections: S.connections.map((c) => ({ provider: c.provider, status: c.status, updatedAt: c.updated_at })) });
     if (path === '/api/account/model') {
       if (method === 'GET') return json(200, { model: S.profileModel });
-      S.profileModel = { agent: body.agent, provider: body.provider || ({ codex: 'openai', claude: 'anthropic' })[body.agent] || 'opencode', model: body.model || null };
+      S.profileModel = { agent: body.agent, provider: body.provider || ({ codex: 'openai', claude: 'anthropic' })[body.agent] || 'gemini', model: body.model || null };
       return json(200, { model: S.profileModel });
     }
 

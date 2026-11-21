@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
 COPY design-engineer-backend/package*.json ./
 RUN npm ci
 # Installation must be pinned and tested before production release.
-RUN npm install -g @anthropic-ai/claude-code opencode-ai
+RUN npm install -g @anthropic-ai/claude-code
 COPY design-engineer-backend/ ./
 ENV PORT=4000
 EXPOSE 4000

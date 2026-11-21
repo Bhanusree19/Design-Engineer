@@ -2,7 +2,7 @@
 // is used straight away, otherwise its Connect screen opens. Back returns to
 // whichever screen opened the picker.
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import * as api from '../../api/client';
 import { BackHeader, Body, Footer, Messages, WaitRow } from '../components/Chrome';
 import { Check, Copy, External, Globe, Shield } from '../components/Icons';
@@ -33,7 +33,7 @@ export function ModelAgents({ state, actions }: Props) {
             const on = selected === a.id;
             const ok = actions.agentConnected(a.id);
             const current = currentAgent === a.id;
-            const detail = current && state.accountModel && (a.id === 'opencode' || a.id === 'direct-api')
+            const detail = current && state.accountModel && a.id === 'direct-api'
               ? [providerLabel(state.accountModel.provider), state.accountModel.model].filter(Boolean).join(' · ')
               : a.detail;
             return (
@@ -158,14 +158,6 @@ function KeyConnect({ state, actions, agent }: Props & { agent: api.Agent }) {
   );
 }
 
-const OPENCODE_PROVIDERS: { id: api.ModelProvider; label: string }[] = [
-  { id: 'opencode', label: 'OpenCode models' },
-  { id: 'ollama-cloud', label: 'Ollama Cloud' },
-  { id: 'deepseek', label: 'DeepSeek' },
-  { id: 'moonshotai', label: 'Kimi / Moonshot' },
-  { id: 'openai', label: 'OpenAI' },
-  { id: 'anthropic', label: 'Anthropic' },
-];
 const DIRECT_PROVIDERS: { id: api.DirectProvider; label: string }[] = [
   { id: 'gemini', label: 'Google Gemini' },
   { id: 'deepseek', label: 'DeepSeek' },
@@ -174,8 +166,8 @@ const DIRECT_PROVIDERS: { id: api.DirectProvider; label: string }[] = [
 ];
 
 function ProviderConnect({ state, actions, agent }: Props & { agent: api.Agent }) {
-  const direct = agent === 'direct-api' || agent === 'gemini-api';
-  const options = direct ? DIRECT_PROVIDERS : OPENCODE_PROVIDERS;
+  const direct = true;
+  const options = DIRECT_PROVIDERS;
   const current = state.accountModel && (state.accountModel.agent === agent || (direct && state.accountModel.agent === 'gemini-api')) ? state.accountModel : null;
   const [provider, setProvider] = useState<api.ModelProvider>((current?.provider as api.ModelProvider) || options[0].id);
   const [key, setKey] = useState('');
@@ -185,20 +177,8 @@ function ProviderConnect({ state, actions, agent }: Props & { agent: api.Agent }
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const saved = actions.isConnected(direct ? 'direct-api' : agent, provider);
   const verifying = state.busy === 'verify' || state.busy === 'model';
-  const keyOptional = !direct && provider === 'opencode';
+  const keyOptional = false;
 
-  useEffect(() => {
-    if (direct) return;
-    let live = true;
-    setModels(null);
-    setCatalogError(null);
-    api.listModels(provider)
-      .then((d) => live && setModels(d.models || []))
-      .catch(() => live && setCatalogError('The model list is unavailable. Enter an exact model ID instead.'));
-    return () => {
-      live = false;
-    };
-  }, [direct, provider]);
 
   async function loadDirect() {
     setLoading(true);

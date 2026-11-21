@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY build/backend/package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
-RUN npm install -g --no-audit --no-fund @anthropic-ai/claude-code opencode-ai
+RUN npm install -g --no-audit --no-fund @anthropic-ai/claude-code
 COPY build/backend/ ./
 # This service launches isolated unprivileged CLI processes; the Express
 # orchestrator retains access to server-side Supabase and OAuth secrets.
