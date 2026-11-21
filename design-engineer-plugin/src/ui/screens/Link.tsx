@@ -225,7 +225,7 @@ export function LinkStack({ state, actions }: Props) {
               <span className="dev"><Icon /></span>
               <b>{name}</b>
               <span className="radio" />
-              <span>{detail}</span>
+              <span className="det">{detail}</span>
             </button>
           ))}
         </div>

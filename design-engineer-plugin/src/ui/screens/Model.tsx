@@ -232,7 +232,7 @@ function ProviderConnect({ state, actions, agent }: Props & { agent: api.Agent }
         >
           <label className="field">
             <span className="field-label">Provider</span>
-            <select className="input" value={provider} onChange={(e) => { setProvider(e.target.value as api.ModelProvider); setModel(''); setModels(null); setKey(''); }}>
+            <select className="input" aria-label="Provider" value={provider} onChange={(e) => { setProvider(e.target.value as api.ModelProvider); setModel(''); setModels(null); setKey(''); }}>
               {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           </label>
@@ -247,7 +247,7 @@ function ProviderConnect({ state, actions, agent }: Props & { agent: api.Agent }
           )}
           <label className="field">
             <span className="field-label">Model</span>
-            <select className="input" value={models?.includes(model) ? model : ''} onChange={(e) => setModel(e.target.value)} disabled={!models?.length}>
+            <select className="input" aria-label="Model" value={models?.includes(model) ? model : ''} onChange={(e) => setModel(e.target.value)} disabled={!models?.length}>
               <option value="">{models === null ? (direct ? 'Listed after loading models' : 'Loading models…') : models.length ? 'Select a model' : 'No models listed'}</option>
               {(models || []).map((id) => <option key={id} value={id}>{id}</option>)}
             </select>

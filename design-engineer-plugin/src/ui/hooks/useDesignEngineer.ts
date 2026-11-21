@@ -323,7 +323,8 @@ export function useDesignEngineer() {
     try {
       return await fn();
     } catch (err) {
-      if (!(err instanceof api.ApiError) || err.status !== 401) throw err;
+      // A 401 about GitHub means GitHub needs reconnecting, not that the session ended.
+      if (!(err instanceof api.ApiError) || err.status !== 401 || err.code === 'GITHUB_REAUTH_REQUIRED') throw err;
       const refreshToken = sessionRef.current?.refreshToken;
       if (!refreshToken) {
         sessionEnded();
@@ -973,8 +974,8 @@ export function useDesignEngineer() {
       return (data.branches || []).some((b) => b.name === branch) ? 'ok' : 'branch-not-found';
     } catch (err) {
       if (err instanceof api.ApiError) {
+        if (err.code === 'GITHUB_REAUTH_REQUIRED' || err.status === 403) return 'github';
         if (err.status === 404) return 'repo-not-found';
-        if (err.status === 401 || err.status === 403 || /github/i.test(err.code || '') || /connect github/i.test(err.message)) return 'github';
       }
       return 'unknown';
     }
@@ -1361,6 +1362,8 @@ export function useDesignEngineer() {
     }
     setScreens([]);
     setPlan(null);
+    // A new build starts with everything selected on the canvas ticked.
+    setCheckedIds(new Set(selection.map((s) => s.id)));
     push({ name: 'screens' });
     sendToPlugin({ type: 'get-selection' });
   }
