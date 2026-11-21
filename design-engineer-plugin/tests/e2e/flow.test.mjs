@@ -397,32 +397,26 @@ for (const mode of ['new', 'legacy']) {
   });
 
   // ---------------------------------------------------------------- F · build
-  test(`[${mode}] multi-screen canvas and page picker replace previous plan selection`, async () => {
+  test(`[${mode}] page picker only: select four screens, then return and select one`, async () => {
     const frames = ['Login','Home','Cart','Profile'].map((name,i) => ({id:'9:'+i,name,type:'FRAME',width:390,height:844}));
     const page = await openPlugin(mode, {projects:[linked()],github:{connected:true,user:'harip0919'},codex:{connected:true,user:'hari@example.com'},selection:[frames[0]],pageScreens:frames});
     await row(page,'Grocery delivery app').click();
     await btn(page,'Build screens').click();
-    await see(page,'1 of 1 screen selected');
-    await setServer(page,{selection:frames});
-    await see(page,'4 of 4 screens selected');
-    await btn(page,'Fetch 4 screens').click();
-    await expectRoute(page,'plan',6000);
-    await see(page,'Plan for 4 screens');
-    await back(page).click();
-    await expectRoute(page,'screens');
-    await setServer(page,{selection:[frames[0]]});
-    await see(page,'1 of 1 screen selected');
-    await btn(page,'Fetch 1 screen').click();
-    await expectRoute(page,'plan',6000);
-    await see(page,'Plan for 1 screen');
-    await back(page).click();
-    await expectRoute(page,'screens');
+    assert.equal(await btn(page,'Refresh canvas').count(),0);
     await btn(page,'Browse page screens').click();
-    await see(page,'1 of 4 screens selected');
+    await see(page,'0 of 4 screens selected');
     await btn(page,'Select all').click();
     await btn(page,'Fetch 4 screens').click();
     await expectRoute(page,'plan',6000);
     await see(page,'Plan for 4 screens');
+    await back(page).click();
+    await expectRoute(page,'screens');
+    await btn(page,'Browse page screens').click();
+    await see(page,'0 of 4 screens selected');
+    await page.getByRole('checkbox',{name:/Login/}).click();
+    await btn(page,'Fetch 1 screen').click();
+    await expectRoute(page,'plan',6000);
+    await see(page,'Plan for 1 screen');
     await page.context().close();
   });
 
@@ -430,6 +424,8 @@ for (const mode of ['new', 'legacy']) {
     const page = await openPlugin(mode, { projects: [linked()], github: { connected: true, user: 'harip0919' }, codexAuto: true });
     await row(page, 'Grocery delivery app').click();
     await btn(page, 'Build screens').click();
+    await btn(page, 'Browse page screens').click();
+    await btn(page, 'Select all').click();
     await expectRoute(page, 'screens');
     await see(page, '3 of 3 screens selected');
     await btn(page, 'Fetch 3 screens').click();
@@ -448,6 +444,8 @@ for (const mode of ['new', 'legacy']) {
     const page = await openPlugin(mode, { projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, jobPollsToFinish: 60 });
     await row(page, 'Grocery delivery app').click();
     await btn(page, 'Build screens').click();
+    await btn(page, 'Browse page screens').click();
+    await btn(page, 'Select all').click();
     await page.getByRole('checkbox', { name: /Cart/ }).click();
     await btn(page, 'Fetch 2 screens').click();
     await expectRoute(page, 'plan', 6000);
@@ -487,6 +485,8 @@ for (const mode of ['new', 'legacy']) {
     const page = await openPlugin(mode, { projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, nextJobFails: true, nextRunSeconds: 180 });
     await row(page, 'Grocery delivery app').click();
     await btn(page, 'Build screens').click();
+    await btn(page, 'Browse page screens').click();
+    await btn(page, 'Select all').click();
     await btn(page, 'Fetch 3 screens').click();
     await expectRoute(page, 'plan', 6000);
     await btn(page, 'Start build').click();
@@ -505,6 +505,8 @@ for (const mode of ['new', 'legacy']) {
     await see(page, 'Failed');
     // Try again from a fresh failure.
     await btn(page, 'Build screens').click();
+    await btn(page, 'Browse page screens').click();
+    await btn(page, 'Select all').click();
     await btn(page, 'Fetch 3 screens').click();
     await expectRoute(page, 'plan', 6000);
     await btn(page, 'Start build').click();
@@ -520,6 +522,8 @@ for (const mode of ['new', 'legacy']) {
     const page = await openPlugin(mode, { projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, usage: { plan: 'free', planName: 'Free', allowanceSeconds: 2400, usedSeconds: 2380, availableSeconds: 20, remainingSeconds: 20, reservedSeconds: 0, priceInr: 0, expiresAt: null } });
     await row(page, 'Grocery delivery app').click();
     await btn(page, 'Build screens').click();
+    await btn(page, 'Browse page screens').click();
+    await btn(page, 'Select all').click();
     await btn(page, 'Fetch 3 screens').click();
     await expectRoute(page, 'plan', 6000);
     await see(page, 'Less than 1 build minute left');
@@ -538,6 +542,8 @@ for (const mode of ['new', 'legacy']) {
     const page = await openPlugin(mode, { projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, jobPollsToFinish: 1000 });
     await row(page, 'Grocery delivery app').click();
     await btn(page, 'Build screens').click();
+    await btn(page, 'Browse page screens').click();
+    await btn(page, 'Select all').click();
     await btn(page, 'Fetch 3 screens').click();
     await expectRoute(page, 'plan', 6000);
     await btn(page, 'Start build').click();
@@ -595,6 +601,8 @@ test('[new] D11-D13 + F11 link a second repo, make it default, build into it, un
   await page.waitForFunction(() => window.__fake.state().links.find((l) => l.repository === 'acme/grocery-web').is_default);
   // Build-into picker on the Plan.
   await btn(page, 'Build screens').click();
+    await btn(page, 'Browse page screens').click();
+    await btn(page, 'Select all').click();
   await btn(page, 'Fetch 3 screens').click();
   await expectRoute(page, 'plan', 6000);
   await see(page, 'acme/grocery-web @ main');

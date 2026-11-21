@@ -1,4 +1,3 @@
-import { resolveCanvasScreens } from './figma/canvasSelection';
 // src/code.ts
 //
 // Plugin main thread: handles what Figma clientStorage is allowed to hold.
@@ -96,10 +95,6 @@ function summarizeSelection(nodes: readonly SceneNode[]): SelectionSummary[] {
     );
 }
 
-function currentSelection(): SelectionSummary[] {
-  return summarizeSelection(resolveCanvasScreens(figma.currentPage.selection));
-}
-
 // Include top-level screens and screens inside sections, not every nested UI frame.
 function pageScreens(): SelectionSummary[] {
   const nodes: SceneNode[] = [];
@@ -113,18 +108,6 @@ function pageScreens(): SelectionSummary[] {
   return summarizeSelection(nodes);
 }
 
-function postSelection() {
-  figma.ui.postMessage({
-    type: 'selection-changed',
-    selection: currentSelection(),
-    canvasNodeCount: figma.currentPage.selection.length,
-  });
-}
-
-figma.on('selectionchange', postSelection);
-figma.on('currentpagechange', postSelection);
-postSelection();
-
 // -----------------------------------------------------------------------------
 // MESSAGE HANDLER
 // -----------------------------------------------------------------------------
@@ -136,11 +119,11 @@ figma.ui.onmessage = async (msg: any) => {
     // =========================================================================
 
     if (msg.type === 'get-page-screens') {
-      figma.ui.postMessage({ type: 'page-screens', selection: pageScreens() });
-      return;
-    }
-    if (msg.type === 'get-selection') {
-      postSelection();
+      try {
+        figma.ui.postMessage({ type: 'page-screens', requestId: msg.requestId, selection: pageScreens() });
+      } catch {
+        figma.ui.postMessage({ type: 'page-screens-error', requestId: msg.requestId, error: 'Could not read the current Figma page.' });
+      }
       return;
     }
 

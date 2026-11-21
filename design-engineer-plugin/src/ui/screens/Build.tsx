@@ -39,53 +39,48 @@ export function SelectScreens({ state, actions }: Props) {
     <>
       <BackHeader title={state.project?.name} onBack={actions.back} />
       <Body>
-        <h3>{total === 0 ? 'Select screens on the canvas' : `${checked} of ${plural(total, 'screen')} selected`}</h3>
+        <h3>{state.pageScreensLoaded ? `${checked} of ${plural(total, 'screen')} selected` : 'Select screens'}</h3>
         <Messages error={state.error} notice={state.notice} onDismiss={actions.dismissError} />
-        {!fetching && <>
-          <p className="lede small">Shift-click frames or drag a selection around them. The list updates automatically. You can also browse page screens.</p>
-          {state.selectionSource === 'canvas' && state.canvasNodeCount !== null && <p className="lede small">Figma selected {plural(state.canvasNodeCount, 'layer')} · {plural(total, 'screen')} detected.</p>}
-          <div className="btn-row">
-            <button type="button" className="btn btn-ghost" onClick={actions.useCanvasSelection}>{state.selectionSource === 'canvas' ? 'Refresh canvas' : 'Use canvas selection'}</button>
-            <button type="button" className="btn btn-ghost" onClick={actions.browsePageScreens}>Browse page screens</button>
-          </div>
-        </>}
         {fetching ? (
           <WaitRow label={state.busy === 'saving' ? 'Saving the screens' : `Reading ${plural(state.extractingCount || checked, 'screen')} from Figma`} />
-        ) : total === 0 ? (
-          <div className="empty">
-            <div>
-              <div className="canvas-hint" aria-hidden="true"><div className="fr" /><Cursor /></div>
-              <p>Click a frame on the canvas, or Shift-click to select several. They'll appear here.</p>
-            </div>
-          </div>
         ) : (
           <>
-            <div className="listhead">
-              <span>{state.selectionSource === 'page' ? 'Screens on this page' : 'From your canvas selection'}</span>
-              {checked === total ? (
-                <button type="button" className="link small" onClick={actions.clearChecked}>Clear</button>
-              ) : (
-                <button type="button" className="link small" onClick={actions.checkAll}>Select all</button>
-              )}
-            </div>
-            <div className="stack scroll">
-              {state.selection.map((item) => {
-                const on = state.checkedIds.has(item.id);
-                return (
-                  <button key={item.id} type="button" role="checkbox" aria-checked={on} className={`scr ${on ? 'on' : ''}`} onClick={() => actions.toggleChecked(item.id)}>
-                    <span className="cb">{on && <Check />}</span>
-                    <Thumb item={item} />
-                    <span className="tx"><b>{item.name}</b><span>{Math.round(item.width)} × {Math.round(item.height)} {item.type.toLowerCase()}</span></span>
-                  </button>
-                );
-              })}
-            </div>
+            <p className="lede small">Browse the screens on this Figma page, then tick the ones you want to build.</p>
+            <button type="button" className="btn btn-ghost" disabled={state.pageScreensLoading} onClick={actions.browsePageScreens}>
+              {state.pageScreensLoading ? 'Loading screens…' : 'Browse page screens'}
+            </button>
+            {state.pageScreensLoaded && (total === 0 ? (
+              <p className="lede">No screen frames found on this page.</p>
+            ) : (
+              <>
+                <div className="listhead">
+                  <span>Screens on this page</span>
+                  {checked === total ? (
+                    <button type="button" className="link small" onClick={actions.clearChecked}>Clear</button>
+                  ) : (
+                    <button type="button" className="link small" onClick={actions.checkAll}>Select all</button>
+                  )}
+                </div>
+                <div className="stack scroll">
+                  {state.selection.map(item => {
+                    const on = state.checkedIds.has(item.id);
+                    return (
+                      <button key={item.id} type="button" role="checkbox" aria-checked={on} className={`scr ${on ? 'on' : ''}`} onClick={() => actions.toggleChecked(item.id)}>
+                        <span className="cb">{on && <Check />}</span>
+                        <Thumb item={item} />
+                        <span className="tx"><b>{item.name}</b><span>{Math.round(item.width)} × {Math.round(item.height)} {item.type.toLowerCase()}</span></span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ))}
           </>
         )}
       </Body>
       <Footer>
-        <button type="button" className="btn btn-primary" disabled={fetching || checked === 0} onClick={actions.fetchScreens}>
-          {fetching ? 'Fetching…' : checked ? `Fetch ${plural(checked, 'screen')}` : 'Select a screen'}
+        <button type="button" className="btn btn-primary" disabled={fetching || state.pageScreensLoading || checked === 0} onClick={actions.fetchScreens}>
+          {fetching ? 'Fetching…' : `Fetch ${plural(checked, 'screen')}`}
         </button>
       </Footer>
     </>

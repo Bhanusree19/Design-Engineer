@@ -104,7 +104,7 @@
           break;
         }
         case 'get-selection': reply({ type: 'selection-changed', selection: S.selection }); break;
-        case 'get-page-screens': reply({ type: 'page-screens', selection: S.pageScreens || S.selection }); break;
+        case 'get-page-screens': reply({ type: 'page-screens', requestId: msg.requestId, selection: S.pageScreens || S.selection }); break;
         case 'extract-screens': {
           const picked = (S.pageScreens || S.selection).filter((s) => msg.nodeIds.includes(s.id));
           reply({ type: 'extract-started', total: picked.length });
