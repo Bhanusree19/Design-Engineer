@@ -4,12 +4,11 @@ const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const osIsolation = require('./os-isolation');
 
-const agents = ['codex', 'claude', 'opencode', 'gemini-api', 'direct-api'];
-const providers = ['opencode', 'ollama-cloud', 'deepseek', 'moonshotai', 'openai', 'anthropic', 'gemini'];
+const agents = ['codex', 'claude', 'gemini-api', 'direct-api'];
+const providers = ['deepseek', 'openai', 'anthropic', 'gemini'];
 const binaries = {
   codex: process.env.CODEX_BIN || path.join(__dirname, '..', 'node_modules', '@openai', 'codex', 'bin', 'codex.js'),
-  claude: process.env.CLAUDE_BIN || 'claude',
-  opencode: process.env.OPENCODE_BIN || 'opencode'
+  claude: process.env.CLAUDE_BIN || 'claude'
 };
 function validateSelection({agent = 'codex', provider, model = null} = {}) {
   if (!agents.includes(agent)) throw new Error('Unsupported coding agent');
@@ -22,52 +21,27 @@ function validateSelection({agent = 'codex', provider, model = null} = {}) {
     throw new Error('Direct API supports only Gemini, DeepSeek, OpenAI and Anthropic');
   if (agent === 'direct-api' && (!model || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,140}$/.test(model)))
     throw new Error('Choose a valid Direct API model');
-  if (agent === 'opencode' && !providers.includes(provider)) throw new Error('Unsupported OpenCode model provider');
   if (model != null && (typeof model !== 'string' || !/^[a-zA-Z0-9][\w./:+@-]{0,150}$/.test(model))) throw new Error('Invalid model identifier');
-  if (agent === 'opencode' && model && !model.includes('/')) throw new Error('OpenCode model IDs use provider/model syntax');
-  if (agent === 'opencode' && model && model.split('/')[0] !== provider) throw new Error('Model provider does not match selection');
   return {agent, provider, model};
 }
 const keyEnvByProvider = Object.freeze({
-  opencode: 'OPENCODE_API_KEY',
-  'ollama-cloud': 'OLLAMA_API_KEY',
   deepseek: 'DEEPSEEK_API_KEY',
-  moonshotai: 'MOONSHOT_API_KEY',
   openai: 'OPENAI_API_KEY',
   anthropic: 'ANTHROPIC_API_KEY',
 });
-async function configureOpenCode({selection,home,env}) {
-  if (selection.agent !== 'opencode') return;
-  const key=keyEnvByProvider[selection.provider];
-  if (selection.provider !== 'opencode' && (!key || !env[key])) {
-    throw new Error('Connect the model provider before using this model.');
-  }
-  // Official OpenCode provider config uses "provider" and "options", not
-  // "providers"/"settings". Only reference env var names, never store key values.
-  const config={ $schema:'https://opencode.ai/config.json' };
-  if (env[key]) {
-    config.provider={ [selection.provider]: { options: { apiKey:'{env:'+key+'}' } } };
-  }
-  const dir=path.join(home,'.config','opencode');
-  await fs.promises.mkdir(dir,{recursive:true,mode:0o700});
-  const file=path.join(dir,'opencode.json');
-  await fs.promises.writeFile(file,JSON.stringify(config),{mode:0o600});
-  return file;
-}
 async function execute({selection, workspace, prompt, home, env = {}, timeoutMs = 900000, probe = false, onOutput = () => {}}) {
   const {agent, model} = validateSelection(selection);
   if (!path.isAbsolute(workspace) || !path.isAbsolute(home)) throw new Error('Absolute workspace and isolated home required');
   await fs.promises.mkdir(home, {recursive:true, mode:0o700});
-  await configureOpenCode({selection,home,env});
+  if (!['codex','claude'].includes(agent)) throw new Error('Use the dedicated Direct API adapter');
   const identity=await osIsolation.prepare({workspace,home});
   const argv = agent === 'codex'
-    ? ['exec', '--cd', workspace, ...(model ? ['--model',model] : []), prompt]
+    ? ['exec', '--sandbox', probe ? 'read-only' : 'workspace-write', '--cd', workspace, ...(model ? ['--model',model] : []), prompt]
     : agent === 'claude'
       ? ['-p', prompt, '--max-turns', probe ? '1' : '60',
         ...(probe ? ['--permission-mode','plan'] : []),
         ...(model ? ['--model',model] : [])]
-      : ['run', ...(probe ? ['--agent','plan'] : []),
-         ...(model ? ['--model',model] : []), prompt];
+      : [];
   const command = agent === 'codex' ? process.execPath : binaries[agent];
   if (agent === 'codex') argv.unshift(binaries.codex);
   // Do not inherit GitHub OAuth, Supabase or other user secrets from the API server.
@@ -102,4 +76,4 @@ async function execute({selection, workspace, prompt, home, env = {}, timeoutMs 
     });
   });
 }
-module.exports={agents,providers,keyEnvByProvider,configureOpenCode,validateSelection,execute};
+module.exports={agents,providers,keyEnvByProvider,validateSelection,execute};

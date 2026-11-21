@@ -635,11 +635,12 @@ export function useDesignEngineer() {
       const data = await authed(() => api.getAccountModel());
       setModelAvailable(true);
       if (data.model) {
-        setAccountModelState(data.model);
+        setAccountModelState(data.model.agent === 'opencode' ? null : data.model);
         return;
       }
       // First time on the new backend: carry over what this person used before.
-      const carried = prefs.model || modelFromProject(list);
+      const candidate = prefs.model || modelFromProject(list);
+      const carried = candidate?.agent === 'opencode' ? null : candidate;
       if (carried) {
         setAccountModelState(carried);
         try {
@@ -651,7 +652,8 @@ export function useDesignEngineer() {
     } catch (err) {
       if (!api.isNotAvailable(err)) console.warn('[Design Engineer] Account model unavailable', err);
       setModelAvailable(false);
-      setAccountModelState(prefs.model || modelFromProject(list));
+      const candidate = prefs.model || modelFromProject(list);
+      setAccountModelState(candidate?.agent === 'opencode' ? null : candidate);
     }
   }
 
@@ -727,8 +729,16 @@ export function useDesignEngineer() {
     push({ name: 'model-connect', params: { agent } });
   }
 
-  function changeModelSettings(agent: api.Agent) {
+  async function changeModelSettings(agent: api.Agent) {
     clearFeedback();
+    if (agent === 'codex') {
+      if (runningJobRef.current) { setError('Wait for your current build to finish before switching accounts.'); return; }
+      try {
+        await authed(() => api.logoutCodex());
+        setCodexConnected(false);
+        setCodexUser(null);
+      } catch (err) { fail(describe(err, "Couldn't disconnect Codex."), err); return; }
+    }
     push({ name: 'model-connect', params: { agent } });
     if (agent === 'codex') void startCodexConnect();
   }
@@ -1394,7 +1404,8 @@ export function useDesignEngineer() {
     try {
       await authed(() => api.submitScreens(p.id, target.repository, target.branch, results));
       const merged = new Map<string, DesignContext>();
-      for (const s of [...screensRef.current, ...results]) if (s.screen) merged.set(s.screen, s);
+      for (const s of results) if (s.screen) merged.set(s.screen, s);
+      setPlan(null);
       setScreens(Array.from(merged.values()));
       setCheckedIds(new Set());
       setBusy(null);

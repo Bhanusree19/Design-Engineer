@@ -1460,9 +1460,9 @@ function startCodexAuth(deviceCode, userId, accessToken) {
 
       try {
         if (code === 0 && (await getCodexLoginStatus(entry.home)) === 'connected') {
+          await persistCodexCredentials(userId, accessToken, entry.home);
           entry.status = 'approved';
           entry.codexUser = 'Codex CLI user';
-          await persistCodexCredentials(userId, accessToken, entry.home);
           return;
         }
       } catch (error) {
@@ -1932,30 +1932,15 @@ app.get('/api/agents',async(req,res)=>{
   const auth=await requireUser(req,res);if(!auth)return;
   res.json({agents:CODING_AGENTS,providers:MODEL_PROVIDERS});
 });
-app.get('/api/models',async(req,res)=>{
+app.get('/api/models', async (req,res)=>{
   const auth=await requireUser(req,res);if(!auth)return;
-  const provider=String(req.query.provider||'opencode');
-  if(!MODEL_PROVIDERS.includes(provider))
-    return res.status(400).json({error:'Unsupported model provider'});
-  const isolated=await fs.promises.mkdtemp(path.join(os.tmpdir(),'design-engineer-catalog-'));
-  try{
-    const cli=process.env.OPENCODE_BIN||'opencode';
-    const result=await runProcess(cli,['models',provider],{
-      cwd:isolated,env:{PATH:process.env.PATH||'/usr/local/bin:/usr/bin:/bin',
-        HOME:isolated,XDG_CONFIG_HOME:path.join(isolated,'.config')}
-    });
-    const models=Array.from(new Set(result.stdout.split(/\r?\n/).map(s=>s.trim())
-      .filter(s=>s.startsWith(provider+'/')&&/^[a-zA-Z0-9][\w.\/:+@-]+$/.test(s)))).slice(0,150);
-    return res.json({provider,models,source:'opencode-cli'});
-  }catch(error){
-    return res.status(503).json({error:'Model catalog is unavailable. Check OpenCode CLI installation.'});
-  }finally{await fs.promises.rm(isolated,{recursive:true,force:true});}
+  return res.status(410).json({error:'Use the Direct API model catalog.'});
 });
 // A verification response must be based on a real provider request, not merely
 // successful encryption or a model appearing in the catalog.
 async function modelVerifyRequest(req,res,saveConnection) {
   const auth=await requireUser(req,res);if(!auth)return;
-  const {agent='opencode',provider,model=null,apiKey}=req.body||{};
+  const {agent='claude',provider,model=null,apiKey}=req.body||{};
   try {
     const selection=validateSelection({agent,provider,model});
     let key=apiKey;
@@ -2224,8 +2209,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
         apiKey:decryptText(connection.encrypted_credential),
         prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack,repoCtx)
       });
-    } else if (selection.agent==='claude' ||
-              (selection.agent==='opencode' && selection.provider!=='opencode')) {
+    } else if (selection.agent==='claude') {
       const provider=selection.agent==='claude'?'anthropic':selection.provider;
       const connection=await getModelConnection(auth.user.id,provider);
       if(!connection)throw new Error('Connect the model provider before implementation.');
@@ -2248,7 +2232,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       force: true,
     });
 
-    await appendTestInstructions(worktree, screenNames, branchName, stack);
+    // Validate agent output before adding the server-generated README section.
 
     // The agent worktree belongs to its temporary UID. Use Git's explicit
     // safe.directory override, disable hooks, and ignore server global configs.
@@ -2260,6 +2244,12 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
     await runProcess('git', [...safeGit,'config', 'user.email', 'design-engineer[bot]@users.noreply.github.com'],
       { cwd: worktree, env:postAgentGitEnv });
     await runProcess('git', [...safeGit,'add', '-A'], { cwd: worktree, env:postAgentGitEnv });
+    const staged = await runProcess('git', [...safeGit,'diff','--cached','--name-only','--diff-filter=AM','-z'], {cwd:worktree,env:postAgentGitEnv});
+    if (!staged.stdout.split('\0').some(file => /\.(?:[cm]?[jt]sx?|vue|svelte|html|css|scss|sass|less)$/i.test(file))) {
+      throw new Error('Coding agent generated no application source changes. No implementation branch was pushed.');
+    }
+    await appendTestInstructions(worktree, screenNames, branchName, stack);
+    await runProcess('git', [...safeGit,'add','-A'], {cwd:worktree,env:postAgentGitEnv});
     await runProcess('git', [...safeGit,'commit', '-m', `Implement ${screenNames.join(', ')}`],
       { cwd: worktree, env:postAgentGitEnv });
     await runProcess('git', [...safeGit,'push', 'origin', branchName],

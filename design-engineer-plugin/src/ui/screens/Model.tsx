@@ -13,13 +13,12 @@ type Props = { state: DesignEngineerState; actions: DesignEngineerActions };
 const AGENTS: { id: api.Agent; icon: string; detail: string }[] = [
   { id: 'codex', icon: '⌘', detail: 'Sign in with ChatGPT · uses your ChatGPT plan' },
   { id: 'claude', icon: '✳', detail: 'Anthropic API key' },
-  { id: 'opencode', icon: '▱', detail: 'Choose a provider and model' },
   { id: 'direct-api', icon: 'API', detail: 'Gemini, DeepSeek, OpenAI or Anthropic key' },
 ];
 
 export function ModelAgents({ state, actions }: Props) {
   const currentAgent = state.accountModel?.agent === 'gemini-api' ? 'direct-api' : state.accountModel?.agent;
-  const [selected, setSelected] = useState<api.Agent>(currentAgent || 'codex');
+  const [selected, setSelected] = useState<api.Agent>(currentAgent === 'opencode' ? 'codex' : currentAgent || 'codex');
   const saving = state.busy === 'model';
   const connected = actions.agentConnected(selected);
   return (
@@ -47,9 +46,9 @@ export function ModelAgents({ state, actions }: Props) {
             );
           })}
         </div>
-        {connected && selected !== 'codex' && (
+        {connected && (
           <button type="button" className="link small left" onClick={() => actions.changeModelSettings(selected)}>
-            {selected === 'claude' ? 'Use a different key or model' : 'Change provider or model'}
+            {selected === 'codex' ? 'Switch account' : selected === 'claude' ? 'Use a different key or model' : 'Change provider or model'}
           </button>
         )}
       </Body>
@@ -66,7 +65,7 @@ export function ModelConnect(props: Props) {
   const agent: api.Agent = props.state.route.params?.agent || 'codex';
   if (agent === 'codex') return <CodexConnect {...props} />;
   if (agent === 'claude') return <KeyConnect {...props} agent="claude" />;
-  return <ProviderConnect {...props} agent={agent} />;
+  return <ProviderConnect {...props} agent="direct-api" />;
 }
 
 function CodexConnect({ state, actions }: Props) {
