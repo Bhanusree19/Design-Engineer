@@ -6,6 +6,9 @@ const HtmlInlineScriptPlugin = require('html-inline-script-webpack-plugin');
 module.exports = (env, argv) => {
   const mode = argv.mode || 'development';
   const isProd = mode === 'production';
+  // The Preview build (preview/manifest.json) writes to its own folder so it
+  // never replaces the live plugin's dist/.
+  const outDir = path.resolve(__dirname, process.env.DESIGN_ENGINEER_OUT_DIR || 'dist');
 
   return [
     // UI bundle: React app rendered inside the Figma plugin iframe.
@@ -25,7 +28,7 @@ module.exports = (env, argv) => {
       resolve: { extensions: ['.tsx', '.ts', '.js'] },
       output: {
         filename: 'ui.js',
-        path: path.resolve(__dirname, 'dist')
+        path: outDir
       },
       plugins: [
         new webpack.DefinePlugin({
@@ -55,7 +58,7 @@ module.exports = (env, argv) => {
       resolve: { extensions: ['.ts', '.js'] },
       output: {
         filename: 'code.js',
-        path: path.resolve(__dirname, 'dist')
+        path: outDir
       }
     }
   ];

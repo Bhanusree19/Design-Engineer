@@ -59,6 +59,14 @@ export interface SavedSession {
  */
 const SESSION_STORAGE_KEY = 'design-engineer-session';
 
+/**
+ * Small UI preferences: the running job to resume, the chosen AI model when the
+ * backend can't store it yet. Never secrets: anything that looks like a key or
+ * token is refused.
+ */
+const PREFS_STORAGE_KEY = 'design-engineer-prefs';
+const PREFS_MAX_LENGTH = 20000;
+
 // -----------------------------------------------------------------------------
 // CURRENT FIGMA SELECTION
 // -----------------------------------------------------------------------------
@@ -190,7 +198,33 @@ figma.ui.onmessage = async (msg: any) => {
     // CLEAR SESSION
     // =========================================================================
 
+    if (msg.type === 'get-prefs') {
+      let prefs: unknown = null;
+      try {
+        prefs = await figma.clientStorage.getAsync(PREFS_STORAGE_KEY);
+      } catch (error) {
+        console.warn('[Design Engineer] Failed to read preferences:', error);
+      }
+      figma.ui.postMessage({
+        type: 'prefs',
+        prefs: prefs && typeof prefs === 'object' ? prefs : {},
+      });
+      return;
+    }
+
+    if (msg.type === 'set-prefs') {
+      const prefs = msg.prefs;
+      const text = prefs && typeof prefs === 'object' ? JSON.stringify(prefs) : '';
+      if (!text || text.length > PREFS_MAX_LENGTH || /api[_-]?key|token|secret/i.test(text)) {
+        console.warn('[Design Engineer] Preferences refused.');
+        return;
+      }
+      await figma.clientStorage.setAsync(PREFS_STORAGE_KEY, prefs);
+      return;
+    }
+
     if (msg.type === 'clear-session') {
+      await figma.clientStorage.deleteAsync(PREFS_STORAGE_KEY);
       await figma.clientStorage.deleteAsync(SESSION_STORAGE_KEY);
       console.log('[Design Engineer] Session cleared.');
       figma.ui.postMessage({ type: 'session-cleared' });

@@ -61,32 +61,33 @@ async function request<T = any>(
   });
 
   const text = await res.text().catch(() => '');
-  let detail: any = text || res.statusText;
-  let code: string | undefined;
-
+  let json: any = undefined;
   try {
-    const json = JSON.parse(text);
-    if (json && typeof json.error === 'string') {
-      detail = json.error;
-      code = json.code;
-    } else if (json) {
-      detail = json;
-    }
+    json = text ? JSON.parse(text) : undefined;
   } catch {
-    // non-JSON body
+    json = undefined; // non-JSON body
   }
 
-  if (!res.ok) {
-    throw new ApiError(
-      typeof detail === 'string'
-        ? detail
-        : `Request to ${path} failed (${res.status})`,
-      res.status,
-      code
-    );
-  }
+  // A successful response is returned as-is, even when it carries an `error`
+  // field (a failed job, a Google sign-in error status). Previously such a
+  // response was turned into a bare string, so failed jobs went unnoticed.
+  if (res.ok) return (json === undefined ? text : json) as T;
 
-  return detail as T;
+  const message =
+    json && typeof json.error === 'string'
+      ? json.error
+      : `Request to ${path} failed (${res.status})${text && !json ? `: ${text.slice(0, 160)}` : ''}`;
+  throw new ApiError(message, res.status, json && typeof json.code === 'string' ? json.code : undefined);
+}
+
+/**
+ * True when the backend does not have a newer endpoint yet (migration or
+ * deploy not done). The plugin then falls back to today's behaviour.
+ */
+export function isNotAvailable(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  if (error.code === 'NOT_AVAILABLE') return true;
+  return error.status === 404 && !error.code && /cannot (get|post|patch|delete)|route not found|failed \(404\)/i.test(error.message);
 }
 
 // -----------------------------------------------------------------------------
@@ -542,4 +543,81 @@ export function billingHistory(): Promise<BillingHistory> {
 }
 export function startCheckout(plan: 'plus' | 'studio'): Promise<{checkoutUrl:string}> {
   return request('/api/billing/order',{method:'POST',body:JSON.stringify({plan})});
+}
+
+// -----------------------------------------------------------------------------
+// DEPLOYMENT 09: REPOSITORY LINKS, ACCOUNT MODEL, PROJECT BUILDS
+// Each call answers NOT_AVAILABLE (see isNotAvailable) until the backend has
+// migration 011; callers then fall back to the project's own fields.
+// -----------------------------------------------------------------------------
+
+export interface RepoLink {
+  id: string;
+  projectId: string;
+  repository: string;
+  branch: string;
+  appRoot: string;
+  stack: Stack | null;
+  stackSource: 'detected' | 'user' | null;
+  repoContext: RepoContext | null;
+  isDefault: boolean;
+  lastCheckedAt: string | null;
+  createdAt?: string;
+}
+export function listRepoLinks(projectId: string): Promise<{ links: RepoLink[]; activeLinkId: string | null }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/repos`);
+}
+export function addRepoLink(projectId: string, link: { repository: string; branch: string; stack?: Stack | null; isDefault?: boolean }): Promise<{ link: RepoLink }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/repos`, { method: 'POST', body: JSON.stringify(link) });
+}
+export function updateRepoLink(projectId: string, linkId: string, patch: { branch?: string; stack?: Stack | null; isDefault?: boolean }): Promise<{ link: RepoLink }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/repos/${encodeURIComponent(linkId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+export function deleteRepoLink(projectId: string, linkId: string): Promise<{ success: boolean; defaultLinkId: string | null }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/repos/${encodeURIComponent(linkId)}`, { method: 'DELETE' });
+}
+export function activateRepoLink(projectId: string, linkId: string): Promise<{ project: Project; link: RepoLink }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/repos/${encodeURIComponent(linkId)}/activate`, { method: 'POST', body: '{}' });
+}
+
+export interface ProjectBuild {
+  jobId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  repository: string | null;
+  branch: string | null;
+  agent: Agent | null;
+  provider: ModelProvider | null;
+  model: string | null;
+  screenCount: number | null;
+  billedSeconds: number | null;
+  pullRequestUrl: string | null;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+export function listProjectBuilds(projectId: string): Promise<{ builds: ProjectBuild[]; startBufferSeconds: number }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/builds`);
+}
+
+export interface AccountModel {
+  agent: Agent;
+  provider: ModelProvider;
+  model: string | null;
+}
+export function getAccountModel(): Promise<{ model: AccountModel | null }> {
+  return request('/api/account/model');
+}
+// POST: the Cloudflare gateway does not allow PUT.
+export function setAccountModel(model: AccountModel): Promise<{ model: AccountModel }> {
+  return request('/api/account/model', { method: 'POST', body: JSON.stringify(model) });
+}
+
+export interface SavedConnection {
+  provider: ModelProvider;
+  status: string;
+  updatedAt: string | null;
+}
+export function listConnections(): Promise<{ connections: SavedConnection[] }> {
+  return request('/api/models/connections');
 }

@@ -62,3 +62,67 @@ export const Cursor = () => (
     <path d="M4 3l11 6-5 1.5L8 16 4 3Z" className="cursor-fill" strokeWidth="1.2" strokeLinejoin="round" />
   </svg>
 );
+
+// Version 3 icons (flow revamp).
+export const Back = (p: IconProps) => (
+  <svg {...base} {...p} strokeWidth={1.6}><path d="M10 3.5 5.5 8l4.5 4.5" /></svg>
+);
+export const Next = (p: IconProps) => (
+  <svg {...base} {...p} strokeWidth={1.6}><path d="M6 3.5 10.5 8 6 12.5" /></svg>
+);
+export const ChevronDown = (p: IconProps) => (
+  <svg {...base} {...p} strokeWidth={1.6}><path d="m4 6 4 4 4-4" /></svg>
+);
+export const Plus = (p: IconProps) => (
+  <svg {...base} {...p} strokeWidth={1.6}><path d="M8 3v10M3 8h10" /></svg>
+);
+export const More = (p: IconProps) => (
+  <svg {...base} {...p} stroke="none" fill="currentColor"><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></svg>
+);
+export const Github = (p: IconProps) => (
+  <svg {...base} {...p} stroke="none" fill="currentColor"><path d="M8 1.5a6.5 6.5 0 0 0-2 12.7c.3 0 .4-.1.4-.3v-1.2c-1.8.4-2.2-.8-2.2-.8-.3-.7-.7-.9-.7-.9-.6-.4 0-.4 0-.4.6 0 1 .7 1 .7.6 1 1.5.7 1.9.5 0-.4.2-.7.4-.9-1.4-.2-3-.7-3-3.2 0-.7.3-1.3.7-1.7-.1-.2-.3-.8 0-1.7 0 0 .6-.2 1.8.7a6 6 0 0 1 3.2 0c1.2-.9 1.8-.7 1.8-.7.3.9.1 1.5 0 1.7.4.4.7 1 .7 1.7 0 2.5-1.5 3-3 3.2.3.2.5.6.5 1.2v1.8c0 .2.1.3.4.3A6.5 6.5 0 0 0 8 1.5Z" /></svg>
+);
+export const Model = (p: IconProps) => (
+  <svg {...base} {...p} strokeWidth={1.3}><rect x="2" y="3" width="12" height="10" rx="2" /><path d="m5 6.5 2 1.5-2 1.5M8.5 10h2.5" /></svg>
+);
+export const Phone = (p: IconProps) => (
+  <svg {...base} {...p} width={24} height={24} viewBox="0 0 24 24" strokeWidth={1.6}><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M10.5 18.5h3" /></svg>
+);
+export const Web = (p: IconProps) => (
+  <svg {...base} {...p} width={24} height={24} viewBox="0 0 24 24" strokeWidth={1.6}><rect x="2.5" y="4" width="19" height="15" rx="2.5" /><path d="M2.5 8.5h19" /></svg>
+);
+export const PullRequest = (p: IconProps) => (
+  <svg {...base} {...p} strokeWidth={1.3}><circle cx="4" cy="3.5" r="1.5" /><circle cx="4" cy="12.5" r="1.5" /><circle cx="12" cy="12.5" r="1.5" /><path d="M4 5v6M12 11V6.5c0-1-.7-1.5-1.5-1.5H8m0 0 1.6-1.6M8 5l1.6 1.6" /></svg>
+);
+export const Logout = (p: IconProps) => (
+  <svg {...base} {...p}><path d="M6.5 13.5H3.5c-.6 0-1-.4-1-1v-9c0-.6.4-1 1-1h3M10.5 11 13.5 8l-3-3M13.5 8H6" /></svg>
+);
+export const Swap = (p: IconProps) => (
+  <svg {...base} {...p}><path d="M3 5.5h10M10 2.5l3 3-3 3M13 10.5H3M6 7.5l-3 3 3 3" /></svg>
+);
+export const SyncOk = (p: IconProps) => (
+  <svg {...base} {...p} strokeWidth={1.7}><path d="M13 8a5 5 0 1 1-1.5-3.5M13 3v2.5h-2.5" /><path d="m6 8.2 1.6 1.6L10.4 7" strokeWidth={1.6} /></svg>
+);
+export const LinkOff = (p: IconProps) => (
+  <svg {...base} {...p} strokeWidth={1.5}><path d="M6.5 9.5 9.5 6.5M5 7.5 3.8 8.7a2.5 2.5 0 0 0 3.5 3.5L8.5 11M11 8.5l1.2-1.2a2.5 2.5 0 0 0-3.5-3.5L7.5 5" /></svg>
+);
+export const Warn = (p: IconProps) => (
+  <svg {...base} {...p} strokeWidth={1.5}><path d="M8 2.5 14 13H2L8 2.5Z" /><path d="M8 6.5v3M8 11.3v.2" strokeWidth={1.6} /></svg>
+);
+export const Clock = (p: IconProps) => (
+  <svg {...base} {...p}><circle cx="8" cy="8" r="6" /><path d="M8 4.8V8l2.2 1.4" /></svg>
+);
+export const XCircle = (p: IconProps) => (
+  <svg {...base} {...p}><circle cx="8" cy="8" r="6" /><path d="m5.8 5.8 4.4 4.4M10.2 5.8l-4.4 4.4" /></svg>
+);
+export const Globe = (p: IconProps) => (
+  <svg {...base} {...p} strokeWidth={1.3}><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c2 2.2 2 9.8 0 12M8 2c-2 2.2-2 9.8 0 12" /></svg>
+);
+export const Google = ({ className }: IconProps) => (
+  <svg className={className} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+    <path d="M15 8.2c0-.5 0-1-.1-1.4H8.1v2.7h3.9c-.2.9-.7 1.6-1.4 2.1v1.8h2.3c1.3-1.2 2.1-3 2.1-5.2Z" fill="#4285F4" />
+    <path d="M8.1 15.2c1.9 0 3.6-.6 4.7-1.7l-2.3-1.8c-.6.4-1.4.7-2.4.7-1.8 0-3.4-1.2-3.9-2.9H1.8v1.9a7.1 7.1 0 0 0 6.3 3.8Z" fill="#34A853" />
+    <path d="M4.2 9.5a4.3 4.3 0 0 1 0-2.8V4.8H1.8a7.1 7.1 0 0 0 0 6.6l2.4-1.9Z" fill="#FBBC05" />
+    <path d="M8.1 3.6c1 0 2 .4 2.7 1.1l2-2A6.9 6.9 0 0 0 8.1.8 7.1 7.1 0 0 0 1.8 4.8l2.4 1.9c.5-1.8 2.1-3.1 3.9-3.1Z" fill="#EA4335" />
+  </svg>
+);
