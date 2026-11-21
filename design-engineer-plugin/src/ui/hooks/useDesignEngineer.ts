@@ -181,6 +181,7 @@ export function useDesignEngineer() {
   const [screenPicker, setScreenPicker] = useState<{ items: SelectionItem[]; checked: Set<string>; source: 'canvas' | 'page' }>({ items: [], checked: new Set(), source: 'canvas' });
   const { items: selection, checked: checkedIds, source: selectionSource } = screenPicker;
   const resetCanvasSelection = useRef(false);
+  const [canvasNodeCount, setCanvasNodeCount] = useState<number | null>(null);
   const [extractingCount, setExtractingCount] = useState(0);
   const screensRef = useRef<DesignContext[]>([]);
   const [screens, setScreensState] = useState<DesignContext[]>([]);
@@ -399,7 +400,10 @@ export function useDesignEngineer() {
         prefsLoaded.current = true;
         prefsWaiters.current.splice(0).forEach((w) => w(prefsRef.current));
       }
-      if (msg.type === 'selection-changed') applySelection(msg.selection || []);
+      if (msg.type === 'selection-changed') {
+        setCanvasNodeCount(typeof msg.canvasNodeCount === 'number' ? msg.canvasNodeCount : null);
+        applySelection(msg.selection || []);
+      }
       if (msg.type === 'page-screens') setScreenPicker(prev => prev.source === 'page' ? { ...prev, items: msg.selection || [], checked: new Set<string>((msg.selection || []).filter((item: SelectionItem) => prev.checked.has(item.id)).map((item: SelectionItem) => item.id)) } : prev);
       if (msg.type === 'extract-started') setExtractingCount(msg.total || 0);
       if (msg.type === 'extraction-error') fail(msg.error || 'Figma could not read the selected screens.');
@@ -415,6 +419,15 @@ export function useDesignEngineer() {
     // Listener intentionally registered once; handlers are read through a ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Recover missed Figma events while the canvas picker is visible.
+  useEffect(() => {
+    if (selectionSource !== 'canvas') return;
+    const timer = window.setInterval(() => {
+      if (current().name === 'screens') sendToPlugin({ type: 'get-selection' });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [selectionSource]);
 
   // Ticking clock for running-build timers.
   useEffect(() => {
@@ -1713,6 +1726,7 @@ export function useDesignEngineer() {
     codexWait,
     selection,
     selectionSource,
+    canvasNodeCount,
     checkedIds,
     extractingCount,
     screens,

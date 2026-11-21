@@ -38,6 +38,9 @@ jobs:
       - name: Plugin dependency install
         run: npm ci
         working-directory: design-engineer-plugin
+      - name: Canvas selection regression tests
+        run: node --test tests/canvas-selection.test.cjs
+        working-directory: design-engineer-plugin
       - name: Plugin build
         run: npm run build
         working-directory: design-engineer-plugin

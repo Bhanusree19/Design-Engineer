@@ -1,3 +1,4 @@
+import { resolveCanvasScreens } from './figma/canvasSelection';
 // src/code.ts
 //
 // Plugin main thread: handles what Figma clientStorage is allowed to hold.
@@ -96,7 +97,7 @@ function summarizeSelection(nodes: readonly SceneNode[]): SelectionSummary[] {
 }
 
 function currentSelection(): SelectionSummary[] {
-  return summarizeSelection(figma.currentPage.selection);
+  return summarizeSelection(resolveCanvasScreens(figma.currentPage.selection));
 }
 
 // Include top-level screens and screens inside sections, not every nested UI frame.
@@ -116,10 +117,12 @@ function postSelection() {
   figma.ui.postMessage({
     type: 'selection-changed',
     selection: currentSelection(),
+    canvasNodeCount: figma.currentPage.selection.length,
   });
 }
 
 figma.on('selectionchange', postSelection);
+figma.on('currentpagechange', postSelection);
 postSelection();
 
 // -----------------------------------------------------------------------------

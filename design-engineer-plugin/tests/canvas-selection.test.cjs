@@ -1,0 +1,16 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const ts=require('typescript');
+const fs=require('node:fs');
+const path=require('node:path');
+const source=fs.readFileSync(path.join(__dirname,'../src/figma/canvasSelection.ts'),'utf8');
+const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
+const mod={exports:{}};
+new Function('exports','module',compiled)(mod.exports,mod);
+const {resolveCanvasScreens}=mod.exports;
+const make=(id,type='FRAME',children=[])=>{const node={id,type,children,parent:null};for(const child of children)child.parent=node;return node;};
+const ids=nodes=>resolveCanvasScreens(nodes).map(n=>n.id);
+test('four separate frames remain four; replacing with one never retains stale frames',()=>{const frames=['1','2','3','4'].map(id=>make(id));assert.deepEqual(ids(frames),['1','2','3','4']);assert.deepEqual(ids([frames[2]]),['3']);});
+test('single selected group or section expands into its contained screen frames',()=>{const group=make('g','GROUP',[make('1'),make('2')]);const section=make('s','SECTION',[group,make('3'),make('4')]);assert.deepEqual(ids([section]),['1','2','3','4']);});
+test('selected content maps to its nearest frame and duplicates are removed',()=>{const a=make('a','TEXT');const b=make('b','RECTANGLE');const screen=make('screen','FRAME',[a,b]);assert.deepEqual(ids([a,b,screen]),['screen']);});
+test('does not select unrelated page frames or nested frames when parent selected',()=>{const inner=make('inner');const outer=make('outer','FRAME',[inner]);make('page','PAGE',[outer,make('other')]);assert.deepEqual(ids([outer,inner]),['outer']);assert.deepEqual(ids([]),[]);});

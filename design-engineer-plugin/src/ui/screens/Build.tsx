@@ -42,7 +42,8 @@ export function SelectScreens({ state, actions }: Props) {
         <h3>{total === 0 ? 'Select screens on the canvas' : `${checked} of ${plural(total, 'screen')} selected`}</h3>
         <Messages error={state.error} notice={state.notice} onDismiss={actions.dismissError} />
         {!fetching && <>
-          <p className="lede small">Select multiple frames on the canvas with Shift-click, or browse page screens and tick the ones you want.</p>
+          <p className="lede small">Shift-click frames or drag a selection around them. The list updates automatically. You can also browse page screens.</p>
+          {state.selectionSource === 'canvas' && state.canvasNodeCount !== null && <p className="lede small">Figma selected {plural(state.canvasNodeCount, 'layer')} · {plural(total, 'screen')} detected.</p>}
           <div className="btn-row">
             <button type="button" className="btn btn-ghost" onClick={actions.useCanvasSelection}>{state.selectionSource === 'canvas' ? 'Refresh canvas' : 'Use canvas selection'}</button>
             <button type="button" className="btn btn-ghost" onClick={actions.browsePageScreens}>Browse page screens</button>
