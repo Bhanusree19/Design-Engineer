@@ -74,7 +74,20 @@ const flow=fs.readFileSync(path.join(sqlDir,'011_flow_revamp.sql'),'utf8');
 test('fresh schema embeds the exact current migration 011 (flow revamp)',()=>{
  const marker='\n-- DEPLOYMENT 09: flow revamp\n';
  assert.ok(schema.includes(marker));
- assert.equal(schema.split(marker)[1],flow);
+ assert.equal(schema.split(marker)[1].split('\n-- DEPLOYMENT 10: fidelity check\n')[0],flow);
+});
+const fid=fs.readFileSync(path.join(sqlDir,'012_fidelity.sql'),'utf8');
+test('fresh schema embeds the exact current migration 012 (fidelity check)',()=>{
+ const marker='\n-- DEPLOYMENT 10: fidelity check\n';
+ assert.ok(schema.includes(marker));
+ assert.equal(schema.split(marker)[1],fid);
+});
+test('migration 012 is additive and stores the reference beside the context',()=>{
+ assert.doesNotMatch(fid,/drop\s+(table|column)/i);
+ assert.match(fid,/add column if not exists reference_png text/);
+ assert.match(fid,/add column if not exists reference_scale real/);
+ assert.match(fid,/^begin;/m);
+ assert.match(fid,/^commit;\s*$/m);
 });
 test('migration 011 is additive and pairs its delimiters',()=>{
  assert.doesNotMatch(flow,/drop\s+table/i);

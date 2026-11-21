@@ -5,6 +5,7 @@ import * as api from '../../api/client';
 import { BackHeader, Body, Footer, Messages, Sheet, Spinner, SyncIcon, WaitRow } from '../components/Chrome';
 import { Alert, Branch, Check, ChevronDown, Clock, Cursor, External, Model, PullRequest, Refresh, XCircle } from '../components/Icons';
 import { linkProblem, linkSyncKind } from './Project';
+import { FidelityCard } from '../components/Fidelity';
 import {
   agentDetail,
   agentLabel,
@@ -305,6 +306,7 @@ export function Result({ state, actions }: Props) {
             {r.branch && <div className="br"><Branch className="ico" /><span>{r.branch} → {r.baseBranch}</span></div>}
             <div className="br"><span>{[r.repository, agentLabel(r.agent)].filter(Boolean).join(' · ')}</span></div>
           </div>
+          <FidelityCard fidelity={r.fidelity} />
           <Charge billed={r.billedSeconds} buffer={r.startBufferSeconds} />
         </Body>
         <Footer>

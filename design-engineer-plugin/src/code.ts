@@ -12,7 +12,13 @@ import {
 
 import {
   toDesignContexts,
+  DesignContext,
+  DesignInteraction,
 } from './figma/parser';
+
+import {
+  exportReferencePng,
+} from './figma/screenshot';
 
 // -----------------------------------------------------------------------------
 // SHOW PLUGIN UI
@@ -107,6 +113,44 @@ postSelection();
 // -----------------------------------------------------------------------------
 // MESSAGE HANDLER
 // -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// FIDELITY DATA: destination screen names + the Figma export of each frame
+// -----------------------------------------------------------------------------
+
+async function addFidelityData(contexts: DesignContext[]) {
+  const names = new Map<string, string>();
+  const all: DesignInteraction[] = [];
+  for (const ctx of contexts) {
+    for (const el of ctx.elements) if (el.interactions) all.push(...el.interactions);
+    if (ctx.rootInteractions) all.push(...ctx.rootInteractions);
+  }
+  for (const it of all) {
+    if (!it.destinationId || names.has(it.destinationId)) continue;
+    try {
+      const dest = await figma.getNodeByIdAsync(it.destinationId);
+      names.set(it.destinationId, dest ? dest.name : '');
+    } catch {
+      names.set(it.destinationId, '');
+    }
+  }
+  for (const it of all) {
+    const name = it.destinationId ? names.get(it.destinationId) : '';
+    if (name) it.destinationName = name;
+  }
+  for (const ctx of contexts) {
+    if (!ctx.rootId) continue;
+    try {
+      const node = await figma.getNodeByIdAsync(ctx.rootId);
+      if (node && 'exportAsync' in node) {
+        const ref = await exportReferencePng(node as SceneNode);
+        if (ref) ctx.fidelityReference = ref;
+      }
+    } catch (error) {
+      console.warn('[Design Engineer] Reference export failed for', ctx.screen, error);
+    }
+  }
+}
 
 figma.ui.onmessage = async (msg: any) => {
   try {
@@ -258,6 +302,7 @@ figma.ui.onmessage = async (msg: any) => {
 
       const extracted = await extractSelectedScreens(nodeIds);
       const contexts = toDesignContexts(extracted);
+      await addFidelityData(contexts);
 
       figma.ui.postMessage({
         type: 'screens-extracted',

@@ -239,6 +239,9 @@ function registerRoutes(app, deps) {
           screenCount: b ? b.screenCount : null,
           billedSeconds: b ? b.billedSeconds : null,
           pullRequestUrl: result.pullRequestUrl || result.prUrl || result.pr_url || null,
+          fidelity: result.fidelity && result.fidelity.status === 'measured'
+            ? { score: result.fidelity.score, grade: result.fidelity.grade, target: result.fidelity.target }
+            : null,
           error: j.error ? String(j.error).slice(0, 160) : null,
           createdAt: j.created_at,
           startedAt: j.started_at || null,

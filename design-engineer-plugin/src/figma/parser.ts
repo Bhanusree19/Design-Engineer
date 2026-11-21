@@ -5,8 +5,41 @@ import {
   FigmaRestNode,
 } from './extractor';
 
+export interface DesignTransition {
+  type: string;
+
+  durationMs: number;
+
+  easing: {
+    type: string;
+    bezier?: [number, number, number, number];
+  };
+
+  direction?: string;
+}
+
+export interface DesignInteraction {
+  trigger: string;
+
+  timeoutMs?: number;
+
+  action: string;
+
+  destinationId?: string;
+
+  destinationName?: string;
+
+  url?: string;
+
+  transition: DesignTransition | null;
+}
+
 export interface DesignElement {
   id: string;
+
+  parentId?: string;
+
+  visible?: boolean;
 
   type: string;
 
@@ -27,6 +60,18 @@ export interface DesignElement {
   fontFamily?: string;
 
   fontStyle?: string;
+
+  fontWeight?: number;
+
+  lineHeightPx?: number;
+
+  letterSpacing?: number;
+
+  textAlign?: string;
+
+  textAutoResize?: string;
+
+  textCase?: string;
 
   radius?: number;
 
@@ -61,12 +106,27 @@ export interface DesignElement {
 
     counterAxisAlign?: string;
   };
+
+  interactions?: DesignInteraction[];
 }
 
 export interface DesignContext {
   version: string;
 
   screen: string;
+
+  /** Figma node ID of the screen frame; generated code tags its root with it. */
+  rootId?: string;
+
+  /** Canvas position of the frame, so element positions can be made relative. */
+  origin?: { x: number; y: number };
+
+  rootColors?: string[];
+
+  rootInteractions?: DesignInteraction[];
+
+  /** Figma export of the frame, used by the fidelity check. Never shown to the coding agent. */
+  fidelityReference?: { pngBase64: string; scale: number };
 
   width: number;
 
@@ -203,11 +263,87 @@ function extractColors(
   };
 }
 
+const EASING_PRESETS: Record<string, [number, number, number, number]> = {
+  LINEAR: [0, 0, 1, 1],
+  EASE_IN: [0.42, 0, 1, 1],
+  EASE_OUT: [0, 0, 0.58, 1],
+  EASE_IN_AND_OUT: [0.42, 0, 0.58, 1],
+  EASE_IN_BACK: [0.3, -0.05, 0.7, -0.5],
+  EASE_OUT_BACK: [0.45, 1.45, 0.8, 1],
+  EASE_IN_AND_OUT_BACK: [0.7, -0.4, 0.4, 1.4],
+};
+
+/** Figma gives transition durations in seconds (legacy fields in ms). */
+function toMs(value: unknown, legacyMs = false): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  if (legacyMs || value > 20) return Math.round(value);
+  return Math.round(value * 1000);
+}
+
+function convertEasing(easing: any): DesignTransition['easing'] {
+  const type = typeof easing?.type === 'string' ? easing.type : 'EASE_OUT';
+  const f = easing?.easingFunctionCubicBezier;
+  if (f && [f.x1, f.y1, f.x2, f.y2].every((v: unknown) => typeof v === 'number')) {
+    return { type, bezier: [f.x1, f.y1, f.x2, f.y2] };
+  }
+  return EASING_PRESETS[type] ? { type, bezier: EASING_PRESETS[type] } : { type };
+}
+
+function convertTransition(t: any, legacyMs = false): DesignTransition | null {
+  if (!t || typeof t !== 'object' || typeof t.type !== 'string' || t.type === 'INSTANT') return null;
+  return {
+    type: t.type,
+    durationMs: toMs(t.duration, legacyMs) ?? 300,
+    easing: convertEasing(t.easing),
+    ...(typeof t.direction === 'string' ? { direction: t.direction } : {}),
+  };
+}
+
+/**
+ * Prototype interactions from the REST JSON: trigger, what happens, and the
+ * transition. Falls back to the legacy transitionNodeID fields.
+ */
+export function extractInteractions(node: FigmaRestNode): DesignInteraction[] {
+  const out: DesignInteraction[] = [];
+  if (Array.isArray(node.interactions)) {
+    for (const interaction of node.interactions) {
+      const trigger = interaction?.trigger?.type;
+      if (typeof trigger !== 'string') continue;
+      const timeoutMs = trigger === 'AFTER_TIMEOUT' ? toMs(interaction.trigger.timeout) : undefined;
+      const actions = Array.isArray(interaction.actions) ? interaction.actions : interaction.action ? [interaction.action] : [];
+      for (const a of actions) {
+        if (!a || typeof a.type !== 'string') continue;
+        const base = { trigger, ...(timeoutMs != null ? { timeoutMs } : {}) };
+        if (a.type === 'NODE' && typeof a.destinationId === 'string') {
+          out.push({ ...base, action: typeof a.navigation === 'string' ? a.navigation : 'NAVIGATE',
+            destinationId: a.destinationId, transition: convertTransition(a.transition) });
+        } else if (a.type === 'BACK' || a.type === 'CLOSE') {
+          out.push({ ...base, action: a.type, transition: null });
+        } else if (a.type === 'URL' && typeof a.url === 'string') {
+          out.push({ ...base, action: 'URL', url: a.url, transition: null });
+        }
+      }
+    }
+  }
+  if (!out.length && typeof node.transitionNodeID === 'string' && node.transitionNodeID) {
+    out.push({
+      trigger: 'ON_CLICK',
+      action: 'NAVIGATE',
+      destinationId: node.transitionNodeID,
+      transition: typeof node.transitionDuration === 'number'
+        ? { type: 'DISSOLVE', durationMs: toMs(node.transitionDuration, true) ?? 300, easing: convertEasing({ type: node.transitionEasing }) }
+        : null,
+    });
+  }
+  return out;
+}
+
 /**
  * Convert one raw Figma JSON node to our normalized element.
  */
 function convertNode(
-  node: FigmaRestNode
+  node: FigmaRestNode,
+  parentId?: string
 ): DesignElement {
   const fills =
     extractColors(node.fills);
@@ -255,6 +391,19 @@ function convertNode(
         : 0,
   };
 
+  if (parentId) {
+    element.parentId = parentId;
+  }
+
+  if (node.visible === false) {
+    element.visible = false;
+  }
+
+  const interactions = extractInteractions(node);
+  if (interactions.length > 0) {
+    element.interactions = interactions;
+  }
+
   /**
    * Text.
    */
@@ -297,6 +446,31 @@ function convertNode(
           String(
             style.fontWeight
           );
+
+        element.fontWeight =
+          style.fontWeight;
+      }
+
+      if (typeof style.lineHeightPx === 'number') {
+        element.lineHeightPx = Math.round(style.lineHeightPx * 100) / 100;
+      }
+
+      if (typeof style.letterSpacing === 'number') {
+        element.letterSpacing = Math.round(style.letterSpacing * 100) / 100;
+      }
+
+      if (typeof style.textAlignHorizontal === 'string') {
+        element.textAlign = style.textAlignHorizontal;
+      }
+
+      if (typeof style.textAutoResize === 'string') {
+        element.textAutoResize = style.textAutoResize;
+      } else if (typeof node.textAutoResize === 'string') {
+        element.textAutoResize = node.textAutoResize;
+      }
+
+      if (typeof style.textCase === 'string' && style.textCase !== 'ORIGINAL') {
+        element.textCase = style.textCase;
       }
     }
   }
@@ -456,7 +630,8 @@ function convertNode(
  */
 function flattenDocument(
   node: FigmaRestNode,
-  output: DesignElement[]
+  output: DesignElement[],
+  parentId?: string
 ) {
   if (
     !node ||
@@ -470,9 +645,14 @@ function flattenDocument(
     node.type !== 'CANVAS'
   ) {
     output.push(
-      convertNode(node)
+      convertNode(node, parentId)
     );
   }
+
+  const childParent =
+    node.type !== 'DOCUMENT' && node.type !== 'CANVAS' && typeof node.id === 'string'
+      ? node.id
+      : parentId;
 
   if (
     Array.isArray(
@@ -484,7 +664,8 @@ function flattenDocument(
     ) {
       flattenDocument(
         child,
-        output
+        output,
+        childParent
       );
     }
   }
@@ -518,7 +699,8 @@ export function toDesignContext(
     ) {
       flattenDocument(
         child,
-        elements
+        elements,
+        typeof root.id === 'string' ? root.id : undefined
       );
     }
   } else if (root) {
@@ -528,10 +710,25 @@ export function toDesignContext(
     );
   }
 
+  const rootBox = root?.absoluteBoundingBox;
+  const rootFills = root ? extractColors(root.fills).colors : [];
+  const rootInteractions = root ? extractInteractions(root) : [];
+
   return {
-    version: '2.0',
+    version: '3.0',
 
     screen: screen.name,
+
+    rootId: screen.id,
+
+    origin: {
+      x: typeof rootBox?.x === 'number' ? Math.round(rootBox.x) : screen.x,
+      y: typeof rootBox?.y === 'number' ? Math.round(rootBox.y) : screen.y,
+    },
+
+    ...(rootFills.length ? { rootColors: rootFills } : {}),
+
+    ...(rootInteractions.length ? { rootInteractions } : {}),
 
     width: screen.width,
 

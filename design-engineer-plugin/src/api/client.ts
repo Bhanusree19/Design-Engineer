@@ -422,10 +422,52 @@ export function submitScreens(
   });
 }
 
+export type FidelityGrade = 'exact' | 'close' | 'needs-work' | 'off';
+export type FidelityLayer = 'geometry' | 'visual' | 'style' | 'interaction' | 'motion' | 'responsive';
+
+export interface FidelityIssue {
+  kind: 'missing' | 'geometry' | 'style' | 'content' | 'visual' | 'interaction' | 'motion' | 'responsive' | 'runtime';
+  nodeId: string | null;
+  message: string;
+}
+
+export interface FidelityScreen {
+  name: string;
+  route: string | null;
+  status: 'measured' | 'no-route' | 'skipped';
+  score: number;
+  layers: Partial<Record<FidelityLayer, number | null>> | null;
+  coverage: number | null;
+  matched: number;
+  total: number;
+  ssim: number | null;
+  pixelMatch: number | null;
+  /** Small PNG (base64): the rendered screen with mismatched areas in red. */
+  heatmapPng: string | null;
+  issues: FidelityIssue[];
+  issueCount: number;
+}
+
+/** How exactly the build reproduces the Figma screens (implementation_jobs.result.fidelity). */
+export interface FidelityResult {
+  status: 'measured' | 'unavailable';
+  reason?: string | null;
+  score?: number;
+  grade?: FidelityGrade;
+  target?: number;
+  rounds?: { score: number; grade: FidelityGrade }[];
+  layers?: Partial<Record<FidelityLayer, number | null>>;
+  coverage?: number | null;
+  screens?: FidelityScreen[];
+  interactions?: { total: number; passed: number; failed: number; skipped: number };
+  warnings?: string[];
+}
+
 export interface ImplementationResult {
   screens: string[];
   branch: string;
   pullRequestUrl: string;
+  fidelity?: FidelityResult;
 }
 
 export interface ScreenPlanInfo {
@@ -591,6 +633,7 @@ export interface ProjectBuild {
   screenCount: number | null;
   billedSeconds: number | null;
   pullRequestUrl: string | null;
+  fidelity?: { score: number; grade: FidelityGrade; target: number } | null;
   error: string | null;
   createdAt: string;
   startedAt: string | null;

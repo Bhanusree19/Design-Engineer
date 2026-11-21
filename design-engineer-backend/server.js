@@ -33,6 +33,7 @@ const directApi=require('./adapters/direct-api');
 const billing=require('./services/billing');
 const flowRevamp=require('./services/flow-revamp');
 const repoContext=require('./services/repo-context');
+const fidelity=require('./services/fidelity');
 
 const app = express();
 
@@ -1797,6 +1798,8 @@ function sanitizeFileName(value) {
     .slice(0, 150) || 'screen';
 }
 
+const validReferencePng = fidelity.validReferencePng;
+
 app.post('/api/screens/fetch', async (req, res) => {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -1822,7 +1825,8 @@ app.post('/api/screens/fetch', async (req, res) => {
       const screenName =
         screen.screen || screen.name || `frame-${index + 1}`;
 
-      const { screenshotBase64: _screenshotBase64, ...designContext } = screen;
+      const { screenshotBase64: _screenshotBase64, fidelityReference, ...designContext } = screen;
+      const reference = validReferencePng(fidelityReference);
 
       const payload = {
         contextVersion: '2.0',
@@ -1835,19 +1839,34 @@ app.post('/api/screens/fetch', async (req, res) => {
 
       const safeName = sanitizeFileName(screenName);
 
-      await pgQuery('design_contexts', {
+      const row = {
+        project_id: projectId,
+        user_id: auth.user.id,
+        screen_name: safeName,
+        content: payload,
+        updated_at: new Date().toISOString(),
+      };
+      // The Figma export is kept beside the context (never inside it, so the
+      // coding agent's JSON stays small). Older databases without migration
+      // 012 still save the context.
+      const save = (body) => pgQuery('design_contexts', {
         token: auth.token,
         method: 'POST',
         query: 'on_conflict=project_id,screen_name',
-        body: {
-          project_id: projectId,
-          user_id: auth.user.id,
-          screen_name: safeName,
-          content: payload,
-          updated_at: new Date().toISOString(),
-        },
+        body,
         prefer: 'resolution=merge-duplicates,return=representation',
       });
+      if (reference) {
+        try {
+          await save({ ...row, reference_png: reference.pngBase64, reference_scale: reference.scale });
+        } catch (error) {
+          if (!/reference_png|reference_scale|column/i.test(String(error?.message || ''))) throw error;
+          console.warn('[Design Engineer] design_contexts.reference_png missing; apply migration 012 for fidelity visuals.');
+          await save(row);
+        }
+      } else {
+        await save(row);
+      }
 
       saved.push(`${safeName}.json`);
       console.log(`[Design Engineer] Saved design context for ${screenName}`);
@@ -2085,7 +2104,8 @@ function buildImplementationPrompt(
   baseBranch,
   branchName,
   stack,
-  repoCtx = null
+  repoCtx = null,
+  fidelityContract = ''
 ) {
   const contextLines = repoContext.contextPromptLines(repoCtx);
   const contextBlock = contextLines.length ? `\n${contextLines.join('\n')}\n` : '';
@@ -2124,6 +2144,7 @@ Instructions:
 8. Do not commit the temporary .design-engineer/context files; they will be removed by the orchestrator.
 9. Add or update focused tests when the repository has a test setup.
 10. Run the repository's relevant validation commands from README and package scripts before finishing.
+${fidelityContract}
 
 Testing (${projectLabel}):
 ${validationHint}
@@ -2151,7 +2172,17 @@ async function appendTestInstructions(
   await fs.promises.writeFile(readmePath, `${current.trimEnd()}${section}`, 'utf8');
 }
 
+// Fidelity check time limits. A build holds 15 minutes; keep ~90 s for the
+// commit, push and pull request after the last check.
+const FIDELITY_JOB_BUDGET_MS=Number(process.env.FIDELITY_JOB_BUDGET_MS)||14*60*1000;
+const FIDELITY_CHECK_BUDGET_MS=Number(process.env.FIDELITY_CHECK_BUDGET_MS)||5*60*1000;
+const FIDELITY_RESERVE_MS=90*1000;
+const FIDELITY_REPAIR_MIN_MS=Number(process.env.FIDELITY_REPAIR_MIN_MS)||5*60*1000;
+const FIDELITY_REPAIR_ROUNDS=Math.max(0,Math.min(3,Number(process.env.FIDELITY_REPAIR_ROUNDS??1)));
+
 async function implementScreensInBranch(conn, repository, baseBranch, screens, stack, selection, auth, repoCtx = null) {
+  const startedAt = Date.now();
+  const jobBudgetMs = FIDELITY_JOB_BUDGET_MS;
   const screenNames = screens.map((screen) => screen.name);
   const firstScreenName = screenNames[0] || 'screens';
   const safeScreenName = sanitizeFileName(firstScreenName).toLowerCase();
@@ -2207,6 +2238,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
     const home=path.join(tempRoot,'agent-home');
     await fs.promises.mkdir(home,{recursive:true,mode:0o700});
     const agentEnv={};
+    let directConnection=null;
     if (selection.agent === 'codex') {
       const legacy=await findCodexAccount(auth.user.id,auth.token);
       if (!legacy?.credential_reference) throw new Error('Codex account must be connected first.');
@@ -2219,11 +2251,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       const provider=selection.agent==='gemini-api'?'gemini':selection.provider;
       const connection=await getModelConnection(auth.user.id,provider);
       if(!connection)throw new Error('Connect the selected Direct API provider before implementation.');
-      await directApi.execute({
-        provider,workspace:worktree,contextDir,model:selection.model,
-        apiKey:decryptText(connection.encrypted_credential),
-        prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack,repoCtx)
-      });
+      directConnection={provider,apiKey:decryptText(connection.encrypted_credential)};
     } else if (selection.agent==='claude' ||
               (selection.agent==='opencode' && selection.provider!=='opencode')) {
       const provider=selection.agent==='claude'?'anthropic':selection.provider;
@@ -2234,9 +2262,37 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       if(!names[provider])throw new Error('Unsupported model connection.');
       agentEnv[names[provider]]=decryptText(connection.encrypted_credential);
     }
-    if(!['gemini-api','direct-api'].includes(selection.agent)) await executeCodingAgent({selection,workspace:worktree,home,env:agentEnv,
-      prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack,repoCtx)});
+    const runAgent=async(prompt,timeoutMs)=>{
+      if(directConnection){
+        await directApi.execute({provider:directConnection.provider,workspace:worktree,contextDir,
+          model:selection.model,apiKey:directConnection.apiKey,prompt});
+      }else{
+        await executeCodingAgent({selection,workspace:worktree,home,env:agentEnv,prompt,
+          ...(timeoutMs?{timeoutMs}:{})});
+      }
+    };
+    const contract=fidelity.enabled()?fidelity.promptContract(screens,stack):'';
+    await runAgent(buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack,repoCtx,contract));
     console.log('[Design Engineer] '+selection.agent+' completed');
+
+    // Fidelity check: render the result, measure it against Figma, and give
+    // the agent one round to fix what's off while the time budget allows.
+    // Runs on a copy, never fails the build, and never adds files to the PR.
+    let fidelityResult=null;
+    if(fidelity.enabled()) try{
+      fidelityResult=await fidelity.checkWithRepair({
+        worktree,scratchRoot:tempRoot,runAgent,
+        screens:screens.map((screen)=>({name:screen.name,context:screen.context,referencePng:screen.referencePng||null})),
+        remainingMs:()=>jobBudgetMs-(Date.now()-startedAt),
+        checkBudgetMs:FIDELITY_CHECK_BUDGET_MS,reserveMs:FIDELITY_RESERVE_MS,
+        repairMinMs:FIDELITY_REPAIR_MIN_MS,repairRounds:FIDELITY_REPAIR_ROUNDS,
+      });
+      console.log(`[Design Engineer] Fidelity: ${fidelityResult.status==='measured'?fidelityResult.score:fidelityResult.reason}`);
+    }catch(error){
+      // A fidelity bug must never cost the user their pull request.
+      console.error('[Design Engineer] Fidelity check crashed:',error?.message||error);
+      fidelityResult={status:'unavailable',reason:'the fidelity check hit an internal error',target:fidelity.target(),rounds:[]};
+    }
 
     // Replace repository control metadata with the original root-owned copy.
     // Only generated source changes are carried forward to the Git operations.
@@ -2279,7 +2335,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
           base: baseBranch,
           body: `## Design Engineer implementation\n\nScreens:\n${screenNames
             .map((screenName) => `- ${screenName}`)
-            .join('\n')}\n\n${selection.agent} implemented all selected screens together from the saved Figma design contexts, including navigation. See the README test steps in this branch before merging.`,
+            .join('\n')}\n\n${selection.agent} implemented all selected screens together from the saved Figma design contexts, including navigation. See the README test steps in this branch before merging.${fidelity.report.toMarkdown(fidelityResult)}`,
         }),
       }
     );
@@ -2290,6 +2346,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       screens: screenNames,
       branch: branchName,
       pullRequestUrl: pullRequest.html_url,
+      ...(fidelityResult ? { fidelity: fidelityResult } : {}),
     };
   } finally {
     await fs.promises.rm(tempRoot, { recursive: true, force: true });
@@ -2375,7 +2432,8 @@ function buildImplementationPlan(selectedScreens, repository, baseBranch, stack,
     baseBranch,
     proposedBranch,
     stack,
-    repoCtx
+    repoCtx,
+    fidelity.enabled() ? fidelity.promptContract(selectedScreens, stack) : ''
   );
   const detected = repoCtx && repoCtx.status === 'existing-app' && repoCtx.summary
     ? `\n**Detected in the branch:** ${repoCtx.summary}` : '';
@@ -2399,7 +2457,8 @@ ${screenLines}
 6. **Share components, styles, and theme tokens** where screens have common structure; do not duplicate whole screen implementations.
 7. **Keep lockfiles and dependencies stable** unless a navigation/feature genuinely requires an addition.
 8. **Add or update tests** when the repository has a test setup, then run the documented validation commands (including starting ${startHint}).
-9. **Commit, push, and open a pull request** describing the implemented screens and the README test steps.
+9. **Check fidelity** — build the app for the web, render every screen at its Figma frame size in Chromium and measure it against the design: layout, visuals, styles, prototype interactions, motion and responsiveness. When the score is under the target, the agent gets one round to fix the reported problems.
+10. **Commit, push, and open a pull request** describing the implemented screens, the fidelity score and the README test steps.
 
 Generating this plan writes no code and raises no pull request.
 Only when you click "Start implement" will the selected coding agent build the screens and open the PR.
@@ -2735,10 +2794,19 @@ app.post('/api/screens/implement', async (req, res) => {
       return res.status(400).json({ error: 'No valid screens were supplied.' });
     }
 
-    const contextRows = await pgQuery('design_contexts', {
-      token: auth.token,
-      query: `project_id=eq.${projectId}&select=screen_name,content`,
-    });
+    let contextRows;
+    try {
+      contextRows = await pgQuery('design_contexts', {
+        token: auth.token,
+        query: `project_id=eq.${projectId}&select=screen_name,content,reference_png`,
+      });
+    } catch (error) {
+      // Database without migration 012: no reference images, check still runs.
+      contextRows = await pgQuery('design_contexts', {
+        token: auth.token,
+        query: `project_id=eq.${projectId}&select=screen_name,content`,
+      });
+    }
 
     const byName = new Map(
       (Array.isArray(contextRows) ? contextRows : []).map((row) => [
@@ -2754,7 +2822,7 @@ app.post('/api/screens/implement', async (req, res) => {
           `Saved Design Context not found for "${name}". Fetch the screens again before starting implementation.`
         );
       }
-      return { name, context: row.content };
+      return { name, context: row.content, referencePng: row.reference_png || null };
     });
 
     console.log(

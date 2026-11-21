@@ -102,6 +102,7 @@ export interface BuildResult {
   error: string | null;
   billedSeconds: number | null;
   startBufferSeconds: number;
+  fidelity: api.FidelityResult | null;
 }
 
 interface Prefs {
@@ -1394,7 +1395,12 @@ export function useDesignEngineer() {
     try {
       await authed(() => api.submitScreens(p.id, target.repository, target.branch, results));
       const merged = new Map<string, DesignContext>();
-      for (const s of [...screensRef.current, ...results]) if (s.screen) merged.set(s.screen, s);
+      // The reference export is only for the server's fidelity check; don't keep it in memory.
+      for (const s of [...screensRef.current, ...results]) {
+        if (!s.screen) continue;
+        const { fidelityReference: _ref, ...kept } = s;
+        merged.set(s.screen, kept);
+      }
       setScreens(Array.from(merged.values()));
       setCheckedIds(new Set());
       setBusy(null);
@@ -1613,6 +1619,7 @@ export function useDesignEngineer() {
       error: ok ? null : status.error || (status.status === 'completed' ? 'The build finished without a pull request.' : 'The build stopped.'),
       billedSeconds: billed,
       startBufferSeconds: buffer,
+      fidelity: ok && r?.fidelity ? r.fidelity : null,
     });
     void refreshBilling();
     if (current().name === 'running') replace({ name: 'result' });

@@ -13,6 +13,9 @@ RUN apt-get update \
 
 COPY package*.json ./
 RUN npm install
+# Fidelity check browser (see cloudflare/Dockerfile).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN npx --no-install playwright-core install --with-deps chromium && rm -rf /var/lib/apt/lists/*
 
 COPY . .
 
