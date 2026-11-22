@@ -512,7 +512,7 @@ export interface BillingStatus {
   usage: MinuteUsage;
   plans: SubscriptionPlan[];
   paymentsEnabled: boolean;
-  membership?: {expired:boolean;previousPlan:string|null;periodEnd:string|null;prepaidCancellationScheduled?:boolean};
+  membership?: {expired:boolean;previousPlan:string|null;periodEnd:string|null};
   recurringEnabled?: boolean;
   renewal?: {plan:string;status:string;autoRenew:boolean;cancelAtPeriodEnd:boolean}|null;
 }
@@ -546,9 +546,6 @@ export function billingHistory(): Promise<BillingHistory> {
 }
 export function startCheckout(plan: 'plus' | 'studio',recurring=false): Promise<{checkoutUrl:string}> {
   return request(recurring?'/api/billing/subscription/start':'/api/billing/order',{method:'POST',body:JSON.stringify({plan})});
-}
-export function cancelPrepaidPlan(): Promise<{success:boolean;effectiveAt:string}> {
- return request('/api/billing/prepaid/cancel',{method:'POST'});
 }
 export function cancelSubscription(): Promise<{success:boolean;cancelAtPeriodEnd:boolean}> {
   return request('/api/billing/subscription/cancel',{method:'POST'});

@@ -625,16 +625,6 @@ export function useDesignEngineer() {
     }
   }
 
-  async function cancelPrepaidPlan() {
-    clearFeedback();
-    setBusy('checkout');
-    try {
-      await authed(() => api.cancelPrepaidPlan());
-      await refreshBilling();
-      setNotice('Your prepaid plan will end on its existing expiry date. No automatic renewal or refund is involved.');
-      setBusy(null);
-    } catch(err) { fail(describe(err, "Couldn't update your plan."),err); }
-  }
   async function cancelSubscription() {
     clearFeedback();
     setBusy('checkout');
@@ -1779,7 +1769,6 @@ export function useDesignEngineer() {
     openBilling,
     buyPlan,
     cancelSubscription,
-    cancelPrepaidPlan,
     // model
     openModel,
     chooseAgent,

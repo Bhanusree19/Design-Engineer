@@ -103,7 +103,7 @@ test('migration 011 adds project repository links with RLS',()=>{
 const recurring=fs.readFileSync(path.join(sqlDir,'012_recurring_subscriptions.sql'),'utf8');
 test('fresh schema includes exact recurring migration, idempotent capture and restricted RPC',()=>{
  const marker='\n-- DEPLOYMENT 12: Razorpay recurring subscriptions and expiry\n';
- assert.equal(schema.split(marker)[1].split('\n-- DEPLOYMENT 13: prepaid cancellation preference\n')[0],recurring);
+ assert.equal(schema.split(marker)[1],recurring);
  assert.match(recurring,/alter table public\.recurring_subscriptions enable row level security/);
  assert.match(recurring,/razorpay_payment_id=p_payment/);
  assert.match(recurring,/perform public\.grant_verified_payment/);
@@ -111,13 +111,4 @@ test('fresh schema includes exact recurring migration, idempotent capture and re
    assert.equal((recurring.split(tag).length-1)%2,0);
  for(const fn of ['expire_paid_membership(uuid)','apply_recurring_charge(text,text,integer,text,bigint)'])
    assert.ok(recurring.includes('grant execute on function public.'+fn+' to service_role'));
-});
-
-const prepaid=fs.readFileSync(path.join(sqlDir,'013_prepaid_cancel.sql'),'utf8');
-test('prepaid cancellation keeps active paid term and requires service role',()=>{
- assert.equal(schema.split('\n-- DEPLOYMENT 13: prepaid cancellation preference\n')[1],prepaid);
- assert.match(prepaid,/prepaid_cancelled_at/);
- assert.doesNotMatch(prepaid,/set status='expired'/);
- assert.match(prepaid,/RECURRING_MANDATE_MUST_BE_CANCELLED_SEPARATELY/);
- assert.match(prepaid,/grant execute on function public.cancel_prepaid_membership\(uuid\) to service_role/);
 });
