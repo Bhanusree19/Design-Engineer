@@ -74,7 +74,7 @@ const flow=fs.readFileSync(path.join(sqlDir,'011_flow_revamp.sql'),'utf8');
 test('fresh schema embeds the exact current migration 011 (flow revamp)',()=>{
  const marker='\n-- DEPLOYMENT 09: flow revamp\n';
  assert.ok(schema.includes(marker));
- assert.equal(schema.split(marker)[1],flow);
+ assert.equal(schema.split(marker)[1].split('\n-- DEPLOYMENT 12: Razorpay recurring subscriptions and expiry\n')[0],flow);
 });
 test('migration 011 is additive and pairs its delimiters',()=>{
  assert.doesNotMatch(flow,/drop\s+table/i);
@@ -98,4 +98,17 @@ test('migration 011 adds project repository links with RLS',()=>{
  assert.match(flow,/alter table public\.project_repos enable row level security/);
  assert.match(flow,/create trigger sync_project_repo_link/);
  assert.match(flow,/add column if not exists ai_agent text/);
+});
+
+const recurring=fs.readFileSync(path.join(sqlDir,'012_recurring_subscriptions.sql'),'utf8');
+test('fresh schema includes exact recurring migration, idempotent capture and restricted RPC',()=>{
+ const marker='\n-- DEPLOYMENT 12: Razorpay recurring subscriptions and expiry\n';
+ assert.equal(schema.split(marker)[1],recurring);
+ assert.match(recurring,/alter table public\.recurring_subscriptions enable row level security/);
+ assert.match(recurring,/razorpay_payment_id=p_payment/);
+ assert.match(recurring,/perform public\.grant_verified_payment/);
+ for(const tag of ['$expire_paid$','$recurring_grant$'])
+   assert.equal((recurring.split(tag).length-1)%2,0);
+ for(const fn of ['expire_paid_membership(uuid)','apply_recurring_charge(text,text,integer,text,bigint)'])
+   assert.ok(recurring.includes('grant execute on function public.'+fn+' to service_role'));
 });
