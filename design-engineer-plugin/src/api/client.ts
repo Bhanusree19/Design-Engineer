@@ -513,6 +513,8 @@ export interface BillingStatus {
   plans: SubscriptionPlan[];
   paymentsEnabled: boolean;
   membership?: {expired:boolean;previousPlan:string|null;periodEnd:string|null};
+  recurringEnabled?: boolean;
+  renewal?: {plan:string;status:string;autoRenew:boolean;cancelAtPeriodEnd:boolean}|null;
 }
 export function billingStatus(): Promise<BillingStatus> {
   return request('/api/billing/status');
@@ -542,8 +544,11 @@ export interface BillingHistory { builds: BuildUsage[]; payments: PaymentRecord[
 export function billingHistory(): Promise<BillingHistory> {
   return request('/api/billing/history');
 }
-export function startCheckout(plan: 'plus' | 'studio'): Promise<{checkoutUrl:string}> {
-  return request('/api/billing/order',{method:'POST',body:JSON.stringify({plan})});
+export function startCheckout(plan: 'plus' | 'studio',recurring=false): Promise<{checkoutUrl:string}> {
+  return request(recurring?'/api/billing/subscription/start':'/api/billing/order',{method:'POST',body:JSON.stringify({plan})});
+}
+export function cancelSubscription(): Promise<{success:boolean;cancelAtPeriodEnd:boolean}> {
+  return request('/api/billing/subscription/cancel',{method:'POST'});
 }
 
 // -----------------------------------------------------------------------------

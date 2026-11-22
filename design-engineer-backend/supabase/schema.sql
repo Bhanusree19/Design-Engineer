@@ -1137,8 +1137,7 @@ begin
  set status='expired',updated_at=now()
  where user_id=p_user and status='active' and plan_slug in ('plus','studio')
    and expires_at is not null and expires_at<=now();
- get diagnostics v_changed = row_count;
- return v_changed;
+ return found;
 end;
 $expire_paid$;
 

@@ -4,6 +4,7 @@
 const crypto=require('node:crypto');
 const express=require('express');
 const checkoutPage=require('./checkout-page');
+const {createRecurring}=require('./recurring');
 const BASE=()=>process.env.SUPABASE_URL;
 const KEY=()=>process.env.SUPABASE_SERVICE_ROLE_KEY;
 function envReady(){return !!(process.env.RAZORPAY_KEY_ID&&process.env.RAZORPAY_KEY_SECRET&&process.env.RAZORPAY_WEBHOOK_SECRET)}
@@ -98,10 +99,11 @@ async function recordWebhook(eventId,type){
   prefer:'resolution=ignore-duplicates,return=minimal',
   body:{event_id:eventId,event_type:type.slice(0,64)}});
 }
+const recurring=createRecurring({service,rpc,razorpay,encode,sha,constantHexEqual,balance,envReady,respondError:(res,e)=>respondError(res,e)});
 function respondError(res,error){
  console.warn('[Design Engineer] Billing request error',error?.dbCode||error?.status||'unknown');
  return res.status(error?.status>=400&&error.status<500?error.status:503)
-   .json({error:error?.status===409?error.message:'Billing service unavailable. Please try again.'});
+   .json({error:[400,403,409,429].includes(error?.status)?error.message:'Billing service unavailable. Please try again.'});
 }
 
 function registerWebhook(app){
@@ -129,12 +131,21 @@ function registerWebhook(app){
      }
     }
    }
+   // A subscription invoice is granted only from a verified captured charge,
+   // not from mandate authorization, subscription.activated or payment.captured.
+   await recurring.handleWebhook(event);
    // Full refunds revoke the paid period they bought (decided atomically in SQL).
    if(event.event==='payment.refunded'){
     const pay=event.payload?.payment?.entity;
     const refund=event.payload?.refund?.entity;
-    if(pay?.order_id&&pay?.id){
-     await revokeRefund(pay.order_id,pay.id,refundedAmount(pay,refund));
+    if(pay?.id){
+     let order=pay.order_id;
+     if(pay.subscription_id){
+       const matches=await service('payments?razorpay_payment_id=eq.'+encode(pay.id)+
+        '&select=razorpay_order_id&limit=1');
+       order=matches?.[0]?.razorpay_order_id;
+     }
+     if(order)await revokeRefund(order,pay.id,refundedAmount(pay,refund));
     }
    }
    if(eventId)await recordWebhook(eventId,String(event.event||'unknown'));
@@ -146,16 +157,19 @@ function registerWebhook(app){
  });
 }
 function registerRoutes(app,requireUser){
+ recurring.registerRoutes(app,requireUser);
  app.get('/api/billing/status',async(req,res)=>{
   const auth=await requireUser(req,res);if(!auth)return;
   try{
-   const [usage,plans,sub]=await Promise.all([
+   await rpc('expire_paid_membership',{p_user:auth.user.id});
+   const [usage,plans,sub,renewal]=await Promise.all([
     balance(auth.user.id),
     service('plans?is_active=eq.true&slug=in.(free,plus,studio)'+
       '&select=slug,name,build_minutes,price_inr,currency,features,sort_order&order=sort_order.asc'),
-    membership(auth.user.id)
+    membership(auth.user.id),
+    recurring.status(auth.user.id)
    ]);
-   res.set('Cache-Control','no-store').json({usage,plans,paymentsEnabled:envReady(),membership:{expired:paidMembershipExpired(sub),previousPlan:paidMembershipExpired(sub)?sub.plan_slug:null,periodEnd:sub?.expires_at||null}});
+   res.set('Cache-Control','no-store').json({usage,plans,paymentsEnabled:envReady(),...renewal,membership:{expired:paidMembershipExpired(sub),previousPlan:paidMembershipExpired(sub)?sub.plan_slug:null,periodEnd:sub?.expires_at||null}});
   }catch(error){return respondError(res,error)}
  });
  app.get('/api/billing/history',async(req,res)=>{

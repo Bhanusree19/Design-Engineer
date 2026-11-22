@@ -616,13 +616,24 @@ export function useDesignEngineer() {
     clearFeedback();
     setBusy('checkout');
     try {
-      const { checkoutUrl } = await authed(() => api.startCheckout(plan));
+      const { checkoutUrl } = await authed(() => api.startCheckout(plan,!!billing?.recurringEnabled));
       window.open(checkoutUrl, '_blank');
       setBusy(null);
-      setNotice('Finish paying in your browser, then come back. Your minutes update by themselves.');
+      setNotice(billing?.recurringEnabled ? 'Authorize AutoPay in your browser. Your plan activates once Razorpay confirms the first paid charge.' : 'Finish paying in your browser, then come back. This is a one-time payment, not AutoPay.');
     } catch (err) {
       fail(describe(err, "Couldn't open checkout."), err);
     }
+  }
+
+  async function cancelSubscription() {
+    clearFeedback();
+    setBusy('checkout');
+    try {
+      const result=await authed(() => api.cancelSubscription());
+      await refreshBilling();
+      setNotice(result.cancelAtPeriodEnd ? 'Automatic renewal cancelled. Your paid plan remains active until its end date.' : 'Subscription authorization cancelled. No automatic renewal is scheduled.');
+      setBusy(null);
+    } catch(err) { fail(describe(err, "Couldn't cancel automatic renewal."),err); }
   }
 
   // Keep the balance fresh while it matters.
@@ -1757,6 +1768,7 @@ export function useDesignEngineer() {
     // billing
     openBilling,
     buyPlan,
+    cancelSubscription,
     // model
     openModel,
     chooseAgent,
