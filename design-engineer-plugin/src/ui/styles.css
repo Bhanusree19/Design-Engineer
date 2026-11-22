@@ -473,5 +473,5 @@ button.plan-c:hover:not(:disabled) { border-color: var(--muted); }
 .pv-btn:hover:not(:disabled) { background: var(--sunk); }
 .pv-btn:disabled { opacity: .35; cursor: default; }
 .pv-stage { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; background: var(--sunk); }
-.pv-stage img { display: block; width: 100%; max-width: 390px; margin: 0 auto; border-radius: 12px; box-shadow: 0 18px 40px -24px rgba(20, 22, 50, .55); }
+.pv-stage img { display: block; width: 100%; max-width: 390px; margin: 0 auto; border-radius: 12px; border: 1px solid var(--line); box-shadow: 0 18px 40px -24px rgba(20, 22, 50, .55); }
 .fid-admin { margin-left: auto; align-self: flex-start; font: 600 10px var(--f-mono); text-transform: uppercase; letter-spacing: .03em; padding: 2px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); flex: none; }
