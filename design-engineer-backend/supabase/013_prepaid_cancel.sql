@@ -17,7 +17,10 @@ begin
  end if;
  update public.user_subscriptions
  set metadata=jsonb_set(coalesce(metadata,'{}'::jsonb),
-   '{prepaid_cancelled_at}',to_jsonb(now()::text),true),updated_at=now()
+   '{prepaid_cancelled_at}',to_jsonb(now()::text),true),
+ metadata=jsonb_set(jsonb_set(coalesce(metadata,'{}'::jsonb),
+   '{prepaid_cancelled_at}',to_jsonb(now()::text),true),
+   '{prepaid_cancelled_period_end}',to_jsonb(s.expires_at::text),true),updated_at=now()
  where user_id=p_user;
  return jsonb_build_object('success',true,'effectiveAt',s.expires_at);
 end;

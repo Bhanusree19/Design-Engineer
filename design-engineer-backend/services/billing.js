@@ -169,7 +169,7 @@ function registerRoutes(app,requireUser){
     membership(auth.user.id),
     recurring.status(auth.user.id)
    ]);
-   res.set('Cache-Control','no-store').json({usage,plans,paymentsEnabled:envReady(),...renewal,membership:{expired:paidMembershipExpired(sub),previousPlan:paidMembershipExpired(sub)?sub.plan_slug:null,periodEnd:sub?.expires_at||null,prepaidCancellationScheduled:!!sub?.metadata?.prepaid_cancelled_at}});
+   res.set('Cache-Control','no-store').json({usage,plans,paymentsEnabled:envReady(),...renewal,membership:{expired:paidMembershipExpired(sub),previousPlan:paidMembershipExpired(sub)?sub.plan_slug:null,periodEnd:sub?.expires_at||null,prepaidCancellationScheduled:!!sub?.metadata?.prepaid_cancelled_at&&!!sub?.metadata?.prepaid_cancelled_period_end&&Date.parse(sub.metadata.prepaid_cancelled_period_end)===Date.parse(sub.expires_at)}});
   }catch(error){return respondError(res,error)}
  });
  app.post('/api/billing/prepaid/cancel',async(req,res)=>{
