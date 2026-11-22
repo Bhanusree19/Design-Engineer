@@ -509,10 +509,31 @@ export function planScreens(
   });
 }
 
+/** Why a build failed, set by the server on failed jobs (deployment 11). */
+export type JobErrorCode =
+  | 'INVALID_API_KEY'
+  | 'MODEL_NOT_CONNECTED'
+  | 'BILLING_UNAVAILABLE'
+  | 'PROVIDER_RATE_LIMIT'
+  | 'MODEL_UNAVAILABLE'
+  | 'AGENT_TIMEOUT'
+  | 'CONTEXT_MISSING'
+  | 'REPOSITORY_ACCESS'
+  | 'UNKNOWN';
+
+/** Failures the user fixes by reconnecting or switching their AI model. */
+export const MODEL_ERROR_CODES: readonly JobErrorCode[] = [
+  'INVALID_API_KEY',
+  'MODEL_NOT_CONNECTED',
+  'BILLING_UNAVAILABLE',
+  'MODEL_UNAVAILABLE',
+];
+
 export interface ImplementationJob {
   id: string;
   status: 'queued' | 'running' | 'completed' | 'failed';
-  result: ImplementationResult | null;
+  /** On failed jobs this holds only `errorCode`; read other fields after checking pullRequestUrl. */
+  result: (ImplementationResult & { errorCode?: JobErrorCode }) | null;
   error: string | null;
   createdAt: string;
   startedAt: string | null;
