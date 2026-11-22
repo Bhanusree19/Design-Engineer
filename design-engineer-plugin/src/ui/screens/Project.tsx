@@ -4,6 +4,7 @@
 import React, { useState } from 'react';
 import * as api from '../../api/client';
 import { BackHeader, Body, Footer, InfoBanner, Messages, Section, Sheet, Spinner, SyncIcon, type SyncKind } from '../components/Chrome';
+import { GRADE_LABEL, gradeTone } from '../components/Fidelity';
 import { Branch, Model, PullRequest, SyncOk, Warn, XCircle } from '../components/Icons';
 import {
   agentDetail,
@@ -163,6 +164,11 @@ export function ProjectPage({ state, actions }: Props) {
                     <b>{title}{isNaN(when.getTime()) ? '' : ` · ${when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`}</b>
                     <span>{bits.join(' · ') || ' '}</span>
                   </span>
+                  {b.status === 'completed' && b.fidelity && (
+                    <span className={`tag fid-tag ${gradeTone(b.fidelity.grade)}`} title={`Design fidelity ${Math.round(b.fidelity.score)}/100 · ${GRADE_LABEL[b.fidelity.grade]}`}>
+                      {Math.round(b.fidelity.score)}% match
+                    </span>
+                  )}
                   {b.status === 'completed' ? (
                     b.pullRequestUrl ? (
                       <a className="tag ok" href={b.pullRequestUrl} target="_blank" rel="noreferrer">{pr ? `PR #${pr}` : 'PR'}</a>

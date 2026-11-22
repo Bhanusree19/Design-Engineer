@@ -5,6 +5,8 @@ import * as api from '../../api/client';
 import { BackHeader, Body, Footer, Messages, Sheet, Spinner, SyncIcon, WaitRow } from '../components/Chrome';
 import { Alert, Branch, Check, ChevronDown, Clock, Cursor, External, Model, PullRequest, Refresh, XCircle } from '../components/Icons';
 import { linkProblem, linkSyncKind } from './Project';
+import { FidelityCard } from '../components/Fidelity';
+import { PreviewGallery } from '../components/Preview';
 import {
   agentDetail,
   agentLabel,
@@ -300,14 +302,16 @@ export function Result({ state, actions }: Props) {
     return (
       <>
         <BackHeader title={state.project?.name} onBack={actions.backToProject} />
-        <Body>
+        <Body className="scroll">
           <span className="big-ok"><Check /></span>
           <h3>Pull request ready to review</h3>
+          <PreviewGallery preview={r.preview} />
           <div className="pr">
             <div className="top"><PullRequest className="ico ok" /><b>{r.screens.join(', ') || 'Screens'}</b><span className="pill-ok">Open</span></div>
             {r.branch && <div className="br"><Branch className="ico" /><span>{r.branch} → {r.baseBranch}</span></div>}
             <div className="br"><span>{[r.repository, agentLabel(r.agent)].filter(Boolean).join(' · ')}</span></div>
           </div>
+          <FidelityCard fidelity={r.fidelity} />
           <Charge billed={r.billedSeconds} buffer={r.startBufferSeconds} />
         </Body>
         <Footer>

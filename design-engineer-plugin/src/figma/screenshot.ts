@@ -27,3 +27,15 @@ export async function exportNodeAsPngBase64(node: SceneNode): Promise<string> {
   });
   return uint8ArrayToBase64(bytes);
 }
+
+/**
+ * Reference image for the fidelity check: the frame exactly as Figma draws it,
+ * at 1x (scaled down only for very large frames, at most ~4 megapixels).
+ */
+export async function exportReferencePng(node: SceneNode): Promise<{ pngBase64: string; scale: number } | null> {
+  if (!('exportAsync' in node) || !('width' in node) || !('height' in node)) return null;
+  const pixels = Math.max(1, node.width * node.height);
+  const scale = pixels > 4_000_000 ? Math.sqrt(4_000_000 / pixels) : 1;
+  const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: scale } });
+  return { pngBase64: uint8ArrayToBase64(bytes), scale };
+}
