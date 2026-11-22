@@ -44,6 +44,15 @@ jobs:
       - name: Plugin build
         run: npm run build
         working-directory: design-engineer-plugin
+      - name: Install Chromium for role-based Figma UI tests
+        run: npm install --no-save playwright && npx playwright install --with-deps chromium
+        working-directory: design-engineer-plugin
+      - name: Build Figma browser test UI
+        run: npm run build:preview
+        working-directory: design-engineer-plugin
+      - name: Test admin scorecard and normal-user preview in Chromium
+        run: npm run test:e2e
+        working-directory: design-engineer-plugin
       - name: Build marketing website and policy pages
         run: npm run build
         working-directory: website
