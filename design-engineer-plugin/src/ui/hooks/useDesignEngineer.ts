@@ -102,6 +102,8 @@ export interface BuildResult {
   error: string | null;
   billedSeconds: number | null;
   startBufferSeconds: number;
+  fidelity: api.FidelityResult | null;
+  preview: api.BuildPreview | null;
 }
 
 interface Prefs {
@@ -1435,7 +1437,13 @@ export function useDesignEngineer() {
     try {
       await authed(() => api.submitScreens(p.id, target.repository, target.branch, results));
       const merged = new Map<string, DesignContext>();
-      for (const s of results) if (s.screen) merged.set(s.screen, s);
+      // Keep only the current selection, not previous build screens.
+      // The Figma screenshot reference belongs on the server, not in UI state.
+      for (const s of results) {
+        if (!s.screen) continue;
+        const { fidelityReference: _ref, ...kept } = s;
+        merged.set(s.screen, kept);
+      }
       setPlan(null);
       setScreens(Array.from(merged.values()));
       setBusy(null);
@@ -1654,6 +1662,8 @@ export function useDesignEngineer() {
       error: ok ? null : status.error || (status.status === 'completed' ? 'The build finished without a pull request.' : 'The build stopped.'),
       billedSeconds: billed,
       startBufferSeconds: buffer,
+      fidelity: ok && r?.fidelity ? r.fidelity : null,
+      preview: ok && r?.preview ? r.preview : null,
     });
     void refreshBilling();
     if (current().name === 'running') replace({ name: 'result' });
