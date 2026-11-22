@@ -23,6 +23,13 @@ function target() {
  * @param {Array}  p.screens    [{ name, context, referencePng }]
  * @param {number} [p.budgetMs] total time allowed (build + browser)
  */
+// Install + web build get everything except what the browser part needs
+// (90 s covers screenshots, prototype clicks and two extra widths).
+const BROWSER_RESERVE_MS = 90 * 1000;
+function prepareBudgetMs(budgetMs) {
+  return Math.max(budgetMs * 0.6, budgetMs - BROWSER_RESERVE_MS);
+}
+
 async function runFidelity({ worktree, scratch, screens, budgetMs = 7 * 60 * 1000, log = console.log }) {
   const started = Date.now();
   let server = null;
@@ -33,7 +40,7 @@ async function runFidelity({ worktree, scratch, screens, budgetMs = 7 * 60 * 100
     if (!manifest && screens.length > 1) {
       return { status: 'unavailable', reason: `${app.MANIFEST} is missing, so the screens' routes are unknown` };
     }
-    const built = await app.prepareStaticApp({ worktree, scratch: path.join(scratch, 'fidelity'), manifest, log, budgetMs: budgetMs * 0.6 });
+    const built = await app.prepareStaticApp({ worktree, scratch: path.join(scratch, 'fidelity'), manifest, log, budgetMs: prepareBudgetMs(budgetMs) });
     log(`[fidelity] ${built.framework} web build ready in ${Math.round(built.ms / 1000)} s`);
     server = await app.serveStatic(built.root);
     const remaining = Math.max(30000, budgetMs - (Date.now() - started));
@@ -116,4 +123,4 @@ F. Write design-engineer.fidelity.json at the repository root, and commit it:
    { "version": 1, "appRoot": "<folder with the app's package.json, '.' when at the root>", "screens": [ { "name": "<screen name exactly as above>", "rootId": "<root node id>", "route": "/<path that opens this screen directly>" } ] }`;
 }
 
-module.exports = { runFidelity, checkWithRepair, validReferencePng, promptContract, target, enabled, report, DEFAULT_TARGET };
+module.exports = { prepareBudgetMs, runFidelity, checkWithRepair, validReferencePng, promptContract, target, enabled, report, DEFAULT_TARGET };

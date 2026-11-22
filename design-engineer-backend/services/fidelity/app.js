@@ -135,7 +135,8 @@ async function prepareStaticApp({ worktree, scratch, manifest, log = () => {}, b
   }
   const [bcmd, bargs] = buildCommand(fw.kind, appDir);
   log(`[fidelity] Building the ${fw.kind} app for the web`);
-  await runIsolated(bcmd, bargs, { cwd: appDir, home, identity, timeoutMs: Math.min(left(), 4 * 60 * 1000), log });
+  // Expo/Metro web exports are CPU-bound and slow on a half-vCPU container.
+  await runIsolated(bcmd, bargs, { cwd: appDir, home, identity, timeoutMs: Math.min(left(), 6 * 60 * 1000), log });
   let root = path.join(appDir, OUT_DIR);
   if (fw.kind === 'script') {
     root = ['dist', 'build', 'web-build', 'out'].map((d) => path.join(appDir, d)).find((d) => fs.existsSync(path.join(d, 'index.html')));

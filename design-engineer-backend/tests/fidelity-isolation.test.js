@@ -33,3 +33,11 @@ test('isolated agent user can install and build in the fidelity scratch folder',
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('install + web build get all but 90 s of the check budget', () => {
+  const { prepareBudgetMs } = require('../services/fidelity');
+  // 9-minute check: 7.5 minutes to install and build (was 60 % = 5.4 min, and 3 min at the old 5-min budget).
+  assert.equal(prepareBudgetMs(9 * 60 * 1000), 7.5 * 60 * 1000);
+  // Very short checks still keep 60 % for the build.
+  assert.equal(prepareBudgetMs(60 * 1000), 36 * 1000);
+});

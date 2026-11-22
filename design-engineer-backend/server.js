@@ -2164,7 +2164,10 @@ async function appendTestInstructions(
 // Fidelity check time limits. A build holds 15 minutes; keep ~90 s for the
 // commit, push and pull request after the last check.
 const FIDELITY_JOB_BUDGET_MS=Number(process.env.FIDELITY_JOB_BUDGET_MS)||14*60*1000;
-const FIDELITY_CHECK_BUDGET_MS=Number(process.env.FIDELITY_CHECK_BUDGET_MS)||5*60*1000;
+// The check may use up to 9 min of what the agent leaves (job budget 14 min,
+// reservation 15 min). 5 min was too short for npm install + an Expo web
+// export on a standard-1 container, so the preview never got built.
+const FIDELITY_CHECK_BUDGET_MS=Number(process.env.FIDELITY_CHECK_BUDGET_MS)||9*60*1000;
 const FIDELITY_RESERVE_MS=90*1000;
 const FIDELITY_REPAIR_MIN_MS=Number(process.env.FIDELITY_REPAIR_MIN_MS)||5*60*1000;
 const FIDELITY_REPAIR_ROUNDS=Math.max(0,Math.min(3,Number(process.env.FIDELITY_REPAIR_ROUNDS??1)));

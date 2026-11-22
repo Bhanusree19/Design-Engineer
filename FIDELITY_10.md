@@ -102,7 +102,7 @@ missing transition, fixed widths) scores about 45 and every mistake is named.
 | `FIDELITY_REPAIR_ROUNDS` | 1 | 0 to 3 |
 | `FIDELITY_REPAIR_MIN_MS` | 300000 | Build time that must be left to start a repair round |
 | `FIDELITY_JOB_BUDGET_MS` | 840000 | Total build time the check plans around (the build holds 15 min) |
-| `FIDELITY_CHECK_BUDGET_MS` | 300000 | Max time for one check (install + build + browser) |
+| `FIDELITY_CHECK_BUDGET_MS` | 540000 | Max time for one check (install + build + browser); install + build get all but 90 s |
 | `FIDELITY_CHROMIUM_PATH` | Playwright's | Use another Chrome/Chromium |
 
 ## Safety
