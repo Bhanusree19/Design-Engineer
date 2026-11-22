@@ -258,6 +258,7 @@ export function Billing({ state, actions }: Props) {
   const builds = state.billingHistory?.builds || [];
   const renewal = b?.renewal;
   const canCancelRenewal = renewal && !renewal.cancelAtPeriodEnd && ['active','created','authenticated','pending','halted'].includes(renewal.status);
+  const canCancelPrepaid = (u?.plan === 'plus' || u?.plan === 'studio') && !renewal && !b?.membership?.prepaidCancellationScheduled;
   const activePaid = u?.plan === 'plus' || u?.plan === 'studio';
   return (
     <>
@@ -282,7 +283,7 @@ export function Billing({ state, actions }: Props) {
             {renewal?.status === 'created' || renewal?.status === 'authenticated' ? <p className="lede" role="status">Subscription authorization pending. Your upgrade starts after a captured payment is verified.</p> : null}
             {renewal?.status === 'pending' || renewal?.status === 'halted' ? <p className="lede" role="alert">Razorpay could not complete automatic renewal. Your existing paid benefits remain only until their end date. Check your mandate or payment method.</p> : null}
             {u?.plan === 'free' && !showHistory && !showPlans && <button type="button" className="btn btn-primary" onClick={() => setShowPlans(true)}>Upgrade your plan</button>}
-            {u?.plan === 'plus' && !showHistory && b?.paymentsEnabled && <button type="button" className="btn btn-primary" disabled={state.busy === 'checkout'} onClick={() => void actions.buyPlan('studio')}>Upgrade to Studio</button>}
+            {u?.plan === 'plus' && !showHistory && b?.paymentsEnabled && <button type="button" className="btn btn-primary" disabled={state.busy === 'checkout'} onClick={() => void actions.buyPlan('studio')}>Upgrade to Studio{b?.recurringEnabled ? ' with AutoPay' : ' · one-time payment'}</button>}
             {canCancelRenewal && !showHistory && <div className="form">
               {!confirmCancel ? <button type="button" className="btn btn-ghost" onClick={() => setConfirmCancel(true)}>Cancel automatic renewal</button> : <>
                 <p className="lede">Cancel future payments? Your paid benefits remain until the paid period ends.</p>
@@ -293,6 +294,16 @@ export function Billing({ state, actions }: Props) {
               </>}
             </div>}
             {activePaid && !renewal && <p className="lede small">This is a prepaid, one-time membership. Automatic renewal is not enabled for it.</p>}
+            {activePaid && !renewal && b?.membership?.prepaidCancellationScheduled && <p className="lede" role="status">Cancellation recorded. You keep your paid minutes until {renews || 'the existing expiry date'}. No automatic payment is scheduled.</p>}
+            {canCancelPrepaid && !showHistory && <div className="form">
+              {!confirmCancel ? <button type="button" className="btn btn-ghost" onClick={() => setConfirmCancel(true)}>Cancel plan</button> : <>
+                <p className="lede">This prepaid plan already has no AutoPay. Confirming records that it will end on {renews || 'its original end date'}. Your remaining paid minutes stay available until then. No refund is issued.</p>
+                <div className="btn-row">
+                  <button type="button" className="btn btn-ghost" onClick={() => setConfirmCancel(false)}>Keep plan</button>
+                  <button type="button" className="btn btn-danger" disabled={state.busy === 'checkout'} onClick={() => { setConfirmCancel(false); void actions.cancelPrepaidPlan(); }}>Confirm end of plan</button>
+                </div>
+              </>}
+            </div>}
             {renewal?.status === 'cancelled' && <p className="lede small">Automatic renewal is cancelled. No further recurring charges are scheduled.</p>}
             <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Build minutes left">
               <i style={{ width: `${pct}%` }} />
