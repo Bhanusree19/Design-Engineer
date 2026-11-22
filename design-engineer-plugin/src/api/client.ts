@@ -512,6 +512,7 @@ export interface BillingStatus {
   usage: MinuteUsage;
   plans: SubscriptionPlan[];
   paymentsEnabled: boolean;
+  membership?: {expired:boolean;previousPlan:string|null;periodEnd:string|null};
 }
 export function billingStatus(): Promise<BillingStatus> {
   return request('/api/billing/status');

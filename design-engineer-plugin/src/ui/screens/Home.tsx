@@ -44,7 +44,7 @@ export function MinuteBar({ state, actions }: Props) {
       <span>
         <b>{free ? 'Free plan' : b.usage.planName}</b> · {left} min left{!free && renews ? ` · renews ${renews}` : ''}
       </span>
-      <button type="button" className="link" onClick={() => void actions.openBilling()}>{free ? 'Plans' : 'Manage'}</button>
+      <button type="button" className="link" onClick={() => void actions.openBilling()}>{free ? 'Upgrade' : 'Manage'}</button>
     </div>
   );
 }
@@ -250,6 +250,8 @@ export function Billing({ state, actions }: Props) {
   const leftMin = u ? Math.floor(Math.max(0, u.availableSeconds) / 60) : 0;
   const pct = u && u.allowanceSeconds > 0 ? Math.min(100, Math.round((Math.max(0, u.availableSeconds) / u.allowanceSeconds) * 100)) : 0;
   const renews = renewDate(u?.expiresAt || null);
+  const expired = b?.membership?.expired && u?.plan === 'free';
+  const canUpgradeTo = (slug: string) => u?.plan === 'free' ? slug === 'plus' || slug === 'studio' : u?.plan === 'plus' && slug === 'studio';
   const plans = (b?.plans || []).slice().sort((a, c) => a.sort_order - c.sort_order);
   const builds = state.billingHistory?.builds || [];
   return (
@@ -264,8 +266,12 @@ export function Billing({ state, actions }: Props) {
           <>
             <div className="meter-row">
               <span><b>{leftMin} min</b> left of {allowanceMin}</span>
-              {renews && u?.plan !== 'free' && <span>Renews {renews}</span>}
+              {renews && u?.plan !== 'free' && <span>Ends {renews}</span>}
             </div>
+            {expired && <p className="lede" role="status">Your {b?.membership?.previousPlan === 'studio' ? 'Studio' : 'Plus'} plan ended on {renewDate(b?.membership?.periodEnd || null)}. You are now on Free. Upgrade to restore paid benefits.</p>}
+            {u?.plan === 'studio' && <p className="lede" role="status">You are already on Studio, our highest plan. No upgrade or additional payment is required.</p>}
+            {u?.plan === 'plus' && <p className="lede">You are on Plus. Upgrade to Studio for the next tier.</p>}
+            {u?.plan === 'free' && !expired && <p className="lede">You are on Free. Choose Plus or Studio to upgrade.</p>}
             <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Build minutes left">
               <i style={{ width: `${pct}%` }} />
             </div>
@@ -296,12 +302,18 @@ export function Billing({ state, actions }: Props) {
                       <span>{p.build_minutes} build minutes · {PLAN_LINES[p.slug] || ''}</span>
                     </>
                   );
-                  return paid && b.paymentsEnabled ? (
-                    <button key={p.slug} type="button" className={`plan-c ${currentPlan ? 'on' : ''}`} disabled={state.busy === 'checkout'} onClick={() => void actions.buyPlan(p.slug as 'plus' | 'studio')} aria-label={`${currentPlan ? 'Renew' : 'Choose'} ${p.name}`}>
+                  const upgradeAllowed = paid && canUpgradeTo(p.slug);
+                  return upgradeAllowed && b.paymentsEnabled ? (
+                    <button key={p.slug} type="button" className="plan-c" disabled={state.busy === 'checkout'} onClick={() => void actions.buyPlan(p.slug as 'plus' | 'studio')} aria-label={`Upgrade to ${p.name}`}>
                       {inner}
+                      <span className="pr-v">Upgrade to {p.name}</span>
                     </button>
                   ) : (
-                    <div key={p.slug} className={`plan-c ${currentPlan ? 'on' : ''}`}>{inner}</div>
+                    <div key={p.slug} className={`plan-c ${currentPlan ? 'on' : ''}`}>
+                      {inner}
+                      {currentPlan && <span className="help">Current plan · no payment needed</span>}
+                      {paid && !currentPlan && !upgradeAllowed && <span className="help">Not available as an upgrade</span>}
+                    </div>
                   );
                 })}
               </div>

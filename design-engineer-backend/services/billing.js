@@ -13,6 +13,9 @@ function constantHexEqual(a,b){
  return crypto.timingSafeEqual(Buffer.from(a,'hex'),Buffer.from(b,'hex'));
 }
 function sha(value){return crypto.createHash('sha256').update(value).digest('hex')}
+const PLAN_RANK={free:0,plus:1,studio:2};
+function canUpgrade(current,target){return Object.hasOwn(PLAN_RANK,target)&&Object.hasOwn(PLAN_RANK,current)&&PLAN_RANK[target]>PLAN_RANK[current]}
+function paidMembershipExpired(sub,at=Date.now()){return !!sub&&['plus','studio'].includes(sub.plan_slug)&&!!sub.expires_at&&Date.parse(sub.expires_at)<=at}
 function apiError(message,status=503){const e=new Error(message);e.status=status;return e}
 async function service(path,{method='GET',body,prefer}={}){
  if(!BASE()||!KEY())throw apiError('Subscription storage is not configured.');
@@ -44,6 +47,7 @@ async function razorpay(path,{method='GET',body}={}){
  return json;
 }
 async function balance(userId){return rpc('minute_balance',{p_user:userId})}
+async function membership(userId){const rows=await service('user_subscriptions?user_id=eq.'+encode(userId)+'&select=plan_slug,status,expires_at&limit=1');return rows?.[0]||null;}
 async function finishJob(jobId,status,result=null,error=null){
  return rpc('finish_metered_job',{p_job:jobId,p_status:status,p_result:result,p_error:error});
 }
@@ -145,12 +149,13 @@ function registerRoutes(app,requireUser){
  app.get('/api/billing/status',async(req,res)=>{
   const auth=await requireUser(req,res);if(!auth)return;
   try{
-   const [usage,plans]=await Promise.all([
+   const [usage,plans,sub]=await Promise.all([
     balance(auth.user.id),
     service('plans?is_active=eq.true&slug=in.(free,plus,studio)'+
-      '&select=slug,name,build_minutes,price_inr,currency,features,sort_order&order=sort_order.asc')
+      '&select=slug,name,build_minutes,price_inr,currency,features,sort_order&order=sort_order.asc'),
+    membership(auth.user.id)
    ]);
-   res.set('Cache-Control','no-store').json({usage,plans,paymentsEnabled:envReady()});
+   res.set('Cache-Control','no-store').json({usage,plans,paymentsEnabled:envReady(),membership:{expired:paidMembershipExpired(sub),previousPlan:paidMembershipExpired(sub)?sub.plan_slug:null,periodEnd:sub?.expires_at||null}});
   }catch(error){return respondError(res,error)}
  });
  app.get('/api/billing/history',async(req,res)=>{
@@ -168,6 +173,8 @@ function registerRoutes(app,requireUser){
   const slug=req.body?.plan;
   if(!['plus','studio'].includes(slug))return res.status(400).json({error:'Choose Plus or Studio.'});
   try{
+   const usage=await balance(auth.user.id);
+   if(!canUpgrade(usage.plan,slug))return res.status(409).json({error:usage.plan==='studio'?'You are already on the highest Studio plan.':'You already have this plan or a higher plan. Only upgrades are available.'});
    if(!envReady())return res.status(503).json({error:'Razorpay keys not configured.'});
    // Avoid unbounded provider-side order creation from repeated plugin clicks.
    const since=new Date(Date.now()-60*60*1000).toISOString();
@@ -259,4 +266,4 @@ function registerRoutes(app,requireUser){
 }
 module.exports={registerWebhook,registerRoutes,balance,createJob,claimJob,meterJob,
  finishJob,constantHexEqual,verifyCapturedPayment,grantPayment,revokeRefund,
- refundedAmount,history};
+ refundedAmount,history,canUpgrade,paidMembershipExpired};

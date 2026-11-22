@@ -608,6 +608,11 @@ export function useDesignEngineer() {
   }
 
   async function buyPlan(plan: 'plus' | 'studio') {
+    const currentPlan = billing?.usage.plan || (await refreshBilling())?.usage.plan;
+    if (currentPlan === 'studio' || (currentPlan === 'plus' && plan !== 'studio')) {
+      setNotice(currentPlan === 'studio' ? 'You are already on Studio, the highest plan.' : 'You are already on Plus. Upgrade to Studio instead.');
+      return;
+    }
     clearFeedback();
     setBusy('checkout');
     try {
