@@ -9,6 +9,23 @@ const PRIVATE_ENV_KEYS=[
   'GITHUB_CLIENT_ID','GITHUB_CLIENT_SECRET','ENCRYPTION_KEY','BACKEND_URL',
   'GATEWAY_SHARED_SECRET'
 ];
+// Worker secrets/vars the backend reads but can run without. Before
+// deployment 11 these were set on the Worker but never reached the
+// containers (subscriptions 503'd and no account was ever admin).
+export const OPTIONAL_ENV_KEYS=[
+  'RAZORPAY_PLUS_PLAN_ID','RAZORPAY_STUDIO_PLAN_ID',
+  'ADMIN_EMAILS','ADMIN_USER_IDS','WEBSITE_URL',
+  'FIDELITY_CHECK','FIDELITY_TARGET','FIDELITY_REPAIR_ROUNDS',
+  'FIDELITY_REPAIR_MIN_MS','FIDELITY_JOB_BUDGET_MS','FIDELITY_CHECK_BUDGET_MS'
+];
+export function pickDefined(values,keys){
+  const out={};
+  for(const key of keys){
+    const value=values?.[key];
+    if(typeof value==='string'&&value.trim())out[key]=value;
+  }
+  return out;
+}
 const JOB_ID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function missingConfig(values){
   return PRIVATE_ENV_KEYS.filter(key=>typeof values[key]!=='string'||!values[key].trim());
@@ -27,7 +44,10 @@ const backendEnv={
   GATEWAY_SHARED_SECRET:secrets.GATEWAY_SHARED_SECRET,
   RAZORPAY_KEY_ID:secrets.RAZORPAY_KEY_ID,
   RAZORPAY_KEY_SECRET:secrets.RAZORPAY_KEY_SECRET,
-  RAZORPAY_WEBHOOK_SECRET:secrets.RAZORPAY_WEBHOOK_SECRET
+  RAZORPAY_WEBHOOK_SECRET:secrets.RAZORPAY_WEBHOOK_SECRET,
+  // Optional settings: forwarded only when set on the Worker, so the
+  // container sees exactly what `wrangler secret put` configured.
+  ...pickDefined(secrets,OPTIONAL_ENV_KEYS)
 };
 export class DesignEngineerContainer extends Container {
   defaultPort=4000;

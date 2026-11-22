@@ -100,6 +100,8 @@ export interface BuildResult {
   agent: api.Agent | null;
   screens: string[];
   error: string | null;
+  /** Set on failed builds; drives the "Reconnect AI model" action. */
+  errorCode: api.JobErrorCode | null;
   billedSeconds: number | null;
   startBufferSeconds: number;
   fidelity: api.FidelityResult | null;
@@ -1618,6 +1620,7 @@ export function useDesignEngineer() {
       agent: job.agent,
       screens: r?.screens?.length ? r.screens : job.screens,
       error: ok ? null : status.error || (status.status === 'completed' ? 'The build finished without a pull request.' : 'The build stopped.'),
+      errorCode: ok ? null : r?.errorCode || null,
       billedSeconds: billed,
       startBufferSeconds: buffer,
       fidelity: ok && r?.fidelity ? r.fidelity : null,

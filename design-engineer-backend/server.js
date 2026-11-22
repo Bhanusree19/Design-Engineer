@@ -34,6 +34,7 @@ const billing=require('./services/billing');
 const flowRevamp=require('./services/flow-revamp');
 const repoContext=require('./services/repo-context');
 const fidelity=require('./services/fidelity');
+const jobErrors=require('./services/job-errors');
 const {isAdmin}=require('./services/admin');
 
 const app = express();
@@ -2715,13 +2716,17 @@ app.post('/internal/jobs/execute',async(req,res)=>{
           signal:AbortSignal.timeout(17*60*1000)
         });
         const body=await result.json().catch(()=>({}));
-        if(!result.ok||!body.implementations?.[0]?.pullRequestUrl)
-          throw new Error('Implementation failed. See server logs for details.');
+        if(!result.ok||!body.implementations?.[0]?.pullRequestUrl){
+          // Carry the classified reason (never raw agent output) to the plugin.
+          const failure=new Error('Implementation failed. See server logs for details.');
+          failure.code=jobErrors.fromResponse(body).code;
+          throw failure;
+        }
         await billing.finishJob(jobId,'completed',body.implementations[0]);
       }catch(error){
-        console.error('[Design Engineer] Isolated job failed',jobId,error?.name||'error');
-        await billing.finishJob(jobId,'failed',null,
-          'Implementation could not finish. Retry after checking the service logs.')
+        const code=jobErrors.classify(error);
+        console.error('[Design Engineer] Isolated job failed',jobId,code);
+        await billing.finishJob(jobId,'failed',{errorCode:code},jobErrors.messageFor(code))
           .catch(()=>{});
       }finally{
         clearInterval(heartbeat);
@@ -2845,8 +2850,9 @@ app.post('/api/screens/implement', async (req, res) => {
 
     res.json({ success: true, implementations: [implementation] });
   } catch (error) {
-    console.error('[Design Engineer] Failed to implement screens:', error);
-    res.status(500).json({ error: error.message || 'Failed to implement screens.' });
+    const code = jobErrors.classify(error);
+    console.error('[Design Engineer] Failed to implement screens:', code, error);
+    res.status(500).json({ error: jobErrors.messageFor(code), code });
   }
 });
 

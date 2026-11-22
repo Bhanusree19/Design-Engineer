@@ -318,6 +318,7 @@ export function Result({ state, actions }: Props) {
       </>
     );
   }
+  const modelFix = !!r.errorCode && api.MODEL_ERROR_CODES.includes(r.errorCode);
   return (
     <>
       <BackHeader title={state.project?.name} onBack={actions.back} />
@@ -329,10 +330,13 @@ export function Result({ state, actions }: Props) {
         </div>
         <Messages error={state.error} notice={state.notice} onDismiss={actions.dismissError} />
         <Charge billed={r.billedSeconds} buffer={r.startBufferSeconds} />
-        <p className="lede flush">{state.plan ? 'Your screens and plan are kept. Try again, or switch the model first.' : 'Open the project to build again.'}</p>
+        <p className="lede flush">{modelFix ? 'Your screens and plan are kept. Reconnect your AI model, then try again.' : state.plan ? 'Your screens and plan are kept. Try again, or switch the model first.' : 'Open the project to build again.'}</p>
       </Body>
       <Footer>
-        <button type="button" className="btn btn-primary" disabled={state.busy === 'starting'} onClick={() => void actions.tryAgain()}><Refresh />Try again</button>
+        {modelFix ? (
+          <button type="button" className="btn btn-primary" onClick={actions.openModel}>Reconnect AI model</button>
+        ) : null}
+        <button type="button" className={modelFix ? 'btn btn-ghost' : 'btn btn-primary'} disabled={state.busy === 'starting'} onClick={() => void actions.tryAgain()}><Refresh />Try again</button>
         <button type="button" className="btn btn-ghost" onClick={actions.backToPlan}>{state.plan ? 'Back to plan' : 'Back to project'}</button>
       </Footer>
     </>

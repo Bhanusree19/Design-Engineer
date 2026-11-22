@@ -45,3 +45,9 @@ test('Queue dispatches to distinct job containers with no OpenCode or credential
  assert(!runtime.includes('apiKey:'));
  assert(!runtime.includes('opencode/big-pickle'));
 });
+test('Paid Container forwards optional plan, admin and fidelity settings when set',()=>{
+ for(const key of ['RAZORPAY_PLUS_PLAN_ID','RAZORPAY_STUDIO_PLAN_ID','ADMIN_EMAILS',
+   'ADMIN_USER_IDS','FIDELITY_TARGET'])
+  assert.match(runtime,new RegExp("'"+key+"'"),key+' must reach the container');
+ assert.match(runtime,/\.\.\.pickDefined\(secrets,OPTIONAL_ENV_KEYS\)/);
+});
