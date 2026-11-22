@@ -54,6 +54,15 @@ function createRecurring({service,rpc,razorpay,encode,sha,constantHexEqual,balan
     const rows=await list(auth.user.id);
     if(rows.some(r=>r.status==='created'&&Date.parse(r.checkout_expires_at||'')>Date.now()))
       throw error('Subscription authorization is already pending. Complete it or retry after the link expires.');
+    for(const old of rows.filter(r=>r.status==='created')){
+      const remote=await razorpay('subscriptions/'+encode(old.razorpay_subscription_id));
+      if(!['created','cancelled','completed','expired'].includes(remote.status))
+        throw error('A previous mandate was authorized. Refresh your billing status before trying again.');
+      if(remote.status==='created')await cancelProvider(old.razorpay_subscription_id,false);
+      await service('recurring_subscriptions?razorpay_subscription_id=eq.'+encode(old.razorpay_subscription_id)+'&user_id=eq.'+encode(auth.user.id),{
+        method:'PATCH',body:{status:'cancelled',cancel_at_period_end:true,updated_at:new Date().toISOString()}
+      });
+    }
     if(rows.some(r=>r.plan_slug===slug&&['authenticated','active','pending','halted'].includes(r.status)))
       throw error('This plan already has an existing payment mandate. Check the subscription status before starting another.');
     if(rows.some(r=>!r.cancel_at_period_end&&['authenticated','active','pending','halted'].includes(r.status)&&

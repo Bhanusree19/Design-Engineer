@@ -1121,6 +1121,8 @@ create table if not exists public.recurring_subscriptions (
  created_at timestamptz not null default now(),
  updated_at timestamptz not null default now()
 );
+create unique index if not exists recurring_single_pending_authorization
+ on public.recurring_subscriptions(user_id) where status='created';
 create index if not exists recurring_user_created_idx
  on public.recurring_subscriptions(user_id,created_at desc);
 create unique index if not exists recurring_payment_source_unique
@@ -1176,7 +1178,7 @@ begin
  if p_period_end is not null and p_period_end between
       extract(epoch from now())::bigint-60 and extract(epoch from now()+interval '45 days')::bigint then
    update public.user_subscriptions
-   set expires_at=greatest(expires_at,to_timestamp(p_period_end)),updated_at=now()
+   set expires_at=to_timestamp(p_period_end),updated_at=now()
    where user_id=r.user_id and plan_slug=r.plan_slug;
  end if;
  update public.recurring_subscriptions
