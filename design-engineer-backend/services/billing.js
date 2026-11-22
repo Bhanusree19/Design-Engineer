@@ -48,7 +48,7 @@ async function razorpay(path,{method='GET',body}={}){
  return json;
 }
 async function balance(userId){return rpc('minute_balance',{p_user:userId})}
-async function membership(userId){const rows=await service('user_subscriptions?user_id=eq.'+encode(userId)+'&select=plan_slug,status,expires_at&limit=1');return rows?.[0]||null;}
+async function membership(userId){const rows=await service('user_subscriptions?user_id=eq.'+encode(userId)+'&select=plan_slug,status,expires_at,metadata&limit=1');return rows?.[0]||null;}
 async function finishJob(jobId,status,result=null,error=null){
  return rpc('finish_metered_job',{p_job:jobId,p_status:status,p_result:result,p_error:error});
 }
@@ -169,8 +169,21 @@ function registerRoutes(app,requireUser){
     membership(auth.user.id),
     recurring.status(auth.user.id)
    ]);
-   res.set('Cache-Control','no-store').json({usage,plans,paymentsEnabled:envReady(),...renewal,membership:{expired:paidMembershipExpired(sub),previousPlan:paidMembershipExpired(sub)?sub.plan_slug:null,periodEnd:sub?.expires_at||null}});
+   res.set('Cache-Control','no-store').json({usage,plans,paymentsEnabled:envReady(),...renewal,membership:{expired:paidMembershipExpired(sub),previousPlan:paidMembershipExpired(sub)?sub.plan_slug:null,periodEnd:sub?.expires_at||null,prepaidCancellationScheduled:!!sub?.metadata?.prepaid_cancelled_at}});
   }catch(error){return respondError(res,error)}
+ });
+ app.post('/api/billing/prepaid/cancel',async(req,res)=>{
+  const auth=await requireUser(req,res);if(!auth)return;
+  try {
+   const data=await rpc('cancel_prepaid_membership',{p_user:auth.user.id});
+   return res.set('Cache-Control','no-store').json(data);
+  } catch(error){
+   if(error?.message?.includes('NO_ACTIVE_PREPAID_PLAN'))
+    return res.status(409).json({error:'There is no active prepaid plan to cancel.'});
+   if(error?.message?.includes('RECURRING_MANDATE_MUST_BE_CANCELLED_SEPARATELY'))
+    return res.status(409).json({error:'Cancel the Razorpay automatic renewal instead.'});
+   return respondError(res,error);
+  }
  });
  app.get('/api/billing/history',async(req,res)=>{
   const auth=await requireUser(req,res);if(!auth)return;
