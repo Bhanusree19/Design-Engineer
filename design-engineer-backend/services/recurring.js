@@ -131,7 +131,7 @@ function createRecurring({service,rpc,razorpay,encode,sha,constantHexEqual,balan
      return res.status(400).type('html').send(checkout.renderNotice('Invalid subscription link','Return to Figma and choose your plan again.'));
    try{
     const rows=await service('recurring_subscriptions?razorpay_subscription_id=eq.'+encode(sub)+
-     '&select=user_id,plan_slug,status,checkout_token_hash,checkout_expires_at&limit=1');
+     '&select=user_id,plan_slug,amount_paise,status,checkout_token_hash,checkout_expires_at&limit=1');
     const row=rows?.[0];
     if(!row||row.status!=='created'||!constantHexEqual(sha(token),row.checkout_token_hash||'')||
       Date.parse(row.checkout_expires_at)<=Date.now())
@@ -143,7 +143,7 @@ function createRecurring({service,rpc,razorpay,encode,sha,constantHexEqual,balan
     return res.type('html').send(checkout.renderSubscriptionCheckout({
       subscriptionId:sub,token,keyId:process.env.RAZORPAY_KEY_ID,
       planName:plans?.[0]?.name||row.plan_slug,
-      priceInr:plans?.[0]?.price_inr||0,
+      priceInr:row.amount_paise/100,
       buildMinutes:plans?.[0]?.build_minutes||0
     }));
    }catch(e){return res.status(503).type('html').send(checkout.renderNotice('Subscription unavailable','Please try again later from Figma.'))}
@@ -156,9 +156,10 @@ function createRecurring({service,rpc,razorpay,encode,sha,constantHexEqual,balan
       return res.status(400).json({error:'Invalid subscription confirmation.'});
    try{
     const rows=await service('recurring_subscriptions?razorpay_subscription_id=eq.'+encode(sub)+
-     '&select=checkout_token_hash,checkout_expires_at&limit=1');
+     '&select=status,checkout_token_hash,checkout_expires_at&limit=1');
     const row=rows?.[0];
-    if(!row||!constantHexEqual(sha(token),row.checkout_token_hash||'')||
+    if(!row||row.status==='cancelled'||row.status==='completed'||
+      !constantHexEqual(sha(token),row.checkout_token_hash||'')||
       Date.parse(row.checkout_expires_at)<=Date.now())
       return res.status(403).json({error:'Authorization link expired. Check billing status.'});
     const expected=crypto.createHmac('sha256',process.env.RAZORPAY_KEY_SECRET)
@@ -166,7 +167,7 @@ function createRecurring({service,rpc,razorpay,encode,sha,constantHexEqual,balan
     if(!constantHexEqual(sig,expected))
       return res.status(401).json({error:'Invalid authorization signature.'});
     // A valid mandate approval is not necessarily a paid invoice.
-    return res.json({success:true,pendingActivation:true});
+    return res.json({success:true,pendingActivation:row.status!=='active'});
    }catch(e){return respondError(res,e)}
   });
  }

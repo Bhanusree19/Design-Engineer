@@ -176,7 +176,7 @@ function renderSubscriptionCheckout({subscriptionId,token,keyId,planName,priceIn
  'fetch("/billing/subscription/confirm",{method:"POST",headers:{"Content-Type":"application/json"},'+
  'body:JSON.stringify(Object.assign({},result,{token:token}))})'+
  '.then(function(r){if(!r.ok)throw Error();return r.json()})'+
- '.then(function(){label.textContent="Mandate authorized. Your plan activates after the first captured payment. Return to Figma and refresh Plans."})'+
+ '.then(function(info){label.textContent=info.pendingActivation?"Mandate authorized. Your plan activates after the first captured payment. Return to Figma and refresh Plans.":"Your subscription is active. Return to Figma to see your paid minutes."})'+
  '.catch(function(){label.textContent="Authorization could not be verified. Check your plan in Figma before retrying."})'+
  '},modal:{ondismiss:function(){label.textContent="Authorization cancelled. No recurring mandate was confirmed."}}}));'+
  'rz.on("payment.failed",function(){label.textContent="Payment authorization failed. Please retry."});rz.open()'+

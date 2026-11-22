@@ -77,7 +77,7 @@ begin
  end if;
  update public.recurring_subscriptions
  set status=case when status in ('cancelled','completed') then status else 'active' end,
- last_charge_at=now(),checkout_token_hash=null,updated_at=now()
+ last_charge_at=now(),updated_at=now()
  where id=r.id;
  return true;
 end;
