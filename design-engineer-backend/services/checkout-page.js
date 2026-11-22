@@ -157,6 +157,8 @@ function renderCheckout({ planName, buildMinutes, amount, currency, keyId, order
 
 
 function renderSubscriptionCheckout({subscriptionId,token,keyId,planName,priceInr,buildMinutes}){
+ const terms=siteLink('/terms'),refunds=siteLink('/refunds');
+ const legal=terms&&refunds ? '<p class="small">Read our <a href="'+escaped(terms)+'">Terms</a> and <a href="'+escaped(refunds)+'">Cancellation and refund policy</a> before authorizing recurring payments.</p>' : '<p class="small">Review the Design Engineer terms and cancellation/refund policy before authorizing recurring payments.</p>';
  const options={key:keyId,subscription_id:subscriptionId,name:'Design Engineer',
    description:planName+' monthly membership · automatic renewal',theme:{color:'#0D99FF'}};
  const body='<main><section class="card"><p class="chip">'+escaped(planName)+' · monthly AutoPay</p>'+
@@ -164,6 +166,7 @@ function renderSubscriptionCheckout({subscriptionId,token,keyId,planName,priceIn
  '<p class="small">'+escaped(buildMinutes)+' build minutes per paid period. Monthly price: ₹'+
  escaped(priceInr.toLocaleString('en-IN'))+
  '. Your card or eligible UPI mandate is charged each month after authorization. You can cancel future renewal in Figma. If you cancel, paid benefits remain until the end of the paid period.</p>'+
+ legal+
  '<button id="pay" class="btn" type="button">Authorize monthly AutoPay with Razorpay</button>'+
  '<p class="inline-msg" id="status" role="status"></p>'+
  '<p class="small">You will not receive paid minutes until Razorpay confirms a successful captured plan charge. Supported recurring payment methods depend on your bank and Razorpay account settings.</p></section></main>'+
@@ -178,7 +181,7 @@ function renderSubscriptionCheckout({subscriptionId,token,keyId,planName,priceIn
  '.then(function(r){if(!r.ok)throw Error();return r.json()})'+
  '.then(function(info){label.textContent=info.pendingActivation?"Mandate authorized. Your plan activates after the first captured payment. Return to Figma and refresh Plans.":"Your subscription is active. Return to Figma to see your paid minutes."})'+
  '.catch(function(){label.textContent="Authorization could not be verified. Check your plan in Figma before retrying."})'+
- '},modal:{ondismiss:function(){label.textContent="Authorization cancelled. No recurring mandate was confirmed."}}}));'+
+ '},modal:{ondismiss:function(){label.textContent="Authorization window closed. Check your subscription status in Figma before trying again."}}}));'+
  'rz.on("payment.failed",function(){label.textContent="Payment authorization failed. Please retry."});rz.open()'+
  '};})();</script>';
  return shell('Subscription authorization',body);
