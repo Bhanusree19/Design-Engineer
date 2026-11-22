@@ -1,3 +1,5 @@
+> Historical deployment 06 one-time payment guide. For newly added recurring mandates and cancellation see [SUBSCRIPTIONS_12_AUTORENEW_DEPLOY.md](SUBSCRIPTIONS_12_AUTORENEW_DEPLOY.md).
+
 # Design Engineer Deployment 06 — minute subscriptions + Razorpay
 
 **Branch:** `design-engineer-subscriptions-minutes-razorpay-06` created from
