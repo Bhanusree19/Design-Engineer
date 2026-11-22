@@ -7,6 +7,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY build/backend/package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
+# Fidelity previews: Chromium and bundled fonts for isolated headless checks.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN npx --no-install playwright-core install --with-deps chromium \
+    && chmod -R a+rX /ms-playwright \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN npm install -g --no-audit --no-fund @anthropic-ai/claude-code
 COPY build/backend/ ./
 # This service launches isolated unprivileged CLI processes; the Express
