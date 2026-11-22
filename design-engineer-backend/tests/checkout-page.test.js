@@ -32,7 +32,10 @@ const payment={plan_slug:'plus',amount:79900,currency:'INR',status:'created',
  checkout_token_hash:sha(TOKEN),checkout_expires_at:new Date(Date.now()+600000).toISOString()};
 
 test('checkout page shows the plan, minutes and price in the website design',async()=>{
- await withRoute((path)=>path.endsWith('/payments')?[payment]:[{name:'Plus',build_minutes:100}],async(get)=>{
+ await withRoute((path)=>{
+   if(path.endsWith('/rpc/minute_balance'))return {plan:'free'};
+   return path.endsWith('/payments')?[{...payment,user_id:'user1'}]:[{name:'Plus',build_minutes:100}];
+ },async(get)=>{
   const res=await get('/billing/checkout?order=order_ABC123&token='+TOKEN);
   assert.equal(res.status,200);
   const html=await res.text();
@@ -67,4 +70,13 @@ test('plan names and options are escaped against HTML and script injection',()=>
  assert.doesNotMatch(html,/<img src=x/);
  assert.doesNotMatch(html,/<\/script><img/);
  assert.match(html,/\\u003c\/script\\u003e/);
+});
+
+test('stale checkout link cannot charge a user already on Studio',async()=>{
+ await withRoute(path=>path.endsWith('/rpc/minute_balance')?{plan:'studio'}:
+   path.endsWith('/payments')?[{...payment,user_id:'user1'}]:null,async(get)=>{
+   const res=await get('/billing/checkout?order=order_ABC123&token='+TOKEN);
+   assert.equal(res.status,409);
+   assert.match(await res.text(),/You already have this plan/);
+ });
 });
