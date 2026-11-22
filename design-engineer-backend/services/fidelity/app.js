@@ -106,7 +106,13 @@ async function prepareStaticApp({ worktree, scratch, manifest, log = () => {}, b
   const work = path.join(scratch, 'app');
   const home = path.join(scratch, 'home');
   await fs.promises.rm(scratch, { recursive: true, force: true });
-  await fs.promises.mkdir(home, { recursive: true, mode: 0o700 });
+  // A recursive mkdir applies `mode` to EVERY folder it creates. Creating
+  // home with 0700 directly also made the job's fidelity-N folder root-only,
+  // so the isolated agent user could not reach app/ and npm install failed
+  // with EACCES (no check, no preview). Open the path for traversal only
+  // (0711: no listing of siblings) and keep 0700 on the home itself.
+  await fs.promises.mkdir(scratch, { recursive: true, mode: 0o711 });
+  await fs.promises.mkdir(home, { mode: 0o700 });
   await fs.promises.cp(worktree, work, {
     recursive: true, verbatimSymlinks: true,
     filter: (src) => path.basename(src) !== '.git' && path.basename(src) !== OUT_DIR,
