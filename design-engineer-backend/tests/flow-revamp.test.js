@@ -82,7 +82,7 @@ function fakeDb({ migrated = true } = {}) {
   return { t, pgQuery, calls };
 }
 
-async function setup(opts) {
+async function setup(opts, extraDeps = {}) {
   const db = fakeDb(opts);
   const app = express();
   app.use(express.json());
@@ -95,6 +95,7 @@ async function setup(opts) {
     requireUser, pgQuery: db.pgQuery, validateSelection,
     listConnections: async () => [{ provider: 'anthropic', status: 'verified', updated_at: '2026-01-01', encrypted_credential: 'SECRET' }],
     billingHistory: async () => ({ builds: db.t.implementation_jobs.map((j) => ({ jobId: j.id, billedSeconds: j.billed, screenCount: 2 })) }),
+    ...extraDeps,
   });
   const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -235,6 +236,19 @@ test('builds list the project\'s jobs with billed seconds and the 10 s buffer', 
     assert.equal(r.body.builds[0].pullRequestUrl, 'https://github.com/acme/web/pull/3');
     assert.equal(r.body.builds[1].error, 'boom');
   } finally { s.close(); }
+});
+
+test('builds carry the fidelity score only for the admin account', async () => {
+  const fid = { status: 'measured', score: 93.6, grade: 'close', target: 90, screens: [{ name: 'Login', issues: [{ message: 'x' }] }] };
+  for (const admin of [false, true]) {
+    const s = await setup(undefined, { isAdmin: () => admin });
+    try {
+      s.db.t.implementation_jobs.push({ id: 'j1', user_id: USER, project_id: PROJECT, status: 'completed', result: { pullRequestUrl: 'https://github.com/acme/web/pull/3', fidelity: fid }, created_at: '2026-01-02', billed: 373 });
+      const r = await s.call('GET', `/api/projects/${PROJECT}/builds`);
+      assert.deepEqual(r.body.builds[0].fidelity, admin ? { score: 93.6, grade: 'close', target: 90 } : null);
+      assert.doesNotMatch(JSON.stringify(r.body), /issues/);
+    } finally { s.close(); }
+  }
 });
 
 test('account model: empty, then saved with POST, validated', async () => {
