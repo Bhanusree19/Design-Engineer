@@ -86,7 +86,7 @@ missing transition, fixed widths) scores about 45 and every mistake is named.
 | Extraction (v3 context, interactions, reference PNG) | `design-engineer-plugin/src/figma/parser.ts`, `screenshot.ts`, `src/code.ts` |
 | Engine | `design-engineer-backend/services/fidelity/` (`spec`, `browser`, `score`, `image`, `motion`, `app`, `check`, `report`, `index`) |
 | Pipeline | `server.js`: prompt contract, `checkWithRepair` after the agent, PR section, `result.fidelity` |
-| Storage | `supabase/012_fidelity.sql`: `design_contexts.reference_png`, `reference_scale` |
+| Storage | `supabase/013_fidelity.sql`: `design_contexts.reference_png`, `reference_scale` |
 | Plugin UI | `src/ui/components/Preview.tsx` (everyone), `Fidelity.tsx` (admin card), score tag in recent builds |
 | Roles | `design-engineer-backend/services/admin.js` |
 | Container | `cloudflare/Dockerfile`: Playwright Chromium in `/ms-playwright` |
@@ -121,7 +121,7 @@ missing transition, fixed widths) scores about 45 and every mistake is named.
 
 ## Deploy
 
-1. Apply `supabase/012_fidelity.sql` (additive; already in `schema.sql`).
+1. Apply `supabase/013_fidelity.sql` after `012_recurring_subscriptions.sql` (additive; already in `schema.sql`).
    Set `ADMIN_EMAILS` to your sign-in email in the server secrets.
 2. Rebuild the container image (`npm run deploy` in `cloudflare/`): the
    Dockerfile now installs Chromium. The image grows by about 400 MB.
