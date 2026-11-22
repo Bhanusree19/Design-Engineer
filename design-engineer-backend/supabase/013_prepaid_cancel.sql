@@ -16,9 +16,7 @@ begin
    raise exception 'RECURRING_MANDATE_MUST_BE_CANCELLED_SEPARATELY';
  end if;
  update public.user_subscriptions
- set metadata=jsonb_set(coalesce(metadata,'{}'::jsonb),
-   '{prepaid_cancelled_at}',to_jsonb(now()::text),true),
- metadata=jsonb_set(jsonb_set(coalesce(metadata,'{}'::jsonb),
+ set metadata=jsonb_set(jsonb_set(coalesce(metadata,'{}'::jsonb),
    '{prepaid_cancelled_at}',to_jsonb(now()::text),true),
    '{prepaid_cancelled_period_end}',to_jsonb(s.expires_at::text),true),updated_at=now()
  where user_id=p_user;
