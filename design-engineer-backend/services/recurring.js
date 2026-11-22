@@ -54,6 +54,8 @@ function createRecurring({service,rpc,razorpay,encode,sha,constantHexEqual,balan
     const rows=await list(auth.user.id);
     if(rows.some(r=>r.status==='created'&&Date.parse(r.checkout_expires_at||'')>Date.now()))
       throw error('Subscription authorization is already pending. Complete it or retry after the link expires.');
+    if(rows.some(r=>r.plan_slug===slug&&['authenticated','active','pending','halted'].includes(r.status)))
+      throw error('This plan already has an existing payment mandate. Check the subscription status before starting another.');
     const plans=await service('plans?slug=eq.'+encode(slug)+'&is_active=eq.true&select=id,slug,price_inr,currency&limit=1');
     const plan=plans?.[0];
     if(!plan||plan.currency!=='INR'||!Number.isInteger(plan.price_inr)||plan.price_inr<1)
@@ -79,6 +81,7 @@ function createRecurring({service,rpc,razorpay,encode,sha,constantHexEqual,balan
       const expiresAt=new Date(Date.now()+15*60*1000).toISOString();
       await service('recurring_subscriptions',{method:'POST',body:{
         user_id:auth.user.id,razorpay_subscription_id:gateway.id,plan_slug:slug,
+        amount_paise:plan.price_inr*100,currency:plan.currency,
         status:'created',checkout_token_hash:sha(token),checkout_expires_at:expiresAt
       }});
       const base=(process.env.BACKEND_URL||'').replace(/\/+$/,'');
@@ -116,11 +119,14 @@ function createRecurring({service,rpc,razorpay,encode,sha,constantHexEqual,balan
      return res.status(400).type('html').send(checkout.renderNotice('Invalid subscription link','Return to Figma and choose your plan again.'));
    try{
     const rows=await service('recurring_subscriptions?razorpay_subscription_id=eq.'+encode(sub)+
-     '&select=plan_slug,status,checkout_token_hash,checkout_expires_at&limit=1');
+     '&select=user_id,plan_slug,status,checkout_token_hash,checkout_expires_at&limit=1');
     const row=rows?.[0];
     if(!row||row.status!=='created'||!constantHexEqual(sha(token),row.checkout_token_hash||'')||
       Date.parse(row.checkout_expires_at)<=Date.now())
       return res.status(403).type('html').send(checkout.renderNotice('Subscription link expired','Return to Figma and open a new upgrade.'));
+    const effective=await balance(row.user_id);
+    if(!(RANK[row.plan_slug]>RANK[effective.plan]))
+      return res.status(409).type('html').send(checkout.renderNotice('You already have this plan','Your account is already on this tier or higher. No additional payment is needed.'));
     const plans=await service('plans?slug=eq.'+encode(row.plan_slug)+'&select=name,price_inr,build_minutes&limit=1');
     return res.type('html').send(checkout.renderSubscriptionCheckout({
       subscriptionId:sub,token,keyId:process.env.RAZORPAY_KEY_ID,

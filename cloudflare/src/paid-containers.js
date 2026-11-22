@@ -1,6 +1,6 @@
 // Deployment 05: control-plane API Container + one execution Container per job.
 // Queue messages carry ONLY a UUID; no bearer, model key, or screen context.
-// The coding-agent/model selection and OpenCode free-model flow are unchanged.
+// Billing secrets and monthly plan IDs are forwarded only inside the backend container.
 import { Container, getContainer } from '@cloudflare/containers';
 import { env as secrets } from 'cloudflare:workers';
 
@@ -27,7 +27,9 @@ const backendEnv={
   GATEWAY_SHARED_SECRET:secrets.GATEWAY_SHARED_SECRET,
   RAZORPAY_KEY_ID:secrets.RAZORPAY_KEY_ID,
   RAZORPAY_KEY_SECRET:secrets.RAZORPAY_KEY_SECRET,
-  RAZORPAY_WEBHOOK_SECRET:secrets.RAZORPAY_WEBHOOK_SECRET
+  RAZORPAY_WEBHOOK_SECRET:secrets.RAZORPAY_WEBHOOK_SECRET,
+  RAZORPAY_PLUS_PLAN_ID:secrets.RAZORPAY_PLUS_PLAN_ID,
+  RAZORPAY_STUDIO_PLAN_ID:secrets.RAZORPAY_STUDIO_PLAN_ID
 };
 export class DesignEngineerContainer extends Container {
   defaultPort=4000;

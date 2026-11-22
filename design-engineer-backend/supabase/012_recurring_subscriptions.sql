@@ -4,6 +4,8 @@ create table if not exists public.recurring_subscriptions (
  id uuid primary key default gen_random_uuid(),
  user_id uuid not null references auth.users(id) on delete cascade,
  plan_slug text not null check(plan_slug in ('plus','studio')),
+ amount_paise integer not null check(amount_paise>0),
+ currency text not null default 'INR' check(currency='INR'),
  razorpay_subscription_id text not null unique,
  status text not null default 'created' check(status in ('created','authenticated','active','pending','halted','cancelled','completed')),
  cancel_at_period_end boolean not null default false,
@@ -48,11 +50,11 @@ declare r public.recurring_subscriptions%rowtype;
 begin
  select * into r from public.recurring_subscriptions
  where razorpay_subscription_id=p_subscription for update;
- if not found or r.status in ('cancelled','completed') then
+ if not found then
    raise exception 'SUBSCRIPTION_NOT_ACTIVE';
  end if;
  select * into p from public.plans where slug=r.plan_slug and is_active=true;
- if not found or p_currency<>'INR' or p_amount<>p.price_inr*100 then
+ if not found or p_currency<>r.currency or p_amount<>r.amount_paise then
    raise exception 'RECURRING_AMOUNT_MISMATCH';
  end if;
  if exists(select 1 from public.payments where razorpay_payment_id=p_payment) then
@@ -72,7 +74,8 @@ begin
    where user_id=r.user_id and plan_slug=r.plan_slug;
  end if;
  update public.recurring_subscriptions
- set status='active',last_charge_at=now(),checkout_token_hash=null,updated_at=now()
+ set status=case when status in ('cancelled','completed') then status else 'active' end,
+ last_charge_at=now(),checkout_token_hash=null,updated_at=now()
  where id=r.id;
  return true;
 end;

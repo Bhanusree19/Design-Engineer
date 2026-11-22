@@ -230,12 +230,14 @@ function registerRoutes(app,requireUser){
     'Open Design Engineer in Figma, go to Plans & minutes and choose your plan again.'));
   try{
    const rows=await service('payments?razorpay_order_id=eq.'+encode(order)+
-    '&select=plan_slug,amount,currency,status,checkout_token_hash,checkout_expires_at&limit=1');
+    '&select=user_id,plan_slug,amount,currency,status,checkout_token_hash,checkout_expires_at&limit=1');
    const p=rows?.[0];
    if(!p||!constantHexEqual(sha(token),p.checkout_token_hash||'')||
       Date.parse(p.checkout_expires_at)<Date.now()||p.status!=='created')
     return res.status(403).type('html').send(checkoutPage.renderNotice('This checkout link has expired',
      'Links last 15 minutes and work once. Open Design Engineer in Figma and choose your plan again. If you already paid, your minutes are on their way: check Plans & minutes before paying again.'));
+   const active=await balance(p.user_id);
+   if(!canUpgrade(active.plan,p.plan_slug))return res.status(409).type('html').send(checkoutPage.renderNotice('You already have this plan','Your account is already on this plan or higher. No additional payment is needed.'));
    const plans=await service('plans?slug=eq.'+encode(p.plan_slug)+'&select=name,build_minutes&limit=1').catch(()=>null);
    const plan=plans?.[0];
    return res.type('html').send(checkoutPage.renderCheckout({

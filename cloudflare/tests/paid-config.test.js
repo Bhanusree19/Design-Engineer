@@ -16,7 +16,9 @@ test('Paid Worker uses one sticky Cloudflare Container and SQLite Durable Object
 test('Paid Container explicitly forwards provider secrets and isolates coding OS users',()=>{
  for(const key of ['SUPABASE_URL','SUPABASE_PUBLISHABLE_KEY',
   'SUPABASE_SERVICE_ROLE_KEY','GITHUB_CLIENT_ID','GITHUB_CLIENT_SECRET',
-  'ENCRYPTION_KEY','BACKEND_URL','GATEWAY_SHARED_SECRET']){
+  'ENCRYPTION_KEY','BACKEND_URL','GATEWAY_SHARED_SECRET',
+  'RAZORPAY_KEY_ID','RAZORPAY_KEY_SECRET','RAZORPAY_WEBHOOK_SECRET',
+  'RAZORPAY_PLUS_PLAN_ID','RAZORPAY_STUDIO_PLAN_ID']){
     assert(runtime.includes(key),key+' missing from container configuration');
  }
  assert.match(runtime,/AGENT_OS_ISOLATION:'1'/);
