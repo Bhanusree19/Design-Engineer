@@ -51,7 +51,7 @@ foreach($name in $required) {
 }
 # Payment keys are optional in local development; paid plans are disabled until
 # configured. Never print their values or pass them in process arguments.
-foreach($name in @("RAZORPAY_KEY_ID","RAZORPAY_KEY_SECRET","RAZORPAY_WEBHOOK_SECRET","RAZORPAY_PLUS_PLAN_ID","RAZORPAY_STUDIO_PLAN_ID")) {
+foreach($name in @("RAZORPAY_KEY_ID","RAZORPAY_KEY_SECRET","RAZORPAY_WEBHOOK_SECRET","RAZORPAY_PLUS_PLAN_ID","RAZORPAY_STUDIO_PLAN_ID","ADMIN_EMAILS","ADMIN_USER_IDS","FIDELITY_CHECK")) {
   if($values.ContainsKey($name) -and ![string]::IsNullOrWhiteSpace($values[$name])) {
     Write-Host "Setting Cloudflare Worker secret $name ..."
     $values[$name] | & npx wrangler secret put $name

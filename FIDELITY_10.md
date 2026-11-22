@@ -122,7 +122,7 @@ missing transition, fixed widths) scores about 45 and every mistake is named.
 ## Deploy
 
 1. Apply `supabase/013_fidelity.sql` after `012_recurring_subscriptions.sql` (additive; already in `schema.sql`).
-   Set `ADMIN_EMAILS` to your sign-in email in the server secrets.
+   Set `ADMIN_EMAILS` to the verified Google sign-in email in your Cloudflare Worker secrets, using `npx wrangler secret put ADMIN_EMAILS`. Alternatively use `ADMIN_USER_IDS`. Without either, nobody sees the admin scorecard.
 2. Rebuild the container image (`npm run deploy` in `cloudflare/`): the
    Dockerfile now installs Chromium. The image grows by about 400 MB.
 3. Publish the plugin build. Screens fetched with an older plugin still work:
