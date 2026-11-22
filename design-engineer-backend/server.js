@@ -2238,11 +2238,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       const provider=selection.agent==='gemini-api'?'gemini':selection.provider;
       const connection=await getModelConnection(auth.user.id,provider);
       if(!connection)throw new Error('Connect the selected Direct API provider before implementation.');
-      await directApi.execute({
-        provider,workspace:worktree,contextDir,model:selection.model,
-        apiKey:decryptText(connection.encrypted_credential),
-        prompt:buildImplementationPrompt(contextScreens,contextDir,baseBranch,branchName,stack,repoCtx)
-      });
+      directConnection={provider,apiKey:decryptText(connection.encrypted_credential)};
     } else if (selection.agent==='claude') {
       const provider=selection.agent==='claude'?'anthropic':selection.provider;
       const connection=await getModelConnection(auth.user.id,provider);
@@ -2800,10 +2796,19 @@ app.post('/api/screens/implement', async (req, res) => {
       return res.status(400).json({ error: 'No valid screens were supplied.' });
     }
 
-    const contextRows = await pgQuery('design_contexts', {
-      token: auth.token,
-      query: `project_id=eq.${projectId}&select=screen_name,content`,
-    });
+    let contextRows;
+    try {
+      contextRows = await pgQuery('design_contexts', {
+        token: auth.token,
+        query: `project_id=eq.${projectId}&select=screen_name,content,reference_png`,
+      });
+    } catch(error) {
+      if(!/reference_png|column|schema cache/i.test(String(error?.message||''))) throw error;
+      contextRows = await pgQuery('design_contexts', {
+        token: auth.token,
+        query: `project_id=eq.${projectId}&select=screen_name,content`,
+      });
+    }
 
     const byName = new Map(
       (Array.isArray(contextRows) ? contextRows : []).map((row) => [
