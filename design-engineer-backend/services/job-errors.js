@@ -33,7 +33,7 @@ function classify(error) {
   if (MESSAGES[code] && code !== 'UNKNOWN') return code;
   const message = String(error?.message || '');
   if (/must be connected|connect the (selected|model)|not connected/i.test(message)) return 'MODEL_NOT_CONNECTED';
-  if (/coding agent timed out/i.test(message)) return 'AGENT_TIMEOUT';
+  if (error?.name === 'TimeoutError' || /coding agent timed out|request timed out/i.test(message)) return 'AGENT_TIMEOUT';
   if (/saved design context not found/i.test(message)) return 'CONTEXT_MISSING';
   if (/repository not found|could not read from remote|authentication failed for|connect github/i.test(message))
     return 'REPOSITORY_ACCESS';

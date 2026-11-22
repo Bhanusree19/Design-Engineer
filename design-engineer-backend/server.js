@@ -35,6 +35,7 @@ const flowRevamp=require('./services/flow-revamp');
 const repoContext=require('./services/repo-context');
 const fidelity=require('./services/fidelity');
 const jobErrors=require('./services/job-errors');
+const {postLocalJson}=require('./services/local-request');
 const {isAdmin}=require('./services/admin');
 
 const app = express();
@@ -2707,14 +2708,14 @@ app.post('/internal/jobs/execute',async(req,res)=>{
       },5000);
       try {
         const token=decryptText(job.encrypted_access_token);
-        const result=await fetch('http://127.0.0.1:'+PORT+'/api/screens/implement',{
-          method:'POST',
-          headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,
-            'x-design-engineer-gateway':expected},
-          body:JSON.stringify({projectId:job.project_id,screens:job.screens}),
-          signal:AbortSignal.timeout(17*60*1000)
+        // node:http, not fetch: fetch gives up on any response slower than
+        // 5 min (undici headersTimeout), which cut off every longer build.
+        const result=await postLocalJson('http://127.0.0.1:'+PORT+'/api/screens/implement',{
+          headers:{'Authorization':'Bearer '+token,'x-design-engineer-gateway':expected},
+          body:{projectId:job.project_id,screens:job.screens},
+          timeoutMs:17*60*1000
         });
-        const body=await result.json().catch(()=>({}));
+        const body=result.body||{};
         if(!result.ok||!body.implementations?.[0]?.pullRequestUrl){
           // Carry the classified reason (never raw agent output) to the plugin.
           const failure=new Error('Implementation failed. See server logs for details.');
