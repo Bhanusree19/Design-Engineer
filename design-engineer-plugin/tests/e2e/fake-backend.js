@@ -49,6 +49,8 @@
       usage: { plan: 'plus', planName: 'Plus', allowanceSeconds: 18000, usedSeconds: 5280, availableSeconds: 12720, remainingSeconds: 12720, reservedSeconds: 0, priceInr: 799, expiresAt: '2026-12-14T00:00:00Z' },
       nextRunSeconds: 363,
       nextJobFails: false,
+      nextJobFidelity: null,
+      admin: false,
       jobPollsToFinish: 3,
       selection: [
         { id: '1:1', name: 'Login', type: 'FRAME', width: 390, height: 844 },
@@ -126,6 +128,16 @@
   const nowIso = () => new Date(Date.now() + S.seq).toISOString();
   const project = (pid) => S.projects.find((p) => p.id === pid);
   const isNew = () => S.mode === 'new';
+  // Same rule as the server (services/fidelity/report.resultForViewer):
+  // the admin account gets the fidelity report, everyone the screen preview.
+  function forViewer(result) {
+    if (!result || !result.fidelity) return result;
+    const { fidelity, ...rest } = result;
+    const shots = (fidelity.screens || []).filter((x) => x.previewPng).map((x) => ({ name: x.name, imagePng: x.previewPng }));
+    const preview = { status: shots.length ? 'ready' : 'unavailable', screens: shots };
+    if (!S.admin) return { ...rest, preview };
+    return { ...rest, preview, fidelity: { ...fidelity, screens: (fidelity.screens || []).map(({ previewPng, ...x }) => x) } };
+  }
 
   function syncLink(p) {
     if (!isNew() || !p.repository || !p.base_branch) return;
@@ -178,7 +190,7 @@
 
     if (path === '/auth/logout') return json(200, { success: true });
     if (path === '/auth/me') {
-      return json(200, { user: S.user, profile: { email: S.user.email }, github: { connected: S.github.connected, githubUser: S.github.connected ? S.github.user : null }, projects: S.projects, codex: { connected: S.codex.connected, codexUser: S.codex.user } });
+      return json(200, { user: S.user, profile: { email: S.user.email }, github: { connected: S.github.connected, githubUser: S.github.connected ? S.github.user : null }, projects: S.projects, codex: { connected: S.codex.connected, codexUser: S.codex.user }, isAdmin: !!S.admin });
     }
 
     // GitHub
@@ -312,7 +324,7 @@
         }
       }
       if (rest === '/builds') {
-        return json(200, { startBufferSeconds: 10, builds: S.jobs.filter((j) => j.project_id === p.id).sort((a, b) => b.created_at.localeCompare(a.created_at)).map((j) => ({ jobId: j.id, status: j.status, repository: j.repository, branch: j.base_branch, agent: j.agent, provider: null, model: null, screenCount: j.screens.length, billedSeconds: j.billed == null ? null : j.billed, pullRequestUrl: j.result ? j.result.pullRequestUrl : null, error: j.error || null, createdAt: j.created_at, startedAt: null, finishedAt: null })) });
+        return json(200, { startBufferSeconds: 10, builds: S.jobs.filter((j) => j.project_id === p.id).sort((a, b) => b.created_at.localeCompare(a.created_at)).map((j) => ({ jobId: j.id, status: j.status, repository: j.repository, branch: j.base_branch, agent: j.agent, provider: null, model: null, screenCount: j.screens.length, billedSeconds: j.billed == null ? null : j.billed, pullRequestUrl: j.result ? j.result.pullRequestUrl : null, fidelity: S.admin && j.result && j.result.fidelity && j.result.fidelity.status === 'measured' ? { score: j.result.fidelity.score, grade: j.result.fidelity.grade, target: j.result.fidelity.target } : null, error: j.error || null, createdAt: j.created_at, startedAt: null, finishedAt: null })) });
       }
     }
 
@@ -342,10 +354,14 @@
           j.billed = charged;
           S.usage.usedSeconds += charged; S.usage.availableSeconds -= charged; S.usage.remainingSeconds -= charged;
           if (S.nextJobFails) { j.status = 'failed'; j.error = 'npm test exited with code 1'; }
-          else { j.status = 'completed'; j.result = { screens: j.screens, branch: 'implement/login-screens', pullRequestUrl: `https://github.com/${j.repository}/pull/41` }; }
+          else {
+            j.status = 'completed';
+            j.result = { screens: j.screens, branch: 'implement/login-screens', pullRequestUrl: `https://github.com/${j.repository}/pull/41` };
+            if (S.nextJobFidelity) j.result.fidelity = S.nextJobFidelity;
+          }
         }
       }
-      return json(200, { id: j.id, status: j.status, result: j.result, error: j.error, createdAt: j.created_at, startedAt: null, finishedAt: null });
+      return json(200, { id: j.id, status: j.status, result: forViewer(j.result), error: j.error, createdAt: j.created_at, startedAt: null, finishedAt: null });
     }
 
     return html404(method, path);

@@ -5,7 +5,8 @@
 //
 //   npm run build:preview && npm run test:e2e
 //
-// Needs the `playwright` package and a Chromium for it (npx playwright install chromium).
+// Needs the `playwright` package and a Chromium for it (npx playwright install chromium,
+// or E2E_CHROMIUM_PATH=/path/to/chrome).
 // Set E2E_SCREENSHOTS=1 to save a screenshot of each checked screen.
 
 import { test, before, after } from 'node:test';
@@ -37,7 +38,7 @@ before(async () => {
   });
   await new Promise((r) => httpServer.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${httpServer.address().port}/ui.html`;
-  browser = await chromium.launch();
+  browser = await chromium.launch(process.env.E2E_CHROMIUM_PATH ? { executablePath: process.env.E2E_CHROMIUM_PATH } : {});
   if (process.env.E2E_SCREENSHOTS) fs.mkdirSync(shotsDir, { recursive: true });
 });
 
@@ -650,6 +651,129 @@ test('[legacy] one repo per project: no "Link another", no repo-link calls succe
   await page.getByRole('button', { name: /Edit acme\/grocery-app/ }).click();
   await notSee(page, 'Make default');
   assert.ok(page.errors.length === 0, page.errors.join('\n'));
+  await page.context().close();
+});
+
+// 1×1 PNG standing in for a heatmap thumbnail.
+const HEAT = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+const FIDELITY = {
+  status: 'measured', score: 93.6, grade: 'close', target: 90,
+  rounds: [{ score: 71.2, grade: 'needs-work' }, { score: 93.6, grade: 'close' }],
+  layers: { geometry: 97, visual: 91, style: 95, interaction: 100, motion: 74, responsive: 100 }, coverage: 96,
+  screens: [
+    { name: 'Login', route: '/login', status: 'measured', score: 96.1, layers: {}, coverage: 100, matched: 18, total: 18, ssim: 0.97, pixelMatch: 98, heatmapPng: HEAT, previewPng: HEAT, issues: [], issueCount: 0 },
+    { name: 'Home', route: '/home', status: 'measured', score: 90.2, layers: {}, coverage: 92, matched: 23, total: 25, ssim: 0.93, pixelMatch: 95, heatmapPng: HEAT, previewPng: HEAT,
+      issues: [
+        { kind: 'motion', nodeId: '1:5', message: '"Sign in button" → "Home": Transition took 0 ms instead of 300 ms.' },
+        { kind: 'geometry', nodeId: '2:3', message: '"Heading" is 4 px too low (Figma x 24, y 96, 342×40)' },
+      ], issueCount: 5 },
+  ],
+  interactions: { total: 3, passed: 3, failed: 0, skipped: 1 },
+  warnings: [],
+};
+
+test('[new] admin: the build result shows the preview and design fidelity: score, layers, screens, issues', async () => {
+  const page = await openPlugin('new', { admin: true, projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, jobPollsToFinish: 1, nextJobFidelity: FIDELITY });
+  await row(page, 'Grocery delivery app').click();
+  await btn(page, 'Build screens').click();
+  await page.getByRole('checkbox', { name: /Cart/ }).click();
+  await btn(page, 'Fetch 2 screens').click();
+  await expectRoute(page, 'plan', 6000);
+  await btn(page, 'Start build').click();
+  await expectRoute(page, 'result', 8000);
+  await see(page, '2 screens as built');
+  await see(page, 'Design fidelity · Close');
+  await see(page, 'Admin');
+  await see(page, 'First pass 71, fixed to 94');
+  await see(page, 'target 90');
+  const card = page.locator('section.fid');
+  assert.equal(await card.locator('.fid-score b').innerText(), '94');
+  for (const label of ['Layout', 'Visual', 'Styles', 'Prototype', 'Motion', 'Responsive']) await see(page, label);
+  await see(page, 'Prototype links: 3 worked, 1 not checked.');
+  await see(page, '23/25 layers found · 5 issues');
+  await notSee(page, 'Heading" is 4 px too low');
+  await page.locator('.fid-screen-h', { hasText: 'Home' }).click();
+  await see(page, '"Heading" is 4 px too low');
+  await see(page, '3 smaller issues listed in the pull request.');
+  assert.equal(await page.locator('.fid-screen-h', { hasText: 'Home' }).getAttribute('aria-expanded'), 'true');
+  assert.equal(await page.locator('img.fid-heat').count(), 2);
+  await shot(page, 'new-result-fidelity');
+  await btn(page, 'Back to project').click();
+  await expectRoute(page, 'project');
+  await see(page, '94% match');
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+});
+
+test('[new] admin: a build whose fidelity could not be measured says so and still shows the PR', async () => {
+  const page = await openPlugin('new', { admin: true, projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, jobPollsToFinish: 1,
+    nextJobFidelity: { status: 'unavailable', reason: 'no web build found: expected a Vite or Expo app', target: 90, rounds: [] } });
+  await row(page, 'Grocery delivery app').click();
+  await btn(page, 'Build screens').click();
+  await page.getByRole('checkbox', { name: /Cart/ }).click();
+  await btn(page, 'Fetch 2 screens').click();
+  await expectRoute(page, 'plan', 6000);
+  await btn(page, 'Start build').click();
+  await expectRoute(page, 'result', 8000);
+  await see(page, 'Pull request ready to review');
+  await see(page, 'Design fidelity not measured');
+  await see(page, 'No web build found');
+  await see(page, 'The pull request is unaffected.');
+  await btn(page, 'Back to project').click();
+  await expectRoute(page, 'project');
+  await notSee(page, '% match');
+  await page.context().close();
+});
+
+test('[new] normal account: sees only the preview of the built screens, then opens the PR', async () => {
+  const page = await openPlugin('new', { projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, jobPollsToFinish: 1, nextJobFidelity: FIDELITY });
+  await row(page, 'Grocery delivery app').click();
+  await btn(page, 'Build screens').click();
+  await page.getByRole('checkbox', { name: /Cart/ }).click();
+  await btn(page, 'Fetch 2 screens').click();
+  await expectRoute(page, 'plan', 6000);
+  await btn(page, 'Start build').click();
+  await expectRoute(page, 'result', 8000);
+  await see(page, 'Pull request ready to review');
+  await see(page, '2 screens as built · tap to enlarge');
+  assert.equal(await page.locator('.pv-card').count(), 2);
+  // None of the report reaches a normal account.
+  await notSee(page, 'Design fidelity');
+  await notSee(page, 'Heading');
+  assert.equal(await page.locator('section.fid, .fid-off').count(), 0);
+  // Enlarge, step through, close.
+  await btn(page, 'Open preview of Home').click();
+  await see(page, '2 / 2');
+  assert.ok(await btn(page, 'Next screen').isDisabled());
+  await btn(page, 'Previous screen').click();
+  await see(page, '1 / 2');
+  await page.keyboard.press('ArrowRight');
+  await see(page, '2 / 2');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.pv-viewer').count(), 0);
+  await shot(page, 'new-result-preview-user');
+  assert.equal(await page.getByRole('link', { name: 'Open pull request' }).getAttribute('href'), 'https://github.com/acme/grocery-app/pull/41');
+  await btn(page, 'Back to project').click();
+  await expectRoute(page, 'project');
+  await see(page, 'PR #41');
+  await notSee(page, '% match');
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+});
+
+test('[new] normal account: a build with no preview just offers the pull request', async () => {
+  const page = await openPlugin('new', { projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, jobPollsToFinish: 1,
+    nextJobFidelity: { status: 'unavailable', reason: 'no web build found', target: 90, rounds: [] } });
+  await row(page, 'Grocery delivery app').click();
+  await btn(page, 'Build screens').click();
+  await page.getByRole('checkbox', { name: /Cart/ }).click();
+  await btn(page, 'Fetch 2 screens').click();
+  await expectRoute(page, 'plan', 6000);
+  await btn(page, 'Start build').click();
+  await expectRoute(page, 'result', 8000);
+  await see(page, "A preview isn't available for this build.");
+  await notSee(page, 'not measured');
+  await notSee(page, 'no web build found');
   await page.context().close();
 });
 

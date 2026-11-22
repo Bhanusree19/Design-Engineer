@@ -404,3 +404,74 @@ button.plan-c:hover:not(:disabled) { border-color: var(--muted); }
 @media (prefers-reduced-motion: reduce) {
   .spin, .pulse i, .sync.run .sync-dot { animation: none; }
 }
+
+/* Design fidelity card (build result) */
+.fid { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 10px; flex: none; }
+.fid-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.fid-top .tx { display: grid; min-width: 0; }
+.fid-top .tx b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fid-top .tx span { color: var(--muted); font-size: 11.5px; }
+.fid-score { width: 56px; height: 56px; border-radius: 12px; display: grid; place-content: center; text-align: center; flex: none; line-height: 1; }
+.fid-score b { font: 700 22px var(--f-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.fid-score small { font-size: 10px; opacity: .75; margin-top: 2px; }
+.fid-score.ok { background: var(--ok-soft); color: var(--ok); }
+.fid-score.warn { background: var(--warn-soft); color: var(--warn); }
+.fid-score.bad { background: var(--bad-soft); color: var(--bad); }
+.fid-layers { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin: 0; }
+.fid-layers > div { display: grid; gap: 3px; min-width: 0; }
+.fid-layers dt { font-size: 11px; color: var(--muted); }
+.fid-layers dd { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) 26px; gap: 8px; align-items: center; }
+.fid-bar { height: 6px; border-radius: 999px; background: var(--sunk); overflow: hidden; }
+.fid-bar i { display: block; height: 100%; border-radius: inherit; background: var(--line); }
+.fid-bar i.ok { background: var(--ok); }
+.fid-bar i.warn { background: var(--warn); }
+.fid-bar i.bad { background: var(--bad); }
+.fid-v { font: 600 11.5px var(--f-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.fid-note { margin: 0; font-size: 11.5px; color: var(--muted); }
+.fid-note.warn { color: var(--warn); }
+.fid-screens { display: grid; border: 1px solid var(--line); border-radius: 9px; }
+.fid-screen + .fid-screen { border-top: 1px solid var(--line); }
+.fid-screen-h { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: none; border: 0; text-align: left; min-width: 0; }
+.fid-screen-h .tx { flex: 1; display: grid; min-width: 0; }
+.fid-screen-h .tx b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fid-screen-h .tx span { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fid-screen-h .chev { color: var(--muted); transition: transform .15s ease; }
+.fid-screen.open .chev { transform: rotate(180deg); }
+.tag.warn { background: var(--warn-soft); color: var(--warn); }
+.fid-heat { width: 30px; height: 40px; border-radius: 5px; object-fit: cover; object-position: top; flex: none; background: var(--sunk); border: 1px solid var(--line); }
+.fid-issues { padding: 0 10px 10px 50px; display: grid; gap: 6px; }
+.fid-issues ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.fid-issues li { font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.fid-issues .muted { margin: 0; font-size: 11px; color: var(--muted); }
+.fid-kind { display: inline-block; font: 600 10px var(--f-mono); text-transform: uppercase; letter-spacing: .03em; padding: 1px 5px; border-radius: 4px; margin-right: 6px; background: var(--sunk); color: var(--muted); }
+.fid-kind.k-missing, .fid-kind.k-interaction, .fid-kind.k-runtime { background: var(--bad-soft); color: var(--bad); }
+.fid-kind.k-geometry, .fid-kind.k-motion, .fid-kind.k-responsive { background: var(--warn-soft); color: var(--warn); }
+.fid-off { display: grid; gap: 2px; background: var(--sunk); border-color: transparent; }
+.fid-off b { font-weight: 600; }
+.fid-off span { color: var(--muted); font-size: 11.5px; }
+.hist .fid-tag { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .fid-screen-h .chev { transition: none; } }
+
+/* Build preview (everyone) */
+.pv { display: grid; gap: 8px; flex: none; }
+.pv-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.pv-h b { font-weight: 600; }
+.pv-h span { color: var(--muted); font-size: 11.5px; }
+.pv-row { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 6px; scroll-snap-type: x mandatory; }
+.pv-card { flex: none; width: 128px; display: grid; gap: 6px; padding: 0; background: none; border: 0; text-align: left; scroll-snap-align: start; }
+.pv-img { display: block; height: 220px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--sunk); box-shadow: 0 10px 22px -16px rgba(20, 22, 50, .5); }
+.pv-img img { width: 100%; display: block; }
+.pv-card:hover .pv-img { border-color: var(--accent); }
+.pv-name { font-size: 11.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-none { margin: 0; font-size: 12px; color: var(--muted); }
+.pv-viewer { position: fixed; inset: 0; z-index: 20; background: var(--bg); display: flex; flex-direction: column; }
+.pv-bar { height: 48px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-bottom: 1px solid var(--line); min-width: 0; }
+.pv-bar b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pv-count { color: var(--muted); font: 500 11.5px var(--f-mono); white-space: nowrap; }
+.pv-nav { margin-left: auto; display: flex; gap: 4px; }
+.pv-btn { width: 32px; height: 32px; border-radius: 8px; border: 0; background: none; display: grid; place-items: center; color: var(--ink); flex: none; }
+.pv-btn:hover:not(:disabled) { background: var(--sunk); }
+.pv-btn:disabled { opacity: .35; cursor: default; }
+.pv-stage { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; background: var(--sunk); }
+.pv-stage img { display: block; width: 100%; max-width: 390px; margin: 0 auto; border-radius: 12px; border: 1px solid var(--line); box-shadow: 0 18px 40px -24px rgba(20, 22, 50, .55); }
+.fid-admin { margin-left: auto; align-self: flex-start; font: 600 10px var(--f-mono); text-transform: uppercase; letter-spacing: .03em; padding: 2px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); flex: none; }
