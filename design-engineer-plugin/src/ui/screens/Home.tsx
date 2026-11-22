@@ -293,6 +293,7 @@ export function Billing({ state, actions }: Props) {
               </>}
             </div>}
             {activePaid && !renewal && <p className="lede small">This is a prepaid, one-time membership. Automatic renewal is not enabled for it.</p>}
+            {renewal?.status === 'cancelled' && <p className="lede small">Automatic renewal is cancelled. No further recurring charges are scheduled.</p>}
             <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Build minutes left">
               <i style={{ width: `${pct}%` }} />
             </div>
@@ -319,7 +320,7 @@ export function Billing({ state, actions }: Props) {
                   const inner = (
                     <>
                       <b>{p.name}{currentPlan ? ' · current' : ''}</b>
-                      <span className="pr-v">₹{p.price_inr.toLocaleString('en-IN')}{paid && <small> / 30 days</small>}</span>
+                      <span className="pr-v">₹{p.price_inr.toLocaleString('en-IN')}{paid && <small> / {b.recurringEnabled ? 'month' : '30 days'}</small>}</span>
                       <span>{p.build_minutes} build minutes · {PLAN_LINES[p.slug] || ''}</span>
                     </>
                   );

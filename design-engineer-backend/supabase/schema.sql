@@ -1159,7 +1159,7 @@ begin
  if not found then
    raise exception 'SUBSCRIPTION_NOT_ACTIVE';
  end if;
- select * into p from public.plans where slug=r.plan_slug and is_active=true;
+ select * into p from public.plans where slug=r.plan_slug;
  if not found or p_currency<>r.currency or p_amount<>r.amount_paise then
    raise exception 'RECURRING_AMOUNT_MISMATCH';
  end if;

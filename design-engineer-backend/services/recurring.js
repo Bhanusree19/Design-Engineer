@@ -56,6 +56,9 @@ function createRecurring({service,rpc,razorpay,encode,sha,constantHexEqual,balan
       throw error('Subscription authorization is already pending. Complete it or retry after the link expires.');
     if(rows.some(r=>r.plan_slug===slug&&['authenticated','active','pending','halted'].includes(r.status)))
       throw error('This plan already has an existing payment mandate. Check the subscription status before starting another.');
+    if(rows.some(r=>!r.cancel_at_period_end&&['authenticated','active','pending','halted'].includes(r.status)&&
+      (usage.plan==='free'||RANK[r.plan_slug]>=RANK[slug])))
+      throw error('You already have an automatic-payment mandate. Cancel or resolve it before starting another plan.');
     const plans=await service('plans?slug=eq.'+encode(slug)+'&is_active=eq.true&select=id,slug,price_inr,currency&limit=1');
     const plan=plans?.[0];
     if(!plan||plan.currency!=='INR'||!Number.isInteger(plan.price_inr)||plan.price_inr<1)
