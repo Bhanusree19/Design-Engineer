@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const crypto=require('node:crypto');
 const express=require('express');
 const billing=require('../services/billing');
-const {renderCheckout}=require('../services/checkout-page');
+const {renderCheckout,renderSubscriptionCheckout}=require('../services/checkout-page');
 
 const ENV={SUPABASE_URL:'https://project.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'svc',
  RAZORPAY_KEY_ID:'rzp_test_abc',RAZORPAY_KEY_SECRET:'secret',RAZORPAY_WEBHOOK_SECRET:'hook',WEBSITE_URL:'https://designengineer.example'};
@@ -79,4 +79,18 @@ test('stale checkout link cannot charge a user already on Studio',async()=>{
    assert.equal(res.status,409);
    assert.match(await res.text(),/You already have this plan/);
  });
+});
+
+test('recurring checkout requires explicit authorization and escapes all user-visible text',()=>{
+ const html=renderSubscriptionCheckout({
+  subscriptionId:'sub_test_123',token:TOKEN,keyId:'rzp_test_abc',
+  planName:'</script><img src=x onerror=alert(1)>',
+  priceInr:799,buildMinutes:100
+ });
+ assert.match(html,/Authorize monthly AutoPay with Razorpay/);
+ assert.match(html,/"subscription_id":"sub_test_123"/);
+ assert.doesNotMatch(html,/order_id/);
+ assert.doesNotMatch(html,/<img src=x/);
+ assert.match(html,/\\u003c\/script\\u003e/);
+ assert.match(html,/first captured payment/);
 });
