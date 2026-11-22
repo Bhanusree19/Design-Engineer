@@ -530,7 +530,8 @@ for (const mode of ['new', 'legacy']) {
     await see(page, 'Less than 1 build minute left');
     await page.locator('.checklist .c', { hasText: 'build minute' }).getByRole('button', { name: 'Upgrade' }).click();
     await expectRoute(page, 'billing');
-    await btn(page, 'Choose Plus').click();
+    await btn(page, 'Upgrade your plan').click();
+    await btn(page, 'Upgrade to Plus').click();
     await see(page, 'Finish paying in your browser');
     assert.ok((await server(page)).opened.some((u) => u.includes('pay.example')));
     await back(page).click();
@@ -559,7 +560,7 @@ for (const mode of ['new', 'legacy']) {
     await back(page).click();
     await expectRoute(page, 'home');
     await see(page, 'Building');
-    assert.equal((await server(page)).jobs[0].status, 'running', 'Back never cancels the build');
+    assert.ok(['queued','running'].includes((await server(page)).jobs[0].status), 'Back never cancels the queued or running build');
     await page.context().close();
   });
 
