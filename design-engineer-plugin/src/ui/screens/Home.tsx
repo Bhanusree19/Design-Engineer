@@ -29,7 +29,7 @@ function renewDate(iso: string | null) {
   if (!iso) return null;
   const d = new Date(iso);
   if (isNaN(d.getTime())) return null;
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year:'numeric' });
 }
 
 export function MinuteBar({ state, actions }: Props) {
@@ -42,7 +42,7 @@ export function MinuteBar({ state, actions }: Props) {
     <div className="minibar">
       <Clock className="ico muted" />
       <span>
-        <b>{free ? 'Free plan' : b.usage.planName}</b> · {left} min left{!free && renews ? ` · renews ${renews}` : ''}
+        <b>{free ? 'Free plan' : b.usage.planName}</b> · {left} min left{!free && renews ? ` · ${b.renewal?.autoRenew ? 'renews' : 'ends'} ${renews}` : ''}
       </span>
       <button type="button" className="link" onClick={() => void actions.openBilling()}>{free ? 'Upgrade' : 'Manage'}</button>
     </div>
@@ -244,6 +244,8 @@ const PLAN_LINES: Record<string, string> = {
 
 export function Billing({ state, actions }: Props) {
   const [showHistory, setShowHistory] = useState(false);
+  const [showPlans, setShowPlans] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const b = state.billing;
   const u = b?.usage;
   const allowanceMin = u ? Math.floor(u.allowanceSeconds / 60) : 0;
@@ -254,6 +256,9 @@ export function Billing({ state, actions }: Props) {
   const canUpgradeTo = (slug: string) => u?.plan === 'free' ? slug === 'plus' || slug === 'studio' : u?.plan === 'plus' && slug === 'studio';
   const plans = (b?.plans || []).slice().sort((a, c) => a.sort_order - c.sort_order);
   const builds = state.billingHistory?.builds || [];
+  const renewal = b?.renewal;
+  const canCancelRenewal = renewal && !renewal.cancelAtPeriodEnd && ['active','created','authenticated','pending','halted'].includes(renewal.status);
+  const activePaid = u?.plan === 'plus' || u?.plan === 'studio';
   return (
     <>
       <BackHeader onBack={actions.back} showLabel />
@@ -266,12 +271,28 @@ export function Billing({ state, actions }: Props) {
           <>
             <div className="meter-row">
               <span><b>{leftMin} min</b> left of {allowanceMin}</span>
-              {renews && u?.plan !== 'free' && <span>Ends {renews}</span>}
+              {renews && u?.plan !== 'free' && <span>{renewal?.autoRenew ? 'Renews' : 'Ends'} {renews}</span>}
             </div>
             {expired && <p className="lede" role="status">Your {b?.membership?.previousPlan === 'studio' ? 'Studio' : 'Plus'} plan ended on {renewDate(b?.membership?.periodEnd || null)}. You are now on Free. Upgrade to restore paid benefits.</p>}
             {u?.plan === 'studio' && <p className="lede" role="status">You are already on Studio, our highest plan. No upgrade or additional payment is required.</p>}
             {u?.plan === 'plus' && <p className="lede">You are on Plus. Upgrade to Studio for the next tier.</p>}
             {u?.plan === 'free' && !expired && <p className="lede">You are on Free. Choose Plus or Studio to upgrade.</p>}
+            {activePaid && renews && <p className="lede small">{renewal?.autoRenew ? 'Next automatic renewal' : 'Current paid period ends'}: {renews}</p>}
+            {activePaid && renewal?.cancelAtPeriodEnd && <p className="lede" role="status">Auto-renewal is cancelled. Your paid benefits continue until {renews || 'the end of your paid period'}.</p>}
+            {renewal?.status === 'created' || renewal?.status === 'authenticated' ? <p className="lede" role="status">Subscription authorization pending. Your upgrade starts after a captured payment is verified.</p> : null}
+            {renewal?.status === 'pending' || renewal?.status === 'halted' ? <p className="lede" role="alert">Razorpay could not complete automatic renewal. Your existing paid benefits remain only until their end date. Check your mandate or payment method.</p> : null}
+            {u?.plan === 'free' && !showHistory && !showPlans && <button type="button" className="btn btn-primary" onClick={() => setShowPlans(true)}>Upgrade your plan</button>}
+            {u?.plan === 'plus' && !showHistory && b?.paymentsEnabled && <button type="button" className="btn btn-primary" disabled={state.busy === 'checkout'} onClick={() => void actions.buyPlan('studio')}>Upgrade to Studio</button>}
+            {canCancelRenewal && !showHistory && <div className="form">
+              {!confirmCancel ? <button type="button" className="btn btn-ghost" onClick={() => setConfirmCancel(true)}>Cancel automatic renewal</button> : <>
+                <p className="lede">Cancel future payments? Your paid benefits remain until the paid period ends.</p>
+                <div className="btn-row">
+                  <button type="button" className="btn btn-ghost" onClick={() => setConfirmCancel(false)}>Keep renewal</button>
+                  <button type="button" className="btn btn-danger" disabled={state.busy === 'checkout'} onClick={() => { setConfirmCancel(false); void actions.cancelSubscription(); }}>Confirm cancellation</button>
+                </div>
+              </>}
+            </div>}
+            {activePaid && !renewal && <p className="lede small">This is a prepaid, one-time membership. Automatic renewal is not enabled for it.</p>}
             <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Build minutes left">
               <i style={{ width: `${pct}%` }} />
             </div>
@@ -290,7 +311,7 @@ export function Billing({ state, actions }: Props) {
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : (u?.plan !== 'free' || showPlans) ? (
               <div className="plans">
                 {plans.map((p) => {
                   const currentPlan = u?.plan === p.slug;
@@ -317,7 +338,8 @@ export function Billing({ state, actions }: Props) {
                   );
                 })}
               </div>
-            )}
+            ) : null}
+            <p className="lede flush small">{b?.recurringEnabled ? 'New upgrades use monthly Razorpay AutoPay after your consent. Card and UPI availability depends on the mandate methods enabled for your Razorpay account.' : 'Paid plans currently use manual one-time payments. Auto-renewal is not configured.'}</p>
             <p className="lede flush small">
               {state.startBufferSeconds
                 ? `Each build is charged its run time plus ${state.startBufferSeconds} seconds for the server to start.`
