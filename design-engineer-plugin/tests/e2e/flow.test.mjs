@@ -676,6 +676,8 @@ test('[new] admin: the build result shows the preview and design fidelity: score
   const page = await openPlugin('new', { admin: true, projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, jobPollsToFinish: 1, nextJobFidelity: FIDELITY });
   await row(page, 'Grocery delivery app').click();
   await btn(page, 'Build screens').click();
+  await btn(page, 'Browse page screens').click();
+  await btn(page, 'Select all').click();
   await page.getByRole('checkbox', { name: /Cart/ }).click();
   await btn(page, 'Fetch 2 screens').click();
   await expectRoute(page, 'plan', 6000);
@@ -710,6 +712,8 @@ test('[new] admin: a build whose fidelity could not be measured says so and stil
     nextJobFidelity: { status: 'unavailable', reason: 'no web build found: expected a Vite or Expo app', target: 90, rounds: [] } });
   await row(page, 'Grocery delivery app').click();
   await btn(page, 'Build screens').click();
+  await btn(page, 'Browse page screens').click();
+  await btn(page, 'Select all').click();
   await page.getByRole('checkbox', { name: /Cart/ }).click();
   await btn(page, 'Fetch 2 screens').click();
   await expectRoute(page, 'plan', 6000);
@@ -729,6 +733,8 @@ test('[new] normal account: sees only the preview of the built screens, then ope
   const page = await openPlugin('new', { projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, jobPollsToFinish: 1, nextJobFidelity: FIDELITY });
   await row(page, 'Grocery delivery app').click();
   await btn(page, 'Build screens').click();
+  await btn(page, 'Browse page screens').click();
+  await btn(page, 'Select all').click();
   await page.getByRole('checkbox', { name: /Cart/ }).click();
   await btn(page, 'Fetch 2 screens').click();
   await expectRoute(page, 'plan', 6000);
@@ -766,6 +772,8 @@ test('[new] normal account: a build with no preview just offers the pull request
     nextJobFidelity: { status: 'unavailable', reason: 'no web build found', target: 90, rounds: [] } });
   await row(page, 'Grocery delivery app').click();
   await btn(page, 'Build screens').click();
+  await btn(page, 'Browse page screens').click();
+  await btn(page, 'Select all').click();
   await page.getByRole('checkbox', { name: /Cart/ }).click();
   await btn(page, 'Fetch 2 screens').click();
   await expectRoute(page, 'plan', 6000);
