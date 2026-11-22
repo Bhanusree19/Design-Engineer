@@ -78,9 +78,14 @@ async function measureScreen(browser, origin, entry, spec, referencePng) {
         message: `Screen root isn't tagged: add data-fid / testID "fid:${spec.rootId}" to the screen's outer container` });
     }
     let visual = null;
-    if (referencePng) {
+    let previewPng = null;
+    let shot = null;
+    try {
+      shot = await page.screenshot({ clip: { x: offset.x, y: offset.y, width: spec.width, height: spec.height }, animations: 'disabled' });
+      previewPng = image.previewPng(image.decodePng(shot));
+    } catch { shot = null; }
+    if (referencePng && shot) {
       try {
-        const shot = await page.screenshot({ clip: { x: offset.x, y: offset.y, width: spec.width, height: spec.height }, animations: 'disabled' });
         const rendered = image.decodePng(shot);
         const ref = image.resample(image.decodePng(referencePng), rendered.width, rendered.height);
         const s = image.ssim(ref, rendered);
@@ -106,7 +111,7 @@ async function measureScreen(browser, origin, entry, spec, referencePng) {
       result.issues.push({ screen: spec.name, nodeId: null, nodeName: spec.name, kind: 'runtime', impact: 1.5,
         message: `The page threw: ${errors[0]}` });
     }
-    return { ...result, visual, rootTagged: offset.tagged, errors };
+    return { ...result, visual, previewPng, rootTagged: offset.tagged, errors };
   } finally {
     await context.close().catch(() => {});
   }
@@ -298,6 +303,7 @@ function summarize(results, interactions, warnings, durationMs) {
       ssim: r.visual?.ssim != null ? score.round(r.visual.ssim, 3) : null,
       pixelMatch: r.visual?.pixelMatch != null ? score.round(r.visual.pixelMatch * 100, 0) : null,
       heatmapPng: r.visual?.heatmapPng || null,
+      previewPng: r.previewPng || null,
       issues: (r.issues || []).slice(),
     };
   });

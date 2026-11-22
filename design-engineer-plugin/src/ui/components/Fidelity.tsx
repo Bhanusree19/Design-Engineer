@@ -98,7 +98,7 @@ export function FidelityCard({ fidelity }: { fidelity: FidelityResult | null }) 
   if (fidelity.status !== 'measured' || fidelity.score == null) {
     return (
       <div className="fid fid-off" role="note">
-        <b>Design fidelity not measured</b>
+        <b>Design fidelity not measured <span className="fid-admin">Admin</span></b>
         <span>{fidelity.reason ? `${fidelity.reason.charAt(0).toUpperCase()}${fidelity.reason.slice(1)}.` : 'The check could not run for this build.'} The pull request is unaffected.</span>
       </div>
     );
@@ -117,6 +117,7 @@ export function FidelityCard({ fidelity }: { fidelity: FidelityResult | null }) 
             {fidelity.target ? ` · target ${fidelity.target}` : ''}
           </span>
         </span>
+        <span className="fid-admin" title="Only admin accounts see this report">Admin</span>
       </div>
       <dl className="fid-layers">
         {LAYERS.map(({ key, label, hint }) => {

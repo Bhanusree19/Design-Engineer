@@ -34,6 +34,7 @@ const billing=require('./services/billing');
 const flowRevamp=require('./services/flow-revamp');
 const repoContext=require('./services/repo-context');
 const fidelity=require('./services/fidelity');
+const {isAdmin}=require('./services/admin');
 
 const app = express();
 
@@ -287,7 +288,7 @@ billing.registerRoutes(app,requireUser);
 // Deployment 09: repository links, account model and per-project builds (additive).
 flowRevamp.registerRoutes(app,{requireUser,pgQuery,validateSelection,
   listConnections:(userId)=>modelConnectionDb('user_id=eq.'+encodeURIComponent(userId)+'&select=provider,status,updated_at'),
-  billingHistory:(userId)=>billing.history(userId,50)});
+  billingHistory:(userId)=>billing.history(userId,50),isAdmin});
 
 function mapAuthError(error) {
   const code = error?.code || error?.status || '';
@@ -1168,6 +1169,7 @@ app.get('/auth/me', async (req, res) => {
         githubUser: github?.githubToken ? github.github_username : null,
       },
       projects: Array.isArray(projects) ? projects : [],
+      isAdmin: isAdmin(auth.user),
       codex: codexConnected
         ? {
             connected: true,
@@ -2335,7 +2337,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
           base: baseBranch,
           body: `## Design Engineer implementation\n\nScreens:\n${screenNames
             .map((screenName) => `- ${screenName}`)
-            .join('\n')}\n\n${selection.agent} implemented all selected screens together from the saved Figma design contexts, including navigation. See the README test steps in this branch before merging.${fidelity.report.toMarkdown(fidelityResult)}`,
+            .join('\n')}\n\n${selection.agent} implemented all selected screens together from the saved Figma design contexts, including navigation. See the README test steps in this branch before merging.${isAdmin(auth.user)?fidelity.report.toMarkdown(fidelityResult):''}`,
         }),
       }
     );
@@ -2594,8 +2596,9 @@ async function adminJobQuery(query,method='GET',body,prefer='return=representati
 function validJobId(id) {
   return typeof id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 }
-function publicJob(job) {
-  return {id:job.id,status:job.status,result:job.result||null,
+function publicJob(job,{admin=false}={}) {
+  // Only admins receive the fidelity report; everyone gets the screen preview.
+  return {id:job.id,status:job.status,result:fidelity.report.resultForViewer(job.result||null,{admin}),
     error:job.error||null,createdAt:job.created_at,
     startedAt:job.started_at||null,finishedAt:job.finished_at||null};
 }
@@ -2649,7 +2652,7 @@ app.get('/api/jobs/:jobId',async(req,res)=>{
       query:'id=eq.'+encodeURIComponent(req.params.jobId)+
         '&select=id,status,result,error,created_at,started_at,finished_at&limit=1'});
     if(!jobs?.length)return res.status(404).json({error:'Implementation job not found.'});
-    return res.json(publicJob(jobs[0]));
+    return res.json(publicJob(jobs[0],{admin:isAdmin(auth.user)}));
   }catch{return res.status(503).json({error:'Cannot read job status. Retry shortly.'})}
 });
 

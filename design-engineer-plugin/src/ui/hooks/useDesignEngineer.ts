@@ -103,6 +103,7 @@ export interface BuildResult {
   billedSeconds: number | null;
   startBufferSeconds: number;
   fidelity: api.FidelityResult | null;
+  preview: api.BuildPreview | null;
 }
 
 interface Prefs {
@@ -1620,6 +1621,7 @@ export function useDesignEngineer() {
       billedSeconds: billed,
       startBufferSeconds: buffer,
       fidelity: ok && r?.fidelity ? r.fidelity : null,
+      preview: ok && r?.preview ? r.preview : null,
     });
     void refreshBilling();
     if (current().name === 'running') replace({ name: 'result' });

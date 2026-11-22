@@ -49,6 +49,7 @@ function toLink(row) {
 
 function registerRoutes(app, deps) {
   const { requireUser, pgQuery, validateSelection, listConnections, billingHistory } = deps;
+  const isAdmin = deps.isAdmin || (() => false);
 
   async function ownProject(auth, id) {
     if (!uuidish(id)) return null;
@@ -225,6 +226,7 @@ function registerRoutes(app, deps) {
         const history = await billingHistory(auth.user.id);
         for (const b of (history && history.builds) || []) billed[b.jobId] = b;
       } catch { billed = {}; }
+      const admin = isAdmin(auth.user);
       const builds = (Array.isArray(jobs) ? jobs : []).map((j) => {
         const b = billed[j.id];
         const result = j.result && typeof j.result === 'object' ? j.result : {};
@@ -239,7 +241,8 @@ function registerRoutes(app, deps) {
           screenCount: b ? b.screenCount : null,
           billedSeconds: b ? b.billedSeconds : null,
           pullRequestUrl: result.pullRequestUrl || result.prUrl || result.pr_url || null,
-          fidelity: result.fidelity && result.fidelity.status === 'measured'
+          // Match score only for the admin account; others see the preview in the build result.
+          fidelity: admin && result.fidelity && result.fidelity.status === 'measured'
             ? { score: result.fidelity.score, grade: result.fidelity.grade, target: result.fidelity.target }
             : null,
           error: j.error ? String(j.error).slice(0, 160) : null,

@@ -22,6 +22,7 @@ function forJob(report, { target, rounds = [] } = {}) {
       name: s.name, route: s.route, status: s.status, score: s.score, layers: s.layers, coverage: s.coverage,
       matched: s.matched, total: s.total, ssim: s.ssim, pixelMatch: s.pixelMatch,
       heatmapPng: i < 6 ? s.heatmapPng : null,
+      previewPng: i < 8 ? s.previewPng || null : null,
       issues: s.issues.slice(0, 8).map((x) => ({ kind: x.kind, nodeId: x.nodeId || null, message: x.message })),
       issueCount: s.issues.length,
     })),
@@ -39,6 +40,32 @@ function forJob(report, { target, rounds = [] } = {}) {
 function bar(v) {
   if (v == null) return '—';
   return `${v}%`;
+}
+
+/**
+ * What a normal (non-admin) account sees: the rendered screens only, no
+ * scores or issues. Built from the stored job copy.
+ */
+function previewOf(job) {
+  const screens = (job?.screens || []).filter((s) => s.previewPng).map((s) => ({ name: s.name, imagePng: s.previewPng }));
+  return { status: screens.length ? 'ready' : 'unavailable', screens };
+}
+
+/**
+ * Shapes a stored implementation result for the account asking. Admins get
+ * the full fidelity report and the preview; everyone else only the preview.
+ */
+function resultForViewer(result, { admin = false } = {}) {
+  if (!result || typeof result !== 'object') return result || null;
+  const { fidelity, ...rest } = result;
+  if (!fidelity) return rest;
+  const preview = previewOf(fidelity);
+  if (admin) {
+    // The preview carries the images; don't send them twice.
+    const screens = (fidelity.screens || []).map(({ previewPng: _p, ...s }) => s);
+    return { ...rest, fidelity: { ...fidelity, screens }, preview };
+  }
+  return { ...rest, preview };
 }
 
 /** Markdown section appended to the pull request body. */
@@ -82,4 +109,4 @@ ${lines.join('\n')}
 When an element is reported as missing, render it and tag it with its Figma node ID. When a position is off, fix the layout (padding, gap, alignment, sizes) instead of nudging with absolute offsets. Run the build again before finishing.`;
 }
 
-module.exports = { forJob, toMarkdown, repairPrompt, LAYER_LABELS };
+module.exports = { forJob, toMarkdown, repairPrompt, previewOf, resultForViewer, LAYER_LABELS };

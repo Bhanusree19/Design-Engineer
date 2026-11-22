@@ -126,3 +126,9 @@ export const Google = ({ className }: IconProps) => (
     <path d="M8.1 3.6c1 0 2 .4 2.7 1.1l2-2A6.9 6.9 0 0 0 8.1.8 7.1 7.1 0 0 0 1.8 4.8l2.4 1.9c.5-1.8 2.1-3.1 3.9-3.1Z" fill="#EA4335" />
   </svg>
 );
+export const Prev = (p: IconProps) => (
+  <svg {...base} {...p} strokeWidth={1.6}><path d="M10 3.5 5.5 8 10 12.5" /></svg>
+);
+export const Close = (p: IconProps) => (
+  <svg {...base} {...p} strokeWidth={1.6}><path d="m4 4 8 8M12 4l-8 8" /></svg>
+);

@@ -36,6 +36,29 @@ Native; react-native-web renders it as `data-testid`). It also writes
 `design-engineer.fidelity.json` with the route of each screen, which is
 committed, so the check can be re-run later.
 
+## Who sees what
+
+| | Every account | Admin account (yours) |
+| --- | --- | --- |
+| Check and repair round run on the build | Yes | Yes |
+| Preview of the built screens, tap to enlarge | Yes | Yes |
+| Open pull request | Yes | Yes |
+| Score card, layer bars, issues, heatmaps | No | Yes |
+| "% match" on recent builds | No | Yes |
+| "Design fidelity" section in the PR description | No | Yes |
+
+Admin is decided on the server from the verified sign-in, with
+`ADMIN_EMAILS` (comma-separated) or `ADMIN_USER_IDS`; nobody is admin when
+neither is set. `GET /api/jobs/:id` and `GET /api/projects/:id/builds` shape
+the stored result for the account asking
+(`services/fidelity/report.resultForViewer`), so a normal account never
+receives the report. The plugin just shows what it gets. (The full result is
+still stored on the user's own job row in Supabase.)
+
+The preview images are the screenshots the check takes of the final build at
+each frame's size (phone frames at 1x, wide frames scaled to 480 px), so a
+preview exists whenever the check ran, even without a Figma reference image.
+
 ## The score
 
 | Layer | Weight | What it measures |
@@ -64,14 +87,17 @@ missing transition, fixed widths) scores about 45 and every mistake is named.
 | Engine | `design-engineer-backend/services/fidelity/` (`spec`, `browser`, `score`, `image`, `motion`, `app`, `check`, `report`, `index`) |
 | Pipeline | `server.js`: prompt contract, `checkWithRepair` after the agent, PR section, `result.fidelity` |
 | Storage | `supabase/012_fidelity.sql`: `design_contexts.reference_png`, `reference_scale` |
-| Plugin UI | `src/ui/components/Fidelity.tsx` (result card), score tag in recent builds |
+| Plugin UI | `src/ui/components/Preview.tsx` (everyone), `Fidelity.tsx` (admin card), score tag in recent builds |
+| Roles | `design-engineer-backend/services/admin.js` |
 | Container | `cloudflare/Dockerfile`: Playwright Chromium in `/ms-playwright` |
 
 ## Settings (env)
 
 | Variable | Default | |
 | --- | --- | --- |
-| `FIDELITY_CHECK` | on | `0` turns the check off |
+| `ADMIN_EMAILS` | none | Accounts that see the full report (comma-separated) |
+| `ADMIN_USER_IDS` | none | Same, by Supabase user ID |
+| `FIDELITY_CHECK` | on | `0` turns the check off (no preview either) |
 | `FIDELITY_TARGET` | 90 | Score that skips the repair round |
 | `FIDELITY_REPAIR_ROUNDS` | 1 | 0 to 3 |
 | `FIDELITY_REPAIR_MIN_MS` | 300000 | Build time that must be left to start a repair round |
@@ -96,6 +122,7 @@ missing transition, fixed widths) scores about 45 and every mistake is named.
 ## Deploy
 
 1. Apply `supabase/012_fidelity.sql` (additive; already in `schema.sql`).
+   Set `ADMIN_EMAILS` to your sign-in email in the server secrets.
 2. Rebuild the container image (`npm run deploy` in `cloudflare/`): the
    Dockerfile now installs Chromium. The image grows by about 400 MB.
 3. Publish the plugin build. Screens fetched with an older plugin still work:

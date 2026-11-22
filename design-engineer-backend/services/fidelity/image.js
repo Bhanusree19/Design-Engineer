@@ -137,10 +137,22 @@ function worstRegions(ssimResult, { limit = 5, threshold = 0.8 } = {}) {
     .map(({ s, i }) => ({ x: (i % cols) * block, y: Math.floor(i / cols) * block, w: block, h: block, ssim: s }));
 }
 
+/**
+ * The rendered screen as users will see it, for the build preview: kept at
+ * 1x for phone frames, scaled down to maxWidth for wide (desktop) frames.
+ */
+function previewPng(rendered, { maxWidth = 480 } = {}) {
+  const scale = Math.min(1, maxWidth / rendered.width);
+  const img = scale < 1 ? resample(rendered, Math.round(rendered.width * scale), Math.round(rendered.height * scale)) : rendered;
+  const png = new PNG({ width: img.width, height: img.height });
+  img.data.copy(png.data);
+  return PNG.sync.write(png, { colorType: 2 }).toString('base64');
+}
+
 function encodePng({ width, height, data }) {
   const png = new PNG({ width, height });
   data.copy(png.data);
   return PNG.sync.write(png);
 }
 
-module.exports = { decodePng, encodePng, resample, ssim, pixelMatch, heatmapPng, worstRegions };
+module.exports = { decodePng, encodePng, previewPng, resample, ssim, pixelMatch, heatmapPng, worstRegions };

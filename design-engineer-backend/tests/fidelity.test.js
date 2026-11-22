@@ -267,3 +267,50 @@ test('reference PNG from the plugin is validated before it is stored', () => {
   assert.equal(fidelity.validReferencePng({ pngBase64: 'not base64!' }), null);
   assert.equal(fidelity.validReferencePng(null), null);
 });
+
+test('admin: decided from ADMIN_EMAILS / ADMIN_USER_IDS, case-insensitive', () => {
+  const { isAdmin } = require('../services/admin');
+  const saved = { e: process.env.ADMIN_EMAILS, i: process.env.ADMIN_USER_IDS };
+  try {
+    delete process.env.ADMIN_EMAILS; delete process.env.ADMIN_USER_IDS;
+    assert.equal(isAdmin({ id: 'u1', email: 'hari@example.com' }), false, 'nobody is admin by default');
+    process.env.ADMIN_EMAILS = ' Hari@Example.com , boss@x.io';
+    assert.equal(isAdmin({ id: 'u1', email: 'hari@example.com' }), true);
+    assert.equal(isAdmin({ id: 'u2', email: 'someone@example.com' }), false);
+    assert.equal(isAdmin(null), false);
+    process.env.ADMIN_USER_IDS = 'u9';
+    assert.equal(isAdmin({ id: 'u9', email: 'changed@example.com' }), true);
+  } finally {
+    if (saved.e == null) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS = saved.e;
+    if (saved.i == null) delete process.env.ADMIN_USER_IDS; else process.env.ADMIN_USER_IDS = saved.i;
+  }
+});
+
+test('result for viewer: admins get the report, others only the screen preview', () => {
+  const stored = { screens: ['Login'], branch: 'b', pullRequestUrl: 'https://github.com/a/b/pull/1',
+    fidelity: { status: 'measured', score: 93.6, grade: 'close', layers: { geometry: 97 },
+      screens: [{ name: 'Login', score: 96, previewPng: 'PREVIEW', heatmapPng: 'HEAT', issues: [{ kind: 'geometry', message: 'off' }] },
+        { name: 'Home', score: 90, previewPng: null, issues: [] }] } };
+  const user = report.resultForViewer(stored, { admin: false });
+  assert.equal(user.fidelity, undefined);
+  assert.deepEqual(user.preview, { status: 'ready', screens: [{ name: 'Login', imagePng: 'PREVIEW' }] });
+  assert.equal(user.pullRequestUrl, stored.pullRequestUrl);
+  assert.doesNotMatch(JSON.stringify(user), /HEAT|issues|score/);
+
+  const admin = report.resultForViewer(stored, { admin: true });
+  assert.equal(admin.fidelity.score, 93.6);
+  assert.equal(admin.fidelity.screens[0].heatmapPng, 'HEAT');
+  assert.equal(admin.fidelity.screens[0].previewPng, undefined, 'images are not sent twice');
+  assert.equal(admin.preview.screens.length, 1);
+
+  assert.deepEqual(report.resultForViewer({ pullRequestUrl: 'x' }), { pullRequestUrl: 'x' }, 'older builds pass through');
+  assert.deepEqual(report.previewOf({ status: 'unavailable' }), { status: 'unavailable', screens: [] });
+});
+
+test('preview PNG keeps phone frames at 1x and scales wide frames down', () => {
+  const phone = image.decodePng(Buffer.from(image.previewPng(solid(390, 20, [1, 2, 3])), 'base64'));
+  assert.equal(phone.width, 390);
+  const desktop = image.decodePng(Buffer.from(image.previewPng(solid(1440, 90, [1, 2, 3])), 'base64'));
+  assert.equal(desktop.width, 480);
+  assert.equal(desktop.height, 30);
+});

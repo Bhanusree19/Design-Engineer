@@ -261,6 +261,8 @@ export interface MeResponse {
   github: GithubStatus;
   projects: Project[];
   codex: CodexStatusInfo;
+  /** The owner's account: sees the full design fidelity report. */
+  isAdmin?: boolean;
 }
 
 export function getMe(): Promise<MeResponse> {
@@ -463,11 +465,19 @@ export interface FidelityResult {
   warnings?: string[];
 }
 
+/** The built screens as rendered, shown to every account after a build. */
+export interface BuildPreview {
+  status: 'ready' | 'unavailable';
+  screens: { name: string; imagePng: string }[];
+}
+
 export interface ImplementationResult {
   screens: string[];
   branch: string;
   pullRequestUrl: string;
+  /** Admin accounts only (the server leaves it out for everyone else). */
   fidelity?: FidelityResult;
+  preview?: BuildPreview;
 }
 
 export interface ScreenPlanInfo {

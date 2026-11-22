@@ -72,6 +72,10 @@ test('faithful build scores exact; sloppy build is caught on every layer', { ski
   const job = fidelity.report.forJob(sloppy, { target: 90, rounds: [{ score: sloppy.score }] });
   assert.ok(JSON.stringify(job).length < 200000, 'job result stays small');
   assert.ok(job.screens[0].heatmapPng.length > 100);
+  assert.ok(job.screens.every((x) => x.previewPng && x.previewPng.length > 1000), 'every screen has a preview image');
+  const preview = fidelity.report.previewOf(job);
+  assert.deepEqual(preview.screens.map((x) => x.name), ['Login', 'Home']);
+
 });
 
 test('repair loop: a low score sends the problems to the agent and keeps every round', { skip, timeout: 180000 }, async () => {
@@ -93,6 +97,7 @@ test('repair loop: a low score sends the problems to the agent and keeps every r
   assert.equal(job.rounds.length, 2);
   assert.ok(job.rounds[0].score < 75 && job.rounds[1].score >= 95, JSON.stringify(job.rounds));
   assert.equal(job.score, job.rounds[1].score);
+  assert.ok(job.screens[0].previewPng, 'preview without a Figma reference image');
   assert.match(fidelity.report.toMarkdown(job), /first pass/);
 });
 
