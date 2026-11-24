@@ -290,7 +290,14 @@ billing.registerRoutes(app,requireUser);
 // Deployment 09: repository links, account model and per-project builds (additive).
 flowRevamp.registerRoutes(app,{requireUser,pgQuery,validateSelection,
   listConnections:(userId)=>modelConnectionDb('user_id=eq.'+encodeURIComponent(userId)+'&select=provider,status,updated_at'),
-  billingHistory:(userId)=>billing.history(userId,50),isAdmin});
+  billingHistory:(userId)=>billing.history(userId,50),isAdmin,
+  // Verified user ID plus owned project restrict the service-role read.
+  // The raw result column must not be readable with client JWTs.
+  listOwnedJobs:(userId,projectId)=>adminJobQuery(
+    'user_id=eq.'+encodeURIComponent(userId)+
+    '&project_id=eq.'+encodeURIComponent(projectId)+
+    '&select=id,status,error,result,created_at,started_at,finished_at,repository,base_branch,coding_agent,model_provider,model_id'+
+    '&order=created_at.desc&limit=30')});
 
 function mapAuthError(error) {
   const code = error?.code || error?.status || '';
@@ -2652,9 +2659,12 @@ app.get('/api/jobs/:jobId',async(req,res)=>{
   const auth=await requireUser(req,res);if(!auth)return;
   if(!validJobId(req.params.jobId))return res.status(400).json({error:'Invalid job ID.'});
   try{
-    const jobs=await pgQuery('implementation_jobs',{token:auth.token,
-      query:'id=eq.'+encodeURIComponent(req.params.jobId)+
-        '&select=id,status,result,error,created_at,started_at,finished_at&limit=1'});
+    // Only a verified user's own job may be read with the service role.
+    // Direct authenticated PostgREST access to result is revoked in 014.
+    const jobs=await adminJobQuery(
+      'id=eq.'+encodeURIComponent(req.params.jobId)+
+      '&user_id=eq.'+encodeURIComponent(auth.user.id)+
+      '&select=id,status,result,error,created_at,started_at,finished_at&limit=1');
     if(!jobs?.length)return res.status(404).json({error:'Implementation job not found.'});
     return res.json(publicJob(jobs[0],{admin:isAdmin(auth.user)}));
   }catch{return res.status(503).json({error:'Cannot read job status. Retry shortly.'})}
