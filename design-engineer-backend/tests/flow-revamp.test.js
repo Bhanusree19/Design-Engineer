@@ -95,6 +95,12 @@ async function setup(opts, extraDeps = {}) {
     requireUser, pgQuery: db.pgQuery, validateSelection,
     listConnections: async () => [{ provider: 'anthropic', status: 'verified', updated_at: '2026-01-01', encrypted_credential: 'SECRET' }],
     billingHistory: async () => ({ builds: db.t.implementation_jobs.map((j) => ({ jobId: j.id, billedSeconds: j.billed, screenCount: 2 })) }),
+    listOwnedJobs: async (userId, projectId) => {
+      // Simulate the production service-role query filtered to an authenticated
+      // user and their verified project, not an unrestricted read.
+      return db.t.implementation_jobs.filter(j => j.user_id === userId && j.project_id === projectId)
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 30);
+    },
     ...extraDeps,
   });
   const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
@@ -249,6 +255,26 @@ test('builds carry the fidelity score only for the admin account', async () => {
       assert.doesNotMatch(JSON.stringify(r.body), /issues/);
     } finally { s.close(); }
   }
+});
+
+test('build history uses owner-filtered service reader, not client-token result access', async () => {
+  const seen = [];
+  const s = await setup(undefined, {
+    listOwnedJobs: async (userId, projectId) => {
+      seen.push({ userId, projectId });
+      return [{ id: 'j1', user_id: USER, project_id: PROJECT, status: 'completed',
+        result: { pullRequestUrl: 'https://github.com/acme/web/pull/7',
+          fidelity: { status: 'measured', score: 97, grade: 'exact', target: 90 } } }];
+    }
+  });
+  try {
+    const r = await s.call('GET', `/api/projects/${PROJECT}/builds`);
+    assert.equal(r.status, 200);
+    assert.deepEqual(seen, [{ userId: USER, projectId: PROJECT }]);
+    assert.equal(r.body.builds[0].fidelity, null);
+    assert.equal(r.body.builds[0].pullRequestUrl, 'https://github.com/acme/web/pull/7');
+    assert.equal(s.db.calls.filter(c => c.table === 'implementation_jobs').length, 0);
+  } finally { s.close(); }
 });
 
 test('account model: empty, then saved with POST, validated', async () => {
