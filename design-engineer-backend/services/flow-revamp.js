@@ -48,7 +48,7 @@ function toLink(row) {
 }
 
 function registerRoutes(app, deps) {
-  const { requireUser, pgQuery, validateSelection, listConnections, billingHistory } = deps;
+  const { requireUser, pgQuery, validateSelection, listConnections, billingHistory, listOwnedJobs } = deps;
   const isAdmin = deps.isAdmin || (() => false);
 
   async function ownProject(auth, id) {
@@ -217,10 +217,11 @@ function registerRoutes(app, deps) {
     try {
       const project = await ownProject(auth, req.params.id);
       if (!project) return res.status(404).json({ error: 'Project not found.', code: 'PROJECT_NOT_FOUND' });
-      const jobs = await pgQuery('implementation_jobs', {
-        token: auth.token,
-        query: `project_id=eq.${encodeURIComponent(project.id)}&select=id,status,error,result,created_at,started_at,finished_at,repository,base_branch,coding_agent,model_provider,model_id&order=created_at.desc&limit=30`,
-      });
+      // Project ownership was verified above; the backend reads raw results
+      // with a service role using BOTH verified user ID and project ID.
+      // Client JWTs cannot select implementation_jobs.result.
+      if (typeof listOwnedJobs !== 'function') throw new Error('Secure job history reader is unavailable');
+      const jobs = await listOwnedJobs(auth.user.id, project.id);
       let billed = {};
       try {
         const history = await billingHistory(auth.user.id);
