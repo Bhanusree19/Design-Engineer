@@ -352,7 +352,7 @@ revoke all on public.implementation_jobs from anon;
 -- Job creation is backend-only after verifying the Supabase user and project.
 revoke insert,update,delete on public.implementation_jobs from authenticated;
 revoke select on public.implementation_jobs from authenticated;
-grant select (id,user_id,project_id,status,result,error,created_at,updated_at,started_at,finished_at)
+grant select (id,user_id,project_id,status,error,created_at,updated_at,started_at,finished_at)
   on public.implementation_jobs to authenticated;
 drop policy if exists implementation_jobs_select_own on public.implementation_jobs;
 create policy implementation_jobs_select_own on public.implementation_jobs
@@ -1212,3 +1212,10 @@ comment on column public.design_contexts.reference_png is
   'Figma PNG export of the frame (base64) used by the build fidelity check. Never sent to the coding agent.';
 
 commit;
+
+
+-- DEPLOYMENT 14: protect administrator-only fidelity report payloads.
+-- Backend reads result through a service-role query restricted to the
+-- verified user's ID; never grant raw results to client JWTs.
+revoke select (result) on table public.implementation_jobs from authenticated;
+revoke select (result) on table public.implementation_jobs from anon;
