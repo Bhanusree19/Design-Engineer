@@ -20,6 +20,7 @@ import {
 import {
   exportReferencePng,
 } from './figma/screenshot';
+import { resolveCanvasScreens } from './figma/canvasSelection';
 
 // -----------------------------------------------------------------------------
 // SHOW PLUGIN UI
@@ -114,6 +115,14 @@ function pageScreens(): SelectionSummary[] {
   return summarizeSelection(nodes);
 }
 
+// Keep the plugin checklist synchronized with real canvas selection changes.
+function selectedScreenIds(): string[] {
+  return resolveCanvasScreens(figma.currentPage.selection).map(node => node.id);
+}
+figma.on('selectionchange', () => {
+  figma.ui.postMessage({ type: 'canvas-selection-changed', selectedIds: selectedScreenIds() });
+});
+
 // -----------------------------------------------------------------------------
 // MESSAGE HANDLER
 // -----------------------------------------------------------------------------
@@ -164,7 +173,7 @@ figma.ui.onmessage = async (msg: any) => {
 
     if (msg.type === 'get-page-screens') {
       try {
-        figma.ui.postMessage({ type: 'page-screens', requestId: msg.requestId, selection: pageScreens() });
+        figma.ui.postMessage({ type: 'page-screens', requestId: msg.requestId, selection: pageScreens(), selectedIds: selectedScreenIds() });
       } catch {
         figma.ui.postMessage({ type: 'page-screens-error', requestId: msg.requestId, error: 'Could not read the current Figma page.' });
       }
