@@ -125,8 +125,9 @@ async function shot(page, name) {
 async function linkFirstRepo(page, { repo = 'grocery-app', branch = 'main' } = {}) {
   await expectRoute(page, 'link-repo');
   await see(page, `acme/`);
+  assert.ok(await btn(page, 'Select repository').isDisabled(), 'no repo is preselected');
   await page.getByRole('option', { name: new RegExp(repo) }).click();
-  await btn(page, `Use ${repo}`).click();
+  await btn(page, 'Use repository').click();
   await expectRoute(page, 'link-branch');
   await see(page, 'Choose a branch');
   await page.getByRole('option', { name: new RegExp(`^${branch}`) }).click();
