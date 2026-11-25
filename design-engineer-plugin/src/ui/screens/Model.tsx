@@ -35,7 +35,7 @@ export function ModelAgents({ state, actions }: Props) {
             const current = currentAgent === a.id;
             const detail = current && state.accountModel && a.id === 'direct-api'
               ? [providerLabel(state.accountModel.provider), state.accountModel.model].filter(Boolean).join(' · ')
-              : a.id === 'codex' && ok && state.codexUser ? `Connected: ${state.codexUser}` : a.detail;
+              : a.id === 'codex' && ok ? (state.codexUser ? `Account: ${state.codexUser}` : 'Codex connected · account identifier unavailable') : a.detail;
             return (
               <button key={a.id} type="button" role="radio" aria-checked={on} className={`ag ${on ? 'on' : ''}`} onClick={() => setSelected(a.id)}>
                 <span className="ic">{a.icon}</span>
@@ -46,6 +46,7 @@ export function ModelAgents({ state, actions }: Props) {
             );
           })}
         </div>
+        {selected === 'codex' && connected && <button type="button" className="link small left" onClick={() => void actions.disconnectCodex()}>Disconnect</button>}
         {connected && (
           <button type="button" className="link small left" onClick={() => actions.changeModelSettings(selected)}>
             {selected === 'codex' ? 'Switch account' : selected === 'claude' ? 'Use a different key or model' : 'Change provider or model'}
