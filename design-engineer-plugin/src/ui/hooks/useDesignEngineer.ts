@@ -189,6 +189,7 @@ export function useDesignEngineer() {
   const pageRequestRef = useRef(0);
   const [extractingCount, setExtractingCount] = useState(0);
   const screensRef = useRef<DesignContext[]>([]);
+  const pendingExtractedRef = useRef<DesignContext[]>([]);
   const [screens, setScreensState] = useState<DesignContext[]>([]);
   function setScreens(next: DesignContext[]) {
     screensRef.current = next;
@@ -414,9 +415,12 @@ export function useDesignEngineer() {
       }
       if (msg.type === 'canvas-selection-changed' && current().name === 'screens') {
         const canvasIds = new Set<string>(Array.isArray(msg.selectedIds) ? msg.selectedIds : []);
-        setScreenPicker(prev => ({
-          ...prev, checked: new Set(prev.items.filter(item => canvasIds.has(item.id)).map(item => item.id)),
-        }));
+        setScreenPicker(prev => {
+          const items: SelectionItem[] = Array.isArray(msg.selection) ? msg.selection : prev.items.filter(item => canvasIds.has(item.id));
+          return { items, checked: new Set(items.map(item => item.id)) };
+        });
+        setPageScreensLoaded(true);
+        setPageScreensLoading(false);
       }
       if (msg.type === 'page-screens-error' && current().name === 'screens' && msg.requestId === pageRequestRef.current) {
         setPageScreensLoading(false);
@@ -1399,7 +1403,7 @@ export function useDesignEngineer() {
     setError(null);
     setPageScreensLoading(true);
     const requestId = ++pageRequestRef.current;
-    sendToPlugin({ type: 'get-page-screens', requestId });
+    sendToPlugin({ type: 'get-canvas-selection', requestId });
     // Recover if the bridge does not respond rather than leaving the button disabled.
     window.setTimeout(() => {
       if (pageRequestRef.current !== requestId) return;
@@ -1423,15 +1427,18 @@ export function useDesignEngineer() {
       startLink('new');
       return;
     }
-    setTargetLinkId(null);
+    // An already linked single repository is the project's configured destination.
+    // Multiple links still require an explicit choice on the plan screen.
+    setTargetLinkId(linksRef.current.length === 1 ? linksRef.current[0].id : null);
+    pendingExtractedRef.current = [];
     setScreens([]);
     setPlan(null);
     resetPageScreens();
     push({ name: 'screens' });
+    browsePageScreens();
   }
 
   function fetchScreens() {
-    if (!targetLink()) { setError('Select a repository before fetching screens.'); return; }
     const selectedIds = selection.filter(item => checkedIds.has(item.id)).map(item => item.id);
     if (selectedIds.length === 0) {
       setError('Select at least one screen.');
@@ -1446,8 +1453,8 @@ export function useDesignEngineer() {
   async function handleExtracted(results: DesignContext[]) {
     const p = projectRef.current;
     const target = targetLink();
-    if (!p || !target) {
-      fail('Link a repository before fetching screens.');
+    if (!p) {
+      fail('Open a project before fetching screens.');
       return;
     }
     if (!results.length) {
@@ -1456,7 +1463,7 @@ export function useDesignEngineer() {
     }
     setBusy('saving');
     try {
-      await authed(() => api.submitScreens(p.id, target.repository, target.branch, results));
+      pendingExtractedRef.current = results;
       const merged = new Map<string, DesignContext>();
       // Keep only the current selection, not previous build screens.
       // The Figma screenshot reference belongs on the server, not in UI state.
@@ -1489,6 +1496,9 @@ export function useDesignEngineer() {
         const activated = await authed(() => api.activateRepoLink(p!.id, target.id));
         setProject(activated.project);
         p = activated.project;
+      }
+      if (pendingExtractedRef.current.length) {
+        await authed(() => api.submitScreens(p!.id, target.repository, target.branch, pendingExtractedRef.current));
       }
       p = await applyModelToProject(p);
       if (!p.stack) {
