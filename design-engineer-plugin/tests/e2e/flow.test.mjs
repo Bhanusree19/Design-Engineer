@@ -407,6 +407,12 @@ for (const mode of ['new', 'legacy']) {
     assert.equal(await btn(page,'Refresh canvas').count(),0);
     await btn(page,'Browse page screens').click();
     await see(page,'0 of 4 screens selected');
+    // Figma canvas click automatically ticks the corresponding screen, and
+    // clearing the canvas selection unticks it without stale selections.
+    await page.evaluate(() => window.postMessage({ pluginMessage: { type: 'canvas-selection-changed', selectedIds: ['9:1'] } }, '*'));
+    await see(page,'1 of 4 screens selected');
+    await page.evaluate(() => window.postMessage({ pluginMessage: { type: 'canvas-selection-changed', selectedIds: [] } }, '*'));
+    await see(page,'0 of 4 screens selected');
     await btn(page,'Select all').click();
     await btn(page,'Fetch 4 screens').click();
     await expectRoute(page,'plan',6000);
