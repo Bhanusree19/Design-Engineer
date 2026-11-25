@@ -407,9 +407,16 @@ export function useDesignEngineer() {
       }
       if (msg.type === 'page-screens' && current().name === 'screens' && msg.requestId === pageRequestRef.current) {
         const items: SelectionItem[] = Array.isArray(msg.selection) ? msg.selection : [];
-        setScreenPicker(prev => ({ items, checked: new Set(items.filter(item => prev.checked.has(item.id)).map(item => item.id)) }));
+        const canvasIds = new Set<string>(Array.isArray(msg.selectedIds) ? msg.selectedIds : []);
+        setScreenPicker({ items, checked: new Set(items.filter(item => canvasIds.has(item.id)).map(item => item.id)) });
         setPageScreensLoaded(true);
         setPageScreensLoading(false);
+      }
+      if (msg.type === 'canvas-selection-changed' && current().name === 'screens') {
+        const canvasIds = new Set<string>(Array.isArray(msg.selectedIds) ? msg.selectedIds : []);
+        setScreenPicker(prev => ({
+          ...prev, checked: new Set(prev.items.filter(item => canvasIds.has(item.id)).map(item => item.id)),
+        }));
       }
       if (msg.type === 'page-screens-error' && current().name === 'screens' && msg.requestId === pageRequestRef.current) {
         setPageScreensLoading(false);
@@ -830,7 +837,6 @@ export function useDesignEngineer() {
       };
       setCodexWait(wait);
       setBusy(null);
-      if (wait.userCode) copyText(wait.userCode);
       if (wait.verificationUrl) window.open(wait.verificationUrl, '_blank');
       authPoll.current = window.setInterval(async () => {
         try {
@@ -1904,19 +1910,28 @@ export function prNumber(url: string | null | undefined): string | null {
   return m ? m[1] : null;
 }
 
-function copyText(text: string) {
+async function copyText(text: string): Promise<boolean> {
+  if (!text) return false;
   try {
-    const area = document.createElement('textarea');
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* Clipboard API may be unavailable in Figma's sandbox. */ }
+  const area = document.createElement('textarea');
+  try {
     area.value = text;
     area.setAttribute('readonly', '');
     area.style.position = 'fixed';
     area.style.opacity = '0';
     document.body.appendChild(area);
+    area.focus();
     area.select();
-    document.execCommand('copy');
-    document.body.removeChild(area);
+    return document.execCommand('copy') === true;
   } catch {
-    /* clipboard not available in this frame */
+    return false;
+  } finally {
+    if (area.parentNode) area.parentNode.removeChild(area);
   }
 }
 
