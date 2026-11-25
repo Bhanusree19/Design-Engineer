@@ -34,6 +34,8 @@ function Thumb({ item }: { item: SelectionItem }) {
 }
 
 export function SelectScreens({ state, actions }: Props) {
+  const target = actions.targetLink();
+  const [candidate, setCandidate] = useState<string | null>(null);
   const total = state.selection.length;
   const checked = state.selection.filter(item => state.checkedIds.has(item.id)).length;
   const fetching = state.busy === 'extracting' || state.busy === 'saving';
@@ -43,13 +45,21 @@ export function SelectScreens({ state, actions }: Props) {
       <Body>
         <h3>{state.pageScreensLoaded ? `${checked} of ${plural(total, 'screen')} selected` : 'Select screens'}</h3>
         <Messages error={state.error} notice={state.notice} onDismiss={actions.dismissError} />
+        <div className="pick">
+          <span className="lbl">Build into</span>
+          <div className="app-list">
+            {state.links.map(l => <button key={l.id} type="button" disabled={fetching} className={`sel ${(candidate || target?.id) === l.id ? 'on' : ''}`} onClick={() => setCandidate(l.id)}><span className="tx"><b>{l.repository}</b><span>{l.branch}</span></span>{(candidate || target?.id) === l.id && <Check className="ico" />}</button>)}
+          </div>
+          <button type="button" className="btn btn-ghost" disabled={fetching || !candidate || !state.links.some(l => l.id === candidate)} onClick={() => candidate && actions.chooseTarget(candidate)}>{candidate ? 'Use repository' : 'Select repository'}</button>
+          {target && <p className="lede small">Using {target.repository} @ {target.branch}</p>}
+        </div>
         {fetching ? (
           <WaitRow label={state.busy === 'saving' ? 'Saving the screens' : `Reading ${plural(state.extractingCount || checked, 'screen')} from Figma`} />
         ) : (
           <>
-            <p className="lede small">Browse the screens on this Figma page, then tick the ones you want to build.</p>
+            <p className="lede small">Browse screens, then select frames on the Figma canvas or tick them here.</p>
             <button type="button" className="btn btn-ghost" disabled={state.pageScreensLoading} onClick={actions.browsePageScreens}>
-              {state.pageScreensLoading ? 'Loading screens…' : 'Browse page screens'}
+              {state.pageScreensLoading ? 'Loading screens…' : 'Browse screens'}
             </button>
             {state.pageScreensLoaded && (total === 0 ? (
               <p className="lede">No screen frames found on this page.</p>
@@ -81,7 +91,7 @@ export function SelectScreens({ state, actions }: Props) {
         )}
       </Body>
       <Footer>
-        <button type="button" className="btn btn-primary" disabled={fetching || state.pageScreensLoading || checked === 0} onClick={actions.fetchScreens}>
+        <button type="button" className="btn btn-primary" disabled={fetching || state.pageScreensLoading || checked === 0 || !target || (!!candidate && candidate !== target.id)} onClick={actions.fetchScreens}>
           {fetching ? 'Fetching…' : `Fetch ${plural(checked, 'screen')}`}
         </button>
       </Footer>
@@ -264,6 +274,9 @@ export function Running({ state, actions }: Props) {
         <dl className="charge">
           <dt>Into</dt><dd className="mono thin">{job.repository} @ {job.branch}</dd>
           <dt>Model</dt><dd className="thin">{agentLabel(job.agent)}</dd>
+          <dt>Status</dt><dd>{job.status}</dd>
+          <dt>Elapsed</dt><dd>{elapsed}</dd>
+          <dt>Screens</dt><dd>{job.screens.join(', ') || 'Screen names unavailable'}</dd>
         </dl>
       </Body>
       <Footer>
