@@ -117,7 +117,18 @@ function pageScreens(): SelectionSummary[] {
 
 // Keep the plugin checklist synchronized with real canvas selection changes.
 function selectedScreenIds(): string[] {
-  return resolveCanvasScreens(figma.currentPage.selection).map(node => node.id);
+  // The checklist lists page-level screen frames. A user may click a nested
+  // component/frame within one of those screens; select its page-level owner.
+  const available = new Set(pageScreens().map(screen => screen.id));
+  const ids = new Set<string>();
+  for (const selected of resolveCanvasScreens(figma.currentPage.selection)) {
+    let node: BaseNode | null = selected;
+    while (node && node.type !== 'PAGE' && node.type !== 'DOCUMENT') {
+      if (available.has(node.id)) { ids.add(node.id); break; }
+      node = node.parent;
+    }
+  }
+  return [...ids];
 }
 figma.on('selectionchange', () => {
   figma.ui.postMessage({ type: 'canvas-selection-changed', selectedIds: selectedScreenIds() });
