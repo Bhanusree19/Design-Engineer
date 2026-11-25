@@ -35,7 +35,7 @@ export function ModelAgents({ state, actions }: Props) {
             const current = currentAgent === a.id;
             const detail = current && state.accountModel && a.id === 'direct-api'
               ? [providerLabel(state.accountModel.provider), state.accountModel.model].filter(Boolean).join(' · ')
-              : a.detail;
+              : a.id === 'codex' && ok && state.codexUser ? `Connected: ${state.codexUser}` : a.detail;
             return (
               <button key={a.id} type="button" role="radio" aria-checked={on} className={`ag ${on ? 'on' : ''}`} onClick={() => setSelected(a.id)}>
                 <span className="ic">{a.icon}</span>
@@ -70,8 +70,10 @@ export function ModelConnect(props: Props) {
 
 function CodexConnect({ state, actions }: Props) {
   const wait = state.codexWait;
-  const [copied, setCopied] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const code = wait?.userCode || '';
+  React.useEffect(() => { setCopied(false); setCopyError(false); }, [code]);
   const [left, right] = code.includes('-') ? code.split('-') : [code.slice(0, 4), code.slice(4)];
   return (
     <>
@@ -83,19 +85,24 @@ function CodexConnect({ state, actions }: Props) {
           state.error ? null : <WaitRow label="Opening OpenAI sign-in" />
         ) : wait.userCode ? (
           <>
-            <p className="lede">We opened OpenAI's sign-in page and copied this code. Paste it there.</p>
+            <p className="lede">We opened OpenAI's sign-in page. Copy this code and paste it there.</p>
             <div className="keys" role="img" aria-label={`Code ${code}`}>
               {left.split('').map((c, i) => <span className="key" key={`l${i}`}>{c}</span>)}
               {right && <i />}
               {right.split('').map((c, i) => <span className="key" key={`r${i}`}>{c}</span>)}
             </div>
             <div className="btn-row">
-              <button type="button" className="btn btn-ghost" onClick={() => { actions.copyText(code); setCopied(true); }}>
+              <button type="button" className="btn btn-ghost" onClick={async () => {
+                const success = await actions.copyText(code);
+                setCopied(success);
+                setCopyError(!success);
+              }}>
                 {copied ? <Check /> : <Copy />}
-                {copied ? 'Copied' : 'Copy code'}
+                {copied ? 'Copied' : 'Copy'}
               </button>
               <a className="btn btn-ghost" href={wait.verificationUrl || '#'} target="_blank" rel="noreferrer"><External />Open page</a>
             </div>
+            {copyError && <p className="lede small" role="alert">Couldn't copy automatically. Select the code and copy it manually.</p>}
             <div className="grow" />
             <WaitRow label="Waiting for approval" />
           </>
