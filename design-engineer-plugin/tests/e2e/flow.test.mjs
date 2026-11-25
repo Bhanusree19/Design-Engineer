@@ -122,6 +122,14 @@ async function shot(page, name) {
   await page.screenshot({ path: path.join(shotsDir, `${String(++shotN).padStart(2, '0')}-${name}.png`) });
 }
 
+async function chooseBuildRepo(page, repo = 'grocery-app') {
+  await expectRoute(page, 'screens');
+  assert.ok(await btn(page, 'Select repository').isDisabled(), 'no build repository is preselected');
+  await page.locator('.pick .sel', { hasText: 'acme/' + repo }).click();
+  await btn(page, 'Use repository').click();
+  await see(page, 'Using acme/' + repo);
+}
+
 async function linkFirstRepo(page, { repo = 'grocery-app', branch = 'main' } = {}) {
   await expectRoute(page, 'link-repo');
   await see(page, `acme/`);
@@ -404,8 +412,9 @@ for (const mode of ['new', 'legacy']) {
     const page = await openPlugin(mode, {projects:[linked()],github:{connected:true,user:'harip0919'},codex:{connected:true,user:'hari@example.com'},selection:[frames[0]],pageScreens:frames});
     await row(page,'Grocery delivery app').click();
     await btn(page,'Build screens').click();
+    await chooseBuildRepo(page);
     assert.equal(await btn(page,'Refresh canvas').count(),0);
-    await btn(page,'Browse page screens').click();
+    await btn(page,'Browse screens').click();
     await see(page,'0 of 4 screens selected');
     // Figma canvas click automatically ticks the corresponding screen, and
     // clearing the canvas selection unticks it without stale selections.
@@ -419,7 +428,7 @@ for (const mode of ['new', 'legacy']) {
     await see(page,'Plan for 4 screens');
     await back(page).click();
     await expectRoute(page,'screens');
-    await btn(page,'Browse page screens').click();
+    await btn(page,'Browse screens').click();
     await see(page,'0 of 4 screens selected');
     await page.getByRole('checkbox',{name:/Login/}).click();
     await btn(page,'Fetch 1 screen').click();
@@ -432,7 +441,8 @@ for (const mode of ['new', 'legacy']) {
     const page = await openPlugin(mode, { projects: [linked()], github: { connected: true, user: 'harip0919' }, codexAuto: true });
     await row(page, 'Grocery delivery app').click();
     await btn(page, 'Build screens').click();
-    await btn(page, 'Browse page screens').click();
+    await chooseBuildRepo(page);
+    await btn(page, 'Browse screens').click();
     await btn(page, 'Select all').click();
     await expectRoute(page, 'screens');
     await see(page, '3 of 3 screens selected');
@@ -452,7 +462,8 @@ for (const mode of ['new', 'legacy']) {
     const page = await openPlugin(mode, { projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, jobPollsToFinish: 60 });
     await row(page, 'Grocery delivery app').click();
     await btn(page, 'Build screens').click();
-    await btn(page, 'Browse page screens').click();
+    await chooseBuildRepo(page);
+    await btn(page, 'Browse screens').click();
     await btn(page, 'Select all').click();
     await page.getByRole('checkbox', { name: /Cart/ }).click();
     await btn(page, 'Fetch 2 screens').click();
@@ -499,7 +510,8 @@ for (const mode of ['new', 'legacy']) {
     const page = await openPlugin(mode, { projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, nextJobFails: true, nextRunSeconds: 180 });
     await row(page, 'Grocery delivery app').click();
     await btn(page, 'Build screens').click();
-    await btn(page, 'Browse page screens').click();
+    await chooseBuildRepo(page);
+    await btn(page, 'Browse screens').click();
     await btn(page, 'Select all').click();
     await btn(page, 'Fetch 3 screens').click();
     await expectRoute(page, 'plan', 6000);
@@ -519,7 +531,8 @@ for (const mode of ['new', 'legacy']) {
     await see(page, 'Failed');
     // Try again from a fresh failure.
     await btn(page, 'Build screens').click();
-    await btn(page, 'Browse page screens').click();
+    await chooseBuildRepo(page);
+    await btn(page, 'Browse screens').click();
     await btn(page, 'Select all').click();
     await btn(page, 'Fetch 3 screens').click();
     await expectRoute(page, 'plan', 6000);
@@ -536,7 +549,8 @@ for (const mode of ['new', 'legacy']) {
     const page = await openPlugin(mode, { projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, usage: { plan: 'free', planName: 'Free', allowanceSeconds: 2400, usedSeconds: 2380, availableSeconds: 20, remainingSeconds: 20, reservedSeconds: 0, priceInr: 0, expiresAt: null } });
     await row(page, 'Grocery delivery app').click();
     await btn(page, 'Build screens').click();
-    await btn(page, 'Browse page screens').click();
+    await chooseBuildRepo(page);
+    await btn(page, 'Browse screens').click();
     await btn(page, 'Select all').click();
     await btn(page, 'Fetch 3 screens').click();
     await expectRoute(page, 'plan', 6000);
@@ -557,7 +571,8 @@ for (const mode of ['new', 'legacy']) {
     const page = await openPlugin(mode, { projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, jobPollsToFinish: 1000 });
     await row(page, 'Grocery delivery app').click();
     await btn(page, 'Build screens').click();
-    await btn(page, 'Browse page screens').click();
+    await chooseBuildRepo(page);
+    await btn(page, 'Browse screens').click();
     await btn(page, 'Select all').click();
     await btn(page, 'Fetch 3 screens').click();
     await expectRoute(page, 'plan', 6000);
@@ -614,9 +629,10 @@ test('[new] D11-D13 + F11 link a second repo, make it default, build into it, un
   await page.getByRole('button', { name: /Edit acme\/grocery-web/ }).click();
   await page.getByRole('button', { name: /Make default/ }).click();
   await page.waitForFunction(() => window.__fake.state().links.find((l) => l.repository === 'acme/grocery-web').is_default);
-  // Build-into picker on the Plan.
+  // Explicit selection even when a different default exists.
   await btn(page, 'Build screens').click();
-    await btn(page, 'Browse page screens').click();
+    await chooseBuildRepo(page, 'grocery-web');
+    await btn(page, 'Browse screens').click();
     await btn(page, 'Select all').click();
   await btn(page, 'Fetch 3 screens').click();
   await expectRoute(page, 'plan', 6000);
@@ -690,7 +706,8 @@ test('[new] admin: the build result shows the preview and design fidelity: score
   const page = await openPlugin('new', { admin: true, projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, jobPollsToFinish: 1, nextJobFidelity: FIDELITY });
   await row(page, 'Grocery delivery app').click();
   await btn(page, 'Build screens').click();
-  await btn(page, 'Browse page screens').click();
+    await chooseBuildRepo(page);
+  await btn(page, 'Browse screens').click();
   await btn(page, 'Select all').click();
   await page.getByRole('checkbox', { name: /Cart/ }).click();
   await btn(page, 'Fetch 2 screens').click();
@@ -726,7 +743,8 @@ test('[new] admin: a build whose fidelity could not be measured says so and stil
     nextJobFidelity: { status: 'unavailable', reason: 'no web build found: expected a Vite or Expo app', target: 90, rounds: [] } });
   await row(page, 'Grocery delivery app').click();
   await btn(page, 'Build screens').click();
-  await btn(page, 'Browse page screens').click();
+    await chooseBuildRepo(page);
+  await btn(page, 'Browse screens').click();
   await btn(page, 'Select all').click();
   await page.getByRole('checkbox', { name: /Cart/ }).click();
   await btn(page, 'Fetch 2 screens').click();
@@ -747,7 +765,8 @@ test('[new] normal account: sees only the preview of the built screens, then ope
   const page = await openPlugin('new', { projects: [linked()], github: { connected: true, user: 'harip0919' }, codex: { connected: true, user: 'hari@example.com' }, jobPollsToFinish: 1, nextJobFidelity: FIDELITY });
   await row(page, 'Grocery delivery app').click();
   await btn(page, 'Build screens').click();
-  await btn(page, 'Browse page screens').click();
+    await chooseBuildRepo(page);
+  await btn(page, 'Browse screens').click();
   await btn(page, 'Select all').click();
   await page.getByRole('checkbox', { name: /Cart/ }).click();
   await btn(page, 'Fetch 2 screens').click();
@@ -786,7 +805,8 @@ test('[new] normal account: a build with no preview just offers the pull request
     nextJobFidelity: { status: 'unavailable', reason: 'no web build found', target: 90, rounds: [] } });
   await row(page, 'Grocery delivery app').click();
   await btn(page, 'Build screens').click();
-  await btn(page, 'Browse page screens').click();
+    await chooseBuildRepo(page);
+  await btn(page, 'Browse screens').click();
   await btn(page, 'Select all').click();
   await page.getByRole('checkbox', { name: /Cart/ }).click();
   await btn(page, 'Fetch 2 screens').click();
