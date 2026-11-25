@@ -61,9 +61,8 @@ export function LinkRepo({ state, actions }: Props) {
   const repos = state.repos;
   const [selected, setSelected] = useState<string | null>(null);
   const linked = new Set(state.links.map((l) => l.repository));
-  useEffect(() => {
-    if (repos && repos.length && !selected) setSelected(repos[0].fullName);
-  }, [repos, selected]);
+  // Require an explicit click instead of silently selecting the first repo.
+  useEffect(() => { setSelected(null); }, [repos]);
   const short = selected ? selected.split('/').pop() : null;
   return (
     <>
@@ -109,7 +108,7 @@ export function LinkRepo({ state, actions }: Props) {
       </Body>
       <Footer>
         <button type="button" className="btn btn-primary" disabled={!selected} onClick={() => selected && actions.chooseLinkRepo(selected)}>
-          {short ? `Use ${short}` : 'Choose a repository'}
+          {short ? 'Use repository' : 'Select repository'}
         </button>
       </Footer>
     </>
