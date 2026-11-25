@@ -480,6 +480,12 @@ for (const mode of ['new', 'legacy']) {
     await expectRoute(page, 'project');
     // Today's backend lists builds from the minutes history, without PR links.
     await see(page, mode === 'new' ? 'PR #41' : 'Done');
+    // History is interactive: reopen the completed build and its PR details.
+    await page.getByRole('button', { name: /View 2 screens build details/ }).click();
+    await expectRoute(page, 'result', 6000);
+    await see(page, 'Pull request ready to review');
+    await btn(page, 'Back to project').click();
+    await expectRoute(page, 'project');
     await page.context().close();
   });
 
