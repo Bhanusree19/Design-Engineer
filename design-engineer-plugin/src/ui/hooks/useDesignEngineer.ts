@@ -1682,6 +1682,60 @@ export function useDesignEngineer() {
     if (projectRef.current?.id === job.projectId) void loadBuilds(projectRef.current);
   }
 
+  /** Reopen a historical job without clearing or changing any active job. */
+  async function openBuildHistory(build: api.ProjectBuild) {
+    const p = projectRef.current;
+    if (!p) return;
+    clearFeedback();
+    if (runningJobRef.current?.jobId === build.jobId) {
+      push({ name: 'running' });
+      return;
+    }
+    setBusy('history');
+    try {
+      const job = await authed(() => api.getImplementationJob(build.jobId));
+      const r = job.result || null;
+      if (job.status === 'running' || job.status === 'queued') {
+        // An older running entry can still be opened and polled on this device.
+        // Do not replace a different active job being monitored.
+        if (runningJobRef.current) {
+          setNotice('Another build is already being monitored. Open it from the running-build banner.');
+          return;
+        }
+        const previous: RunningJob = {
+          jobId: build.jobId, projectId: p.id, screens: r?.screens || [],
+          repository: build.repository, branch: build.branch, proposedBranch: null,
+          agent: build.agent, startedAt: Date.parse(build.startedAt || build.createdAt) || Date.now(),
+          status: job.status, serverStarted: job.status === 'running',
+        };
+        setRunningJob(previous);
+        rememberJob(previous);
+        startJobPolling(previous);
+        push({ name: 'running' });
+        return;
+      }
+      const ok = job.status === 'completed' && !!r?.pullRequestUrl;
+      setResult({
+        jobId: build.jobId, projectId: p.id,
+        status: ok ? 'completed' : 'failed',
+        pullRequestUrl: r?.pullRequestUrl || build.pullRequestUrl || null,
+        branch: r?.branch || null, baseBranch: build.branch,
+        repository: build.repository, agent: build.agent,
+        screens: r?.screens || [], error: ok ? null : job.error || build.error || 'Build did not finish.',
+        errorCode: ok ? null : r?.errorCode || null,
+        billedSeconds: build.billedSeconds ?? null,
+        startBufferSeconds: startBufferSeconds,
+        fidelity: ok && r?.fidelity ? r.fidelity : null,
+        preview: ok && r?.preview ? r.preview : null,
+      });
+      push({ name: 'result' });
+    } catch (err) {
+      fail(describe(err, "Couldn't open this build."), err);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function tryAgain() {
     const p = projectRef.current;
     if (!p) return;
@@ -1825,7 +1879,12 @@ export function useDesignEngineer() {
     tryAgain,
     backToPlan,
     backToProject,
-    viewRunning: () => push({ name: 'running' }),
+    viewRunning: () => {
+      const job = runningJobRef.current;
+      if (!job) { setError('No active build to display.'); return; }
+      if (current().name !== 'running') push({ name: 'running' });
+    },
+    openBuildHistory,
   };
 
   return { state, actions };
