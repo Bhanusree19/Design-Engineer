@@ -767,6 +767,17 @@ export function useDesignEngineer() {
     push({ name: 'model-connect', params: { agent } });
   }
 
+  async function disconnectCodex(): Promise<boolean> {
+    clearFeedback();
+    if (runningJobRef.current) { setError('Wait for your current build to finish before disconnecting Codex.'); return false; }
+    try {
+      await authed(() => api.logoutCodex());
+      setCodexConnected(false);
+      setCodexUser(null);
+      return true;
+    } catch (err) { fail(describe(err, "Couldn't disconnect Codex."), err); return false; }
+  }
+
   async function changeModelSettings(agent: api.Agent) {
     clearFeedback();
     if (agent === 'codex') {
@@ -1398,7 +1409,7 @@ export function useDesignEngineer() {
 
   function targetLink(): api.RepoLink | null {
     const l = linksRef.current;
-    return l.find((x) => x.id === targetLinkIdRef.current) || l.find((x) => x.isDefault) || l[0] || null;
+    return l.find((x) => x.id === targetLinkIdRef.current) || null;
   }
 
   function startBuild() {
@@ -1412,6 +1423,7 @@ export function useDesignEngineer() {
       startLink('new');
       return;
     }
+    setTargetLinkId(null);
     setScreens([]);
     setPlan(null);
     resetPageScreens();
@@ -1419,6 +1431,7 @@ export function useDesignEngineer() {
   }
 
   function fetchScreens() {
+    if (!targetLink()) { setError('Select a repository before fetching screens.'); return; }
     const selectedIds = selection.filter(item => checkedIds.has(item.id)).map(item => item.id);
     if (selectedIds.length === 0) {
       setError('Select at least one screen.');
@@ -1494,7 +1507,7 @@ export function useDesignEngineer() {
   function chooseTarget(linkId: string) {
     setTargetLinkId(linkId);
     setSheet(null);
-    void preparePlan();
+    if (current().name === 'plan') void preparePlan();
   }
 
   function rememberJob(job: RunningJob | null) {
@@ -1510,7 +1523,7 @@ export function useDesignEngineer() {
     const p = projectRef.current;
     const list = screensRef.current;
     const currentPlan = planRef.current;
-    if (!p || !list.length || !currentPlan) {
+    if (!p || !targetLink() || !list.length || !currentPlan) {
       setError('Make a plan before starting the build.');
       return;
     }
@@ -1846,6 +1859,7 @@ export function useDesignEngineer() {
     openModel,
     chooseAgent,
     changeModelSettings,
+    disconnectCodex,
     agentConnected,
     isConnected,
     connectModel,
