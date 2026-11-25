@@ -106,6 +106,7 @@
           break;
         }
         case 'get-selection': reply({ type: 'selection-changed', selection: S.selection }); break;
+        case 'get-canvas-selection': reply({ type: 'canvas-selection-changed', selection: S.selection, selectedIds: S.selection.map(s => s.id) }); break;
         case 'get-page-screens': reply({ type: 'page-screens', requestId: msg.requestId, selection: S.pageScreens || S.selection }); break;
         case 'extract-screens': {
           const picked = (S.pageScreens || S.selection).filter((s) => msg.nodeIds.includes(s.id));
