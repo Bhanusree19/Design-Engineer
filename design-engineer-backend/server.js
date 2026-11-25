@@ -1182,7 +1182,10 @@ app.get('/auth/me', async (req, res) => {
       codex: codexConnected
         ? {
             connected: true,
-            codexUser: 'Codex CLI user',
+            codexUser: codexRow?.[0]?.codex_email ||
+              (codexRow?.[0]?.codex_user_id
+                ? 'Account · ' + String(codexRow[0].codex_user_id).slice(-8)
+                : 'Codex account connected'),
           }
         : {
             connected: false,
