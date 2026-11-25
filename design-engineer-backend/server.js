@@ -1182,10 +1182,7 @@ app.get('/auth/me', async (req, res) => {
       codex: codexConnected
         ? {
             connected: true,
-            codexUser: codexRow?.[0]?.codex_email ||
-              (codexRow?.[0]?.codex_user_id
-                ? 'Account · ' + String(codexRow[0].codex_user_id).slice(-8)
-                : 'Codex account connected'),
+            codexUser: codexAccountEmail(codexRow?.[0]) || 'Codex connected',
           }
         : {
             connected: false,
@@ -1271,20 +1268,18 @@ function parseCodexUser(authJson) {
     // Codex commonly keeps the email in id_token JWT claims rather than
     // top-level auth.json. Decode only for display; never trust these claims
     // for authorization (Supabase verifies that separately).
-    let claims = {};
-    const jwt = parsed.tokens?.id_token;
-    if (typeof jwt === 'string' && jwt.split('.').length === 3) {
-      try {
-        const data = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-        claims = JSON.parse(Buffer.from(data, 'base64').toString('utf8'));
-      } catch { /* older formats omit readable JWT claims */ }
+    function decode(jwt) {
+      if (typeof jwt !== 'string' || jwt.split('.').length !== 3) return {};
+      try { return JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString('utf8')) || {}; }
+      catch { return {}; }
     }
-    const candidate =
-      parsed.email ||
-      parsed.user?.email ||
-      parsed.userinfo?.email ||
-      parsed.account?.email ||
-      claims.email;
+    const claims = decode(parsed.tokens?.id_token || parsed.id_token);
+    const access = decode(parsed.tokens?.access_token || parsed.access_token);
+    const profile = 'https://api.openai.com/profile';
+    const candidate = [
+      parsed.email, parsed.user?.email, parsed.userinfo?.email, parsed.account?.email,
+      claims.email, claims[profile]?.email, access.email, access[profile]?.email
+    ].find(value => typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
     const userId =
       parsed.user_id ||
       parsed.user?.id ||
@@ -1351,6 +1346,17 @@ async function persistCodexCredentials(userId, token, home = CODEX_HOME) {
   });
 }
 
+// Older saved credentials may contain an email that the previous parser missed.
+function codexAccountEmail(row) {
+  if (!row) return null;
+  if (row.codex_email) return row.codex_email;
+  if (!row.credential_reference) return null;
+  try {
+    const saved = JSON.parse(decryptText(row.credential_reference));
+    return parseCodexUser(saved.authJson).email;
+  } catch { return null; }
+}
+
 async function findCodexAccount(userId, token) {
   const rows = await pgQuery('codex_accounts', {
     token,
@@ -1382,8 +1388,7 @@ app.get('/auth/codex/status', async (req, res) => {
 
     if (connected) {
       const acc = await findCodexAccount(auth.user.id, auth.token);
-      const hint = acc?.codex_email ||
-        (acc?.codex_user_id ? 'Account · ' + String(acc.codex_user_id).slice(-8) : 'Codex account connected');
+      const hint = codexAccountEmail(acc) || 'Codex connected';
       return res.json({ connected: true, codexUser: hint, credentialsSaved: true });
     }
 
@@ -1391,7 +1396,7 @@ app.get('/auth/codex/status', async (req, res) => {
 
     return res.json({
       connected: false,
-      codexUser: acc?.codex_email || null,
+      codexUser: codexAccountEmail(acc) || null,
       credentialsSaved: !!acc,
     });
   } catch (error) {
@@ -1494,8 +1499,7 @@ function startCodexAuth(deviceCode, userId, accessToken) {
           await persistCodexCredentials(userId, accessToken, entry.home);
           entry.status = 'approved';
           const savedAccount = await findCodexAccount(entry.userId, entry.accessToken);
-          entry.codexUser = savedAccount?.codex_email ||
-            (savedAccount?.codex_user_id ? 'Account · ' + String(savedAccount.codex_user_id).slice(-8) : 'Codex account connected');
+          entry.codexUser = codexAccountEmail(savedAccount) || 'Codex connected';
           return;
         }
       } catch (error) {
@@ -1566,7 +1570,7 @@ app.post('/auth/codex/device', async (req, res) => {
         expires_in: 0,
         interval: 3,
         alreadyAuthenticated: true,
-        codexUser: (await findCodexAccount(auth.user.id, auth.token))?.codex_email ||
+        codexUser: codexAccountEmail(await findCodexAccount(auth.user.id, auth.token)) ||
           'Codex account connected',
       });
     }
@@ -1632,8 +1636,7 @@ app.get('/auth/codex/device/:deviceCode/status', async (req, res) => {
         await persistCodexCredentials(entry.userId, entry.accessToken, entry.home);
         entry.status = 'approved';
         const savedAccount = await findCodexAccount(entry.userId, entry.accessToken);
-          entry.codexUser = savedAccount?.codex_email ||
-            (savedAccount?.codex_user_id ? 'Account · ' + String(savedAccount.codex_user_id).slice(-8) : 'Codex account connected');
+          entry.codexUser = codexAccountEmail(savedAccount) || 'Codex connected';
       } catch (error) {
         console.error('[Design Engineer] Failed to persist Codex credentials:', error);
         entry.status = 'expired';
