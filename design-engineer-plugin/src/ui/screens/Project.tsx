@@ -159,7 +159,7 @@ export function ProjectPage({ state, actions }: Props) {
               const title = b.screenCount != null ? `${b.screenCount} screen${b.screenCount === 1 ? '' : 's'}` : 'Build';
               const when = new Date(b.createdAt);
               return (
-                <div className="h" key={b.jobId}>
+                <button type="button" className="h history-action" key={b.jobId} onClick={() => void actions.openBuildHistory(b)} disabled={state.busy === 'history'} aria-label={`View ${title} build details`}>
                   <span className="tx">
                     <b>{title}{isNaN(when.getTime()) ? '' : ` · ${when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`}</b>
                     <span>{bits.join(' · ') || ' '}</span>
@@ -171,14 +171,14 @@ export function ProjectPage({ state, actions }: Props) {
                   )}
                   {b.status === 'completed' ? (
                     b.pullRequestUrl ? (
-                      <a className="tag ok" href={b.pullRequestUrl} target="_blank" rel="noreferrer">{pr ? `PR #${pr}` : 'PR'}</a>
+                      <span className="tag ok">{pr ? `PR #${pr}` : 'PR'}</span>
                     ) : <span className="tag ok">Done</span>
                   ) : b.status === 'failed' || b.status === 'cancelled' ? (
                     <span className="tag bad">Failed</span>
                   ) : (
                     <span className="tag run">Running</span>
                   )}
-                </div>
+                </button>
               );
             })}
           </div>
