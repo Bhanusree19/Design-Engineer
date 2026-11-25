@@ -116,8 +116,16 @@ test('fresh schema includes exact recurring migration, idempotent capture and re
 const fidelitySql=fs.readFileSync(path.join(sqlDir,'013_fidelity.sql'),'utf8');
 test('migration 013 adds reference images without replacing subscription migration 012',()=>{
  const marker='\n-- DEPLOYMENT 13: design fidelity references\n';
- assert.equal(schema.split(marker)[1],fidelitySql);
+ assert.equal(schema.split(marker)[1].split('\n-- DEPLOYMENT 14:')[0].trimEnd(),fidelitySql.trimEnd());
  assert.match(fidelitySql,/add column if not exists reference_png text/);
  assert.match(fidelitySql,/add column if not exists reference_scale real/);
  assert.doesNotMatch(fidelitySql,/drop\\s+(table|column)/i);
+});
+
+const adminAccess=fs.readFileSync(path.join(sqlDir,'014_admin_fidelity_access.sql'),'utf8');
+test('migration 014 removes authenticated access to raw fidelity job results',()=>{
+ assert.match(adminAccess,/revoke select \\(result\\) on table public\\.implementation_jobs from authenticated/i);
+ assert.match(adminAccess,/revoke select \\(result\\) on table public\\.implementation_jobs from anon/i);
+ assert.doesNotMatch(adminAccess,/drop\\s+(table|column)/i);
+ assert.ok(schema.includes('revoke select (result) on table public.implementation_jobs from authenticated'));
 });
