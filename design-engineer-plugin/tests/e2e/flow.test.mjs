@@ -362,7 +362,7 @@ for (const mode of ['new', 'legacy']) {
     await expectRoute(page, 'model-connect');
     await page.getByRole('img', { name: 'Code K7QD-42XMP' }).waitFor();
     await expectRoute(page, 'project', 6000);
-    await see(page, 'ChatGPT sign-in');
+    await see(page, 'hari@example.com'); // connected Codex account is visible
     const st = await server(page);
     if (mode === 'new') assert.equal(st.profileModel.agent, 'codex');
     else assert.equal((await page.evaluate(() => window.__fake.storage().prefs)).model.agent, 'codex');
