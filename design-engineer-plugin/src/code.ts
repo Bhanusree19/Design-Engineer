@@ -131,7 +131,7 @@ function selectedScreenIds(): string[] {
   return [...ids];
 }
 figma.on('selectionchange', () => {
-  figma.ui.postMessage({ type: 'canvas-selection-changed', selectedIds: selectedScreenIds() });
+  figma.ui.postMessage({ type: 'canvas-selection-changed', selectedIds: selectedScreenIds(), selection: summarizeSelection(resolveCanvasScreens(figma.currentPage.selection)) });
 });
 
 // -----------------------------------------------------------------------------
@@ -181,6 +181,12 @@ figma.ui.onmessage = async (msg: any) => {
     // =========================================================================
     // GET SELECTION
     // =========================================================================
+
+    if (msg.type === 'get-canvas-selection') {
+      const selection = summarizeSelection(resolveCanvasScreens(figma.currentPage.selection));
+      figma.ui.postMessage({ type: 'canvas-selection-changed', selection, selectedIds: selection.map(s => s.id) });
+      return;
+    }
 
     if (msg.type === 'get-page-screens') {
       try {
