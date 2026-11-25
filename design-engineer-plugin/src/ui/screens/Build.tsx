@@ -34,67 +34,26 @@ function Thumb({ item }: { item: SelectionItem }) {
 }
 
 export function SelectScreens({ state, actions }: Props) {
-  const target = actions.targetLink();
-  const [candidate, setCandidate] = useState<string | null>(null);
-  const total = state.selection.length;
-  const checked = state.selection.filter(item => state.checkedIds.has(item.id)).length;
+  const count = state.selection.length;
   const fetching = state.busy === 'extracting' || state.busy === 'saving';
   return (
     <>
       <BackHeader title={state.project?.name} onBack={actions.back} />
       <Body>
-        <h3>{state.pageScreensLoaded ? `${checked} of ${plural(total, 'screen')} selected` : 'Select screens'}</h3>
+        <h3>Select screens</h3>
         <Messages error={state.error} notice={state.notice} onDismiss={actions.dismissError} />
-        <div className="pick">
-          <span className="lbl">Build into</span>
-          <div className="app-list">
-            {state.links.map(l => <button key={l.id} type="button" disabled={fetching} className={`sel ${(candidate || target?.id) === l.id ? 'on' : ''}`} onClick={() => setCandidate(l.id)}><span className="tx"><b>{l.repository}</b><span>{l.branch}</span></span>{(candidate || target?.id) === l.id && <Check className="ico" />}</button>)}
+        {fetching ? <WaitRow label={state.busy === 'saving' ? 'Saving screens' : 'Reading screens from Figma'} /> : <>
+          <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); actions.browsePageScreens(); }} style={{border:'2px dashed var(--figma-color-border, #b8b8d0)', borderRadius:12, padding:24, textAlign:'center'}}>
+            <Cursor />
+            <h4>Select your Figma screens</h4>
+            <p className="lede small">Select one or more frames on the canvas (Shift-click or drag a selection around them). If your Figma client supports dropping into this window, drop the selected frames here.</p>
           </div>
-          <button type="button" className="btn btn-ghost" disabled={fetching || !candidate || !state.links.some(l => l.id === candidate)} onClick={() => candidate && actions.chooseTarget(candidate)}>{candidate ? 'Use repository' : 'Select repository'}</button>
-          {target && <p className="lede small">Using {target.repository} @ {target.branch}</p>}
-        </div>
-        {fetching ? (
-          <WaitRow label={state.busy === 'saving' ? 'Saving the screens' : `Reading ${plural(state.extractingCount || checked, 'screen')} from Figma`} />
-        ) : (
-          <>
-            <p className="lede small">Browse screens, then select frames on the Figma canvas or tick them here.</p>
-            <button type="button" className="btn btn-ghost" disabled={state.pageScreensLoading} onClick={actions.browsePageScreens}>
-              {state.pageScreensLoading ? 'Loading screens…' : 'Browse screens'}
-            </button>
-            {state.pageScreensLoaded && (total === 0 ? (
-              <p className="lede">No screen frames found on this page.</p>
-            ) : (
-              <>
-                <div className="listhead">
-                  <span>Screens on this page</span>
-                  {checked === total ? (
-                    <button type="button" className="link small" onClick={actions.clearChecked}>Clear</button>
-                  ) : (
-                    <button type="button" className="link small" onClick={actions.checkAll}>Select all</button>
-                  )}
-                </div>
-                <div className="stack scroll">
-                  {state.selection.map(item => {
-                    const on = state.checkedIds.has(item.id);
-                    return (
-                      <button key={item.id} type="button" role="checkbox" aria-checked={on} className={`scr ${on ? 'on' : ''}`} onClick={() => actions.toggleChecked(item.id)}>
-                        <span className="cb">{on && <Check />}</span>
-                        <Thumb item={item} />
-                        <span className="tx"><b>{item.name}</b><span>{Math.round(item.width)} × {Math.round(item.height)} {item.type.toLowerCase()}</span></span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            ))}
-          </>
-        )}
+          <p className="lede small" aria-live="polite">{plural(count, 'screen')} selected</p>
+          <div className="stack scroll">{state.selection.map(item => <div className="scr" key={item.id}><Thumb item={item}/><span className="tx"><b>{item.name}</b><span>{Math.round(item.width)} × {Math.round(item.height)}</span></span><Check /></div>)}</div>
+          <button type="button" className="link" onClick={actions.browsePageScreens}>Refresh selection</button>
+        </>}
       </Body>
-      <Footer>
-        <button type="button" className="btn btn-primary" disabled={fetching || state.pageScreensLoading || checked === 0 || !target || (!!candidate && candidate !== target.id)} onClick={actions.fetchScreens}>
-          {fetching ? 'Fetching…' : `Fetch ${plural(checked, 'screen')}`}
-        </button>
-      </Footer>
+      <Footer><button type="button" className="btn btn-primary" disabled={fetching || state.pageScreensLoading || count === 0} onClick={actions.fetchScreens}>{fetching ? 'Fetching…' : 'Fetch ' + plural(count, 'screen')}</button></Footer>
     </>
   );
 }
@@ -113,7 +72,7 @@ export function Plan({ state, actions }: Props) {
   const items: CheckItem[] = [];
 
   if (!target) {
-    items.push({ ok: false, text: 'No repo linked', fix: { label: 'Link a repo', run: () => actions.startLink('new') } });
+    items.push({ ok: false, text: 'Select a repository', fix: { label: 'Select repository', run: () => actions.setSheet({ kind: 'target' }) } });
   } else {
     const problem = linkProblem(ls, target);
     if (problem) {
@@ -160,6 +119,7 @@ export function Plan({ state, actions }: Props) {
       <Body className="scroll">
         <h3>Plan for {plural(count, 'screen')}</h3>
         <Messages error={state.error} notice={state.notice} onDismiss={actions.dismissError} />
+        {!target && <button type="button" className="btn btn-ghost" onClick={() => actions.setSheet({ kind: 'target' })}>Select repository</button>}
         {target && (
           <div className="pick">
             <span className="lbl">Build into</span>
