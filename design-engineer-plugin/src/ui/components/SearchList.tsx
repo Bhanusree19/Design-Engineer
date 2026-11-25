@@ -52,7 +52,8 @@ export default function SearchList({
     }
     if (event.key === 'Enter') {
       event.preventDefault();
-      onConfirm(index >= 0 ? shown[index].id : shown[0].id);
+      // Typing Enter must not silently pick the first search result.
+      if (index >= 0) onConfirm(shown[index].id);
     }
   }
 
