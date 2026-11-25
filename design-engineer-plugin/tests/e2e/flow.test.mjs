@@ -282,7 +282,7 @@ for (const mode of ['new', 'legacy']) {
     await btn(page, 'Link a repo').click();
     await expectRoute(page, 'link-repo');
     await page.getByRole('option', { name: /grocery-web/ }).click();
-    await btn(page, 'Use grocery-web').click();
+    await btn(page, 'Use repository').click();
     await expectRoute(page, 'link-branch');
     await back(page).click();
     await expectRoute(page, 'link-repo');
