@@ -126,7 +126,7 @@ export function ProjectPage({ state, actions }: Props) {
               <span className="glyph"><Model /></span>
               <span>
                 <span className="k">Your account · all projects</span>
-                <span className="v">{agentLabel(m.agent)} <small>{agentDetail(m)}</small></span>
+                <span className="v">{agentLabel(m.agent)} <small>{m.agent === 'codex' && state.codexUser ? state.codexUser : agentDetail(m)}</small></span>
               </span>
               {running ? <span className="tag">Locked while building</span> : <button type="button" className="link small" onClick={actions.openModel}>Switch</button>}
             </div>
