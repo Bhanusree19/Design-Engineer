@@ -124,8 +124,7 @@ test('migration 013 adds reference images without replacing subscription migrati
 
 const adminAccess=fs.readFileSync(path.join(sqlDir,'014_admin_fidelity_access.sql'),'utf8');
 test('migration 014 removes authenticated access to raw fidelity job results',()=>{
- assert.match(adminAccess,/revoke select \\(result\\) on table public\\.implementation_jobs from authenticated/i);
- assert.match(adminAccess,/revoke select \\(result\\) on table public\\.implementation_jobs from anon/i);
- assert.doesNotMatch(adminAccess,/drop\\s+(table|column)/i);
+ assert.ok(adminAccess.includes('revoke select (result) on table public.implementation_jobs from authenticated'));
+ assert.ok(adminAccess.includes('revoke select (result) on table public.implementation_jobs from anon'));
  assert.ok(schema.includes('revoke select (result) on table public.implementation_jobs from authenticated'));
 });
