@@ -2690,6 +2690,8 @@ app.post('/api/jobs',async(req,res)=>{
       names.map(screen=>({screen})),encryptText(auth.token));
     return res.status(201).json({jobId,status:'queued'});
   }catch(error){
+    const limit = (error?.message||'').match(/CONCURRENT_BUILD_LIMIT|DAILY_BUILD_LIMIT|FAILURE_LIMIT/);
+    if(limit)return res.status(429).json({code:limit[0],error:'Build limit reached. Wait for an active build to finish or try again later.'});
     if(/MINUTES_EXHAUSTED/.test(error?.message||''))
       return res.status(402).json({
         error:'Your implementation minutes are exhausted. Upgrade or renew your plan.',
@@ -2754,10 +2756,15 @@ app.post('/internal/jobs/execute',async(req,res)=>{
         metering=true;
         try{
           const metered=await billing.meterJob(jobId);
+          if(metered?.finished){
+            stoppedForQuota=true;
+            clearInterval(heartbeat);
+            process.exit(0);
+          }
           if(metered?.exhausted){
             stoppedForQuota=true;
             clearInterval(heartbeat);
-            await billing.finishJob(jobId,'failed',null,
+            await billing.finishJob(jobId,'out_of_minutes',null,
               'Implementation ran out of included minutes. Upgrade or renew.');
             // The isolated container exits, terminating remaining agent work.
             process.exit(1);
