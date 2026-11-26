@@ -1029,7 +1029,19 @@ export function useDesignEngineer() {
     }
   }
 
+  const branchCache = useRef(new Map<string, { expires: number; value: Promise<LinkState> }>());
   async function linkState(repository: string, branch: string): Promise<LinkState> {
+    const key = repository + '@' + branch;
+    const cached = branchCache.current.get(key);
+    if (cached && cached.expires > Date.now()) return cached.value;
+    const value = readLinkState(repository, branch);
+    branchCache.current.set(key, { expires: Date.now() + 300000, value });
+    const result = await value;
+    if (result !== 'ok' && branchCache.current.get(key)?.value === value) branchCache.current.delete(key);
+    return result;
+  }
+
+  async function readLinkState(repository: string, branch: string): Promise<LinkState> {
     const [owner, repo] = repository.split('/');
     try {
       const data = await authed(() => api.listBranches(owner, repo));
@@ -1137,6 +1149,7 @@ export function useDesignEngineer() {
             stopAuthPoll();
             setBusy(null);
             setGithubConnected(true);
+            branchCache.current.clear();
             githubConnectedRef.current = true;
             setGithubUser(status.githubUser || null);
             afterGithub();
