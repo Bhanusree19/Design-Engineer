@@ -2700,6 +2700,11 @@ app.get('/api/jobs/:jobId',async(req,res)=>{
 // Internal endpoint is unreachable from the public Worker and enabled only
 // inside a Cloudflare per-job Container. No user JWT or provider key is passed
 // through the Queue or public API response.
+let activeExecution = false;
+let claimInProgress = false;
+function exitIdleJob() {
+  setTimeout(() => { if (!activeExecution && !claimInProgress) process.exit(0); }, 1000);
+}
 app.post('/internal/jobs/execute',async(req,res)=>{
   if(process.env.DESIGN_ENGINEER_ROLE!=='job')
     return res.status(404).json({error:'Not found.'});
@@ -2713,8 +2718,12 @@ app.post('/internal/jobs/execute',async(req,res)=>{
   if(!validJobId(jobId))return res.status(400).json({error:'Invalid job.'});
   try{
     // The claim and quota reservation are transactionally owned by Postgres.
+    if (activeExecution || claimInProgress) return res.status(202).json({accepted:true,duplicate:true});
+    claimInProgress = true;
     const job=await billing.claimJob(jobId);
-    if(!job)return res.status(200).json({accepted:false});
+    claimInProgress = false;
+    if(!job){ exitIdleJob(); return res.status(200).json({accepted:false}); }
+    activeExecution = true;
     res.status(202).json({accepted:true,jobId});
     // Deliberately keep job execution asynchronous inside its OWN Container.
     // Status is durable in Supabase; no long-lived Worker request is required.
@@ -2753,7 +2762,7 @@ app.post('/internal/jobs/execute',async(req,res)=>{
         const result=await postLocalJson('http://127.0.0.1:'+PORT+'/api/screens/implement',{
           headers:{'Authorization':'Bearer '+token,'x-design-engineer-gateway':expected},
           body:{projectId:job.project_id,screens:job.screens},
-          timeoutMs:17*60*1000
+          timeoutMs:15*60*1000
         });
         const body=result.body||{};
         if(!result.ok||!body.implementations?.[0]?.pullRequestUrl){
@@ -2777,6 +2786,8 @@ app.post('/internal/jobs/execute',async(req,res)=>{
       }
     })();
   }catch(error){
+    claimInProgress = false;
+    exitIdleJob();
     console.error('[Design Engineer] Could not claim job:',error?.name||'error');
     if(!res.headersSent)res.status(503).json({error:'Job dispatcher unavailable.'});
   }
