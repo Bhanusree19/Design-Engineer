@@ -2229,6 +2229,8 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
     GIT_ASKPASS:askpass, GIT_TERMINAL_PROMPT:'0',
     DESIGN_ENGINEER_GITHUB_TOKEN:conn.githubToken
   };
+  let restoredCodex = null;
+  const home=path.join(tempRoot,'agent-home');
   try {
     await runProcess('git', ['clone', '--depth=1', '--branch', baseBranch, cloneUrl, worktree],
       {env:gitAuthEnv});
@@ -2261,7 +2263,6 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
     }
 
     // Restore only this user's credentials into a fresh home, never the shared API home.
-    const home=path.join(tempRoot,'agent-home');
     await fs.promises.mkdir(home,{recursive:true,mode:0o700});
     const agentEnv={};
     let directConnection=null;
@@ -2269,6 +2270,7 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       const legacy=await findCodexAccount(auth.user.id,auth.token);
       if (!legacy?.credential_reference) throw new Error('Codex account must be connected first.');
       const data=JSON.parse(decryptText(legacy.credential_reference));
+      restoredCodex = { row: legacy, data };
       const codexDir=path.join(home,'.codex');
       await fs.promises.mkdir(codexDir,{recursive:true,mode:0o700});
       if(data.authJson)await fs.promises.writeFile(path.join(codexDir,'auth.json'),data.authJson,{mode:0o600});
@@ -2380,6 +2382,21 @@ async function implementScreensInBranch(conn, repository, baseBranch, screens, s
       ...(fidelityResult ? { fidelity: fidelityResult } : {}),
     };
   } finally {
+    if (restoredCodex) {
+      try {
+        const authJson = readCodexAuthFile(path.join(home,'.codex'));
+        if (authJson && authJson !== restoredCodex.data.authJson) {
+          const info = parseCodexUser(authJson);
+          const prior = parseCodexUser(restoredCodex.data.authJson);
+          // Compare-and-swap: do not overwrite a concurrent refresh or reconnect.
+          if (info.userId === prior.userId && info.userId !== 'codex-cli-user') {
+            await pgQuery('codex_accounts', { token:auth.token, method:'PATCH',
+              query:'user_id=eq.'+encodeURIComponent(auth.user.id)+'&credential_reference=eq.'+encodeURIComponent(restoredCodex.row.credential_reference),
+              body:{credential_reference:encryptText(JSON.stringify({...restoredCodex.data,authJson})),codex_email:info.email||restoredCodex.row.codex_email,last_verified_at:new Date().toISOString(),updated_at:new Date().toISOString()} });
+          }
+        }
+      } catch { console.warn('[Design Engineer] Codex credential refresh could not be persisted'); }
+    }
     await fs.promises.rm(tempRoot, { recursive: true, force: true });
   }
 }
