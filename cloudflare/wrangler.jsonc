@@ -1,11 +1,12 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "design-engineer-containers-v05",
+  "name": "design-engineer-worker-v07",
   "main": "src/paid-containers.js",
   "compatibility_date": "2026-11-07",
   "workers_dev": true,
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "head_sampling_rate": 0.1
   },
   "containers": [
     {
@@ -18,7 +19,7 @@
       "class_name": "DesignEngineerJobContainer",
       "image": "./Dockerfile",
       "instance_type": "standard-1",
-      "max_instances": 1000
+      "max_instances": 100
     }
   ],
   "durable_objects": {
@@ -51,16 +52,16 @@
     "producers": [
       {
         "binding": "JOBS_QUEUE",
-        "queue": "design-engineer-v05-jobs"
+        "queue": "design-engineer-v07-jobs"
       }
     ],
     "consumers": [
       {
-        "queue": "design-engineer-v05-jobs",
+        "queue": "design-engineer-v07-jobs",
         "max_batch_size": 1,
         "max_batch_timeout": 0,
         "max_retries": 10,
-        "dead_letter_queue": "design-engineer-v05-jobs-dlq"
+        "dead_letter_queue": "design-engineer-v07-jobs-dlq"
       }
     ]
   },
