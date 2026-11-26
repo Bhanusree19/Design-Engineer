@@ -2716,6 +2716,23 @@ app.get('/api/jobs/:jobId',async(req,res)=>{
   }catch{return res.status(503).json({error:'Cannot read job status. Retry shortly.'})}
 });
 
+// Cancellation is scoped to the authenticated owner. Settlement locks the job
+// and refuses to change an already final outcome. The executor's heartbeat
+// notices the finished reservation and exits within one heartbeat.
+app.post('/api/jobs/:jobId/cancel',async(req,res)=>{
+  const auth=await requireUser(req,res);if(!auth)return;
+  const id=req.params.jobId;
+  if(!validJobId(id))return res.status(400).json({error:'Invalid job ID.'});
+  try {
+    const rows=await adminJobQuery('id=eq.'+encodeURIComponent(id)+'&user_id=eq.'+encodeURIComponent(auth.user.id)+'&select=id,status&limit=1');
+    if(!rows?.length)return res.status(404).json({error:'Implementation job not found.'});
+    if(!['queued','running'].includes(rows[0].status))return res.status(409).json({error:'Build has already ended.'});
+    const cancelled=await billing.finishJob(id,'cancelled',null,'Cancelled by user.');
+    if(!cancelled)return res.status(409).json({error:'Build has already ended.'});
+    return res.json({id,status:'cancelled'});
+  } catch { return res.status(503).json({error:'Unable to cancel build. Retry shortly.'}); }
+});
+
 // Internal endpoint is unreachable from the public Worker and enabled only
 // inside a Cloudflare per-job Container. No user JWT or provider key is passed
 // through the Queue or public API response.
